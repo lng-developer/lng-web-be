@@ -270,7 +270,7 @@ async function cloneLatestPayloadForReplacement({
   const original = await repository.findByOrderItem(originalOrderItemId);
   if (!original) return null;
 
-  return repository.create({
+  const replacement = await repository.create({
     orderItemId: replacementOrderItemId,
     orderId: replacementOrderId,
     shopId: replacementShopId,
@@ -289,6 +289,8 @@ async function cloneLatestPayloadForReplacement({
     reviewedAt: original.reviewedAt || null,
     createdBy: original.createdBy || null,
   });
+  await syncWorkbenchCustomization(replacement);
+  return replacement;
 }
 
 async function listPayloads(params = {}, authContext) {

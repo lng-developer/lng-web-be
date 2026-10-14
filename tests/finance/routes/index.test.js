@@ -6,10 +6,12 @@ const requestContext = require('../../../src/middlewares/requestContext');
 const service = require('../../../src/modules/finance/services/financeSnapshot.service');
 const importService = require('../../../src/modules/finance/services/financeImport.service');
 const settlementService = require('../../../src/modules/finance/services/financeSettlement.service');
+const cashFlowService = require('../../../src/modules/finance/services/financeCashFlow.service');
 
 jest.mock('../../../src/modules/finance/services/financeSnapshot.service');
 jest.mock('../../../src/modules/finance/services/financeImport.service');
 jest.mock('../../../src/modules/finance/services/financeSettlement.service');
+jest.mock('../../../src/modules/finance/services/financeCashFlow.service');
 
 jest.mock('../../../src/modules/auth/public', () => {
   const AppError = require('../../../src/shared/errors/appError');
@@ -75,6 +77,28 @@ describe('finance routes', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  test('GET /cash-flow requires FINANCE:READ and reaches the service with validated query', async () => {
+    cashFlowService.getCashFlow.mockResolvedValue({
+      summaryByCurrency: [],
+      items: [],
+      pagination: { total: 0, page: 1, limit: 20 },
+    });
+
+    const forbidden = await request(createServer(), { method: 'GET', path: '/cash-flow' });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'GET',
+      path: '/cash-flow?status=UNLINKED&page=2&limit=20',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:READ'] }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(cashFlowService.getCashFlow).toHaveBeenCalledWith(
+      { status: 'UNLINKED', page: 2, limit: 20 },
+      expect.objectContaining({ permissions: ['FINANCE:READ'], source: 'HTTP' }),
+    );
   });
 
   test('GET /snapshots requires FINANCE:READ and validates query', async () => {
@@ -512,7 +536,7 @@ describe('finance routes', () => {
 
     const allowed = await request(createServer(), {
       method: 'GET',
-      path: '/imported-data/transactions?shopId=660000000000000000140003&importBatchId=660000000000000000140011&page=1&limit=20',
+      path: '/imported-data/transactions?shopId=660000000000000000140003&importBatchId=660000000000000000140011&transactionType=Order&transactionStatus=Released&externalOrderId=114-123&page=1&limit=20',
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['FINANCE:READ'] }) },
     });
     expect(allowed.statusCode).toBe(200);
@@ -520,7 +544,7 @@ describe('finance routes', () => {
       items: [], total: 0, page: 1, limit: 20,
     });
     expect(importService.listImportedData).toHaveBeenCalledWith('transactions', {
-      shopId: '660000000000000000140003', importBatchId: '660000000000000000140011', page: 1, limit: 20,
+      shopId: '660000000000000000140003', importBatchId: '660000000000000000140011', transactionType: 'Order', transactionStatus: 'Released', externalOrderId: '114-123', page: 1, limit: 20,
     }, expect.objectContaining({
       permissions: ['FINANCE:READ'], source: 'HTTP',
       auditContext: expect.objectContaining({ requestId: expect.any(String), ipAddress: '::1' }),

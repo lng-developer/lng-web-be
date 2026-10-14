@@ -489,6 +489,30 @@ describe('order.dto', () => {
     expect(JSON.stringify(dto)).not.toContain('readyAt');
   });
 
+  test('does not present an unlinked ZIP image as the customization preview', () => {
+    const dto = toOrderWorkbenchDto({
+      items: [{
+        order: { _id: 'order-1' },
+        items: [{
+          item: { _id: 'item-1' },
+          customization: {
+            status: 'PARSED',
+            imageAssets: [{ assetId: '660000000000000000000901', filename: 'product-details.jpg' }],
+            customerInputs: { images: [] },
+          },
+        }],
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+
+    expect(dto.items[0].items[0].customization.previewImageUrl).toBeNull();
+    expect(dto.items[0].items[0].customization.extractedImages).toEqual([
+      expect.objectContaining({ filename: 'product-details.jpg' }),
+    ]);
+  });
+
   test('exposes listing variant PSD readiness in workbench mapping', () => {
     const dto = toOrderWorkbenchDto({
       items: [{
@@ -514,6 +538,25 @@ describe('order.dto', () => {
       productTypeGroup: { id: '660000000000000000000801', name: 'Unisex Hoodie' },
       psdReadiness: { status: 'PRESENT' },
       psdTemplate: { downloadUrl: '/api/media/assets/660000000000000000000902/download' },
+    });
+    expect(dto.items[0].items[0].psd.listingVariant).toMatchObject({
+      id: '660000000000000000000901',
+      psdReadiness: { status: 'PRESENT' },
+      psdTemplate: { downloadUrl: '/api/media/assets/660000000000000000000902/download' },
+    });
+  });
+
+  test('exposes a listing PSD snapshot without creating a mapping', () => {
+    const dto = toOrderWorkbenchDto({
+      items: [{
+        order: { _id: 'order-1' },
+        items: [{ item: { _id: 'item-1' }, listing: { defaultPsdTemplateAssetId: 'asset-1' } }],
+      }],
+    });
+
+    expect(dto.items[0].items[0]).toMatchObject({
+      mapping: null,
+      psd: { listingPsd: { psdReadiness: { status: 'PRESENT' }, psdTemplate: { downloadUrl: '/api/media/assets/asset-1/download' } } },
     });
   });
 

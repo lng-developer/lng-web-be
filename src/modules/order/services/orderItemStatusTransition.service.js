@@ -13,6 +13,7 @@ const transitions = Object.freeze({
   [orderItemStatuses.NEW]: [
     orderItemStatuses.MAPPING_PENDING,
     orderItemStatuses.CUSTOMIZATION_PENDING,
+    orderItemStatuses.NEED_PRODUCTION,
     orderItemStatuses.CANCELLED,
     orderItemStatuses.FAILED,
   ],

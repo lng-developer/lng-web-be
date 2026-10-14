@@ -5,8 +5,8 @@ const Department = require('../../../src/modules/organization/models/department.
 const Team = require('../../../src/modules/organization/models/team.model');
 const TeamMembership = require('../../../src/modules/organization/models/teamMembership.model');
 const EmployeeProfile = require('../../../src/modules/hr/models/employeeProfile.model');
-const { syncOrganizationScopes } = require('./syncOrganizationScopes');
-const { repairTeamMemberships } = require('./repairTeamMemberships');
+const { syncOrganizationScopes } = require('../maintenance/syncOrganizationScopes');
+const { repairTeamMemberships } = require('../maintenance/repairTeamMemberships');
 const {
   organizationStatuses,
   teamMemberTypes,
@@ -54,12 +54,27 @@ const membershipSeed = [
     teamId: salesTeamId,
     memberType: teamMemberTypes.LEADER,
   })),
-  ...range(2510, 2513).map((employeeCode) => ({
+  ...range(2510, 2510).map((employeeCode) => ({
     employeeCode,
     teamId: designTeamId,
     memberType: teamMemberTypes.LEADER,
   })),
-  ...range(2514, 2522).map((employeeCode) => ({
+  ...range(2511, 2513).map((employeeCode) => ({
+    employeeCode,
+    teamId: designTeamId,
+    memberType: teamMemberTypes.MEMBER,
+  })),
+  ...range(2514, 2514).map((employeeCode) => ({
+    employeeCode,
+    teamId: salesTeamId,
+    memberType: teamMemberTypes.MEMBER,
+  })),
+  {
+    employeeCode: 'J2515',
+    teamId: designTeamId,
+    memberType: teamMemberTypes.MEMBER,
+  },
+  ...range(2516, 2522).map((employeeCode) => ({
     employeeCode,
     teamId: salesTeamId,
     memberType: teamMemberTypes.MEMBER,

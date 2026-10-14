@@ -16,6 +16,9 @@
     "seed:organization:demo": "node tools/scripts/seed/seedOrganizationDemo.js",
     "seed:organization:scopes": "node tools/scripts/maintenance/syncOrganizationScopes.js",
     "seed:finance:demo": "node tools/scripts/seed/seedFinanceDemo.js",
+    "seed:finance-report:demo": "node tools/scripts/seed/seedDemoFinanceReportData.js",
+    "seed:finance-report:demo:apply": "node tools/scripts/seed/seedDemoFinanceReportData.js --apply",
+    "reset:finance-report:demo": "node tools/scripts/seed/seedDemoFinanceReportData.js --apply --reset",
     "seed:analytics:demo": "node tools/scripts/seed/seedAnalyticsDemo.js",
     "reset:analytics:demo": "node tools/scripts/seed/seedAnalyticsDemo.js --reset",
     "repair:team-memberships": "node tools/scripts/maintenance/repairTeamMemberships.js",
@@ -71,17 +74,17 @@
     "setup:etsy-nk": "node tools/scripts/setup/seedEtsyNkReadiness.js",
     "seed:rbac:demo-scopes": "node src/modules/auth/scripts/seedDemoScopes.js",
     "seed:admin": "node src/modules/auth/scripts/seedAdmin.js",
-    "test:auth": "jest tests/auth",
-    "test:organization": "jest tests/organization",
-    "test:shop": "jest tests/shop",
-    "test:shared": "jest tests/shared",
-    "test:architecture": "jest tests/architecture/architecture.contract.test.js",
+    "test:auth": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js tests/auth",
+    "test:organization": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js tests/organization",
+    "test:shop": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js tests/shop",
+    "test:shared": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js tests/shared",
+    "test:architecture": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js tests/architecture/architecture.contract.test.js",
     "load:smoke": "k6 run tests/load/smoke.js",
     "load:expected": "k6 run tests/load/expected-load.js",
-    "test": "jest --maxWorkers=2",
-    "test:full": "jest --maxWorkers=2",
-    "test:changed": "jest --maxWorkers=2 --findRelatedTests",
-    "test:open-handles": "jest --runInBand --detectOpenHandles"
+    "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --maxWorkers=2",
+    "test:full": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --maxWorkers=2",
+    "test:changed": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --maxWorkers=2 --findRelatedTests",
+    "test:open-handles": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand --detectOpenHandles"
   },
   "repository": {
     "type": "git",
@@ -101,6 +104,9 @@
     ],
     "testPathIgnorePatterns": [
       "/node_modules/",
+      "<rootDir>[\\\\/]\\.worktrees[\\\\/]"
+    ],
+    "modulePathIgnorePatterns": [
       "<rootDir>[\\\\/]\\.worktrees[\\\\/]"
     ]
   },

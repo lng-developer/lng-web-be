@@ -31,12 +31,9 @@ async function resolveFulfillmentPlan(req, res) {
 }
 
 async function recheckFulfillmentPlan(req, res) {
-  res.status(httpStatus.OK).json({
+  res.status(httpStatus.ACCEPTED).json({
     success: true,
-    data: await service.recheckFulfillmentPlan(req.params.orderItemId, {
-      deferSideEffects: true,
-      refreshOrderStatus: true,
-    }, req.auth),
+    data: await require('../../order/public').requestRecheckJob(req.params.orderItemId, 'MAPPING', req.auth),
   });
 }
 

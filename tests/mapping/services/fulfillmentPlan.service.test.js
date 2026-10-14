@@ -16,6 +16,7 @@ jest.mock('../../../src/modules/catalog/public', () => ({
   findOrCreateListingForOrderItem: jest.fn(),
   findOrCreateDraftListingForOrderItem: jest.fn(),
   findListingBySku: jest.fn(),
+  getListingById: jest.fn(),
   findProductTypeGroupByCode: jest.fn(),
   getInternalTemplateById: jest.fn(),
   getInternalTemplateForListing: jest.fn(),
@@ -41,7 +42,10 @@ jest.mock('../../../src/modules/vendor/public', () => ({
   listVendorProducts: jest.fn(),
   listActiveVendorCostCenters: jest.fn(),
   listActiveVendorCostCentersByProductIds: jest.fn(),
+  listActiveVendorCostCenterMatchProbesByProductIds: jest.fn(),
+  listActiveVendorCostCentersByIds: jest.fn(),
   searchVendorCostCenters: jest.fn(),
+  selectCostRate: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/production/public', () => ({
@@ -297,6 +301,10 @@ describe('fulfillmentPlan.service', () => {
     catalogPublic.findOrCreateListingForOrderItem.mockResolvedValue(listing);
     catalogPublic.findOrCreateDraftListingForOrderItem.mockResolvedValue(listing);
     catalogPublic.findListingBySku.mockResolvedValue(listing);
+    catalogPublic.getListingById.mockResolvedValue({
+      ...listing,
+      productImageUrl: 'https://res.cloudinary.com/lng/listing-main.jpg',
+    });
     catalogPublic.resolveListingVariant.mockImplementation(async (resolvedListingId, selectedGroupId) => ({
       source: 'VARIANT',
       listing,
@@ -327,6 +335,8 @@ describe('fulfillmentPlan.service', () => {
     vendorPublic.listActiveVendorProductsByProductTypeGroup.mockResolvedValue([vendorProduct]);
     vendorPublic.listActiveVendorCostCenters.mockResolvedValue([costCenter]);
     vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValue([costCenter]);
+    vendorPublic.listActiveVendorCostCenterMatchProbesByProductIds.mockResolvedValue([costCenter]);
+    vendorPublic.listActiveVendorCostCentersByIds.mockResolvedValue([costCenter]);
     vendorPublic.getVendorById.mockResolvedValue(vendorProduct.vendorId);
     vendorPublic.getVendorProductById.mockResolvedValue(vendorProduct);
     vendorPublic.searchVendorCostCenters.mockResolvedValue({
@@ -482,20 +492,27 @@ describe('fulfillmentPlan.service', () => {
     });
     expect(repository.upsertByOrderItem).toHaveBeenCalled();
     expect(orderPublic.markFulfillmentReady).toHaveBeenCalledWith(orderItemId);
+    expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'FULFILLMENT_PLAN_RECHECKED',
+      orderId,
+      orderItemId,
+    }));
   });
 
   test('recheck refreshes the order cost-center status when side effects are deferred', async () => {
+    const refreshFulfillmentStatusesForOrder = jest.fn().mockResolvedValue({ _id: orderId });
+    orderPublic.refreshFulfillmentStatusesForOrder = refreshFulfillmentStatusesForOrder;
     await service.recheckFulfillmentPlan(orderItemId, {
       deferSideEffects: true,
       refreshOrderStatus: true,
     }, { permissions: ['MAPPING:WRITE'] });
 
-    expect(orderPublic.updateCostCenterStatusForOrder).toHaveBeenCalledWith(orderId);
-    expect(orderPublic.updatePsdStatusForOrder).toHaveBeenCalledWith(orderId);
+    expect(refreshFulfillmentStatusesForOrder).toHaveBeenCalledWith(orderId);
+    delete orderPublic.refreshFulfillmentStatusesForOrder;
   });
 
   test('rechecks an existing READY manual selection when rules no longer auto-match', async () => {
-    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([]);
+    vendorPublic.listActiveVendorCostCenterMatchProbesByProductIds.mockResolvedValueOnce([]);
     repository.findByOrderItem.mockResolvedValueOnce({
       _id: '660000000000000000000900',
       orderId,
@@ -526,7 +543,7 @@ describe('fulfillmentPlan.service', () => {
 
   test('rechecks stale blocked plans after a listing variant receives PSD', async () => {
     repository.listBlockedByListingAndProductType.mockResolvedValueOnce([{ orderItemId }]);
-    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([]);
+    vendorPublic.listActiveVendorCostCenterMatchProbesByProductIds.mockResolvedValueOnce([]);
 
     const result = await service.recheckBlockedFulfillmentPlansForListingVariant(
       listingId,
@@ -540,7 +557,7 @@ describe('fulfillmentPlan.service', () => {
   });
 
   test('recheck persists a BLOCKED plan without triggering production', async () => {
-    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([]);
+    vendorPublic.listActiveVendorCostCenterMatchProbesByProductIds.mockResolvedValueOnce([]);
 
     const result = await service.recheckFulfillmentPlan(orderItemId, {}, {
       permissions: ['MAPPING:WRITE'],
@@ -832,7 +849,7 @@ describe('fulfillmentPlan.service', () => {
       productTypeGroupId: groupId,
       internalTemplateId: null,
     }]);
-    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValue([]);
+    vendorPublic.listActiveVendorCostCenterMatchProbesByProductIds.mockResolvedValue([]);
 
     const result = await service.recheckFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
 
@@ -1311,6 +1328,36 @@ describe('fulfillmentPlan.service', () => {
     expect(result.costEstimate.totalAmount).toBe(1328);
   });
 
+  test('recheck loads detailed cost centers only for high-confidence matches', async () => {
+    vendorPublic.listActiveVendorCostCenterMatchProbesByProductIds.mockResolvedValue([
+      { ...costCenter, _id: '660000000000000000005002', sku: 'OTHER-SKU', standardSize: 'S' },
+      costCenter,
+    ]);
+
+    await service.recheckFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
+
+    expect(vendorPublic.listActiveVendorCostCentersByIds).toHaveBeenCalledWith([costCenterId]);
+  });
+
+  test('keeps the current catalog main image when mapping syncs the workbench', async () => {
+    await service.selectFulfillmentPlan(orderItemId, {
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+    }, { permissions: ['MAPPING:WRITE'] });
+
+    expect(catalogPublic.getListingById).toHaveBeenCalledWith(listingId);
+    expect(orderPublic.updateOrderWorkbenchItem).toHaveBeenCalledWith(
+      orderId,
+      orderItemId,
+      expect.objectContaining({
+        listing: expect.objectContaining({
+          productImageUrl: 'https://res.cloudinary.com/lng/listing-main.jpg',
+        }),
+      }),
+      { source: 'MAPPING' },
+    );
+  });
+
   test('manual select persists a vendor choice when SKU config is ambiguous and listing is missing', async () => {
     orderPublic.findItemById.mockResolvedValue({
       ...item,
@@ -1340,6 +1387,33 @@ describe('fulfillmentPlan.service', () => {
     expect(catalogPublic.findOrCreateDraftListingForOrderItem).not.toHaveBeenCalled();
     expect(orderPublic.updateItemListingId).not.toHaveBeenCalled();
     expect(orderPublic.markFulfillmentReady).toHaveBeenCalledWith(orderItemId);
+    expect(result.status).toBe('READY');
+    expect(result.selectionMode).toBe('MANUAL');
+  });
+
+  test('manual select persists an active vendor choice when the Listing has no variant and the vendor product has no product type', async () => {
+    catalogPublic.resolveListingVariant.mockResolvedValueOnce(null);
+    mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValueOnce([]);
+    vendorPublic.getVendorProductById.mockResolvedValueOnce({ ...vendorProduct, productTypeGroupId: null });
+    orderPublic.findById.mockResolvedValueOnce({ orderedAt: new Date('2026-09-16T20:39:27.000Z') });
+    vendorPublic.selectCostRate.mockImplementationOnce((_costCenter, orderedAt) => {
+      if (!orderedAt) throw new Error('orderedAt is required for manual cost selection');
+      return {};
+    });
+
+    const result = await service.selectFulfillmentPlan(orderItemId, {
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+    }, { permissions: ['MAPPING:WRITE'] });
+
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      status: 'READY',
+      selectionMode: 'MANUAL',
+      productTypeGroupId: null,
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+      blockingReasons: ['LISTING_VARIANT_NOT_FOUND'],
+    }));
     expect(result.status).toBe('READY');
     expect(result.selectionMode).toBe('MANUAL');
   });

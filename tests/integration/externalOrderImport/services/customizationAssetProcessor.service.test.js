@@ -1,7 +1,14 @@
 jest.mock('../../../../src/modules/order/public', () => ({
+  findItemById: jest.fn(),
   transitionItemStatus: jest.fn(),
   updateItemExternalItemId: jest.fn(),
   updateItemAsin: jest.fn(),
+  updateItemListingId: jest.fn(),
+  syncOrderWorkbenchListingImage: jest.fn(),
+}));
+
+jest.mock('../../../../src/modules/catalog/public', () => ({
+  findOrCreateDraftListingForOrderItem: jest.fn(),
 }));
 
 jest.mock('../../../../src/modules/customization/public', () => ({
@@ -25,6 +32,7 @@ jest.mock('../../../../src/modules/integration/externalOrderImport/services/post
 }));
 
 const orderPublic = require('../../../../src/modules/order/public');
+const catalogPublic = require('../../../../src/modules/catalog/public');
 const customizationPublic = require('../../../../src/modules/customization/public');
 const issueRepository = require('../../../../src/modules/integration/externalOrderImport/repositories/externalOrderImportIssue.repository');
 const postImportMappingQueue = require('../../../../src/modules/integration/externalOrderImport/services/postImportMappingQueue.service');
@@ -51,6 +59,22 @@ describe('customizationAssetProcessor.service', () => {
       payloadId: 'payload-1',
       payload: { parsedData: { amazonCustomization: { customerInputs: {} } } },
     });
+    orderPublic.findItemById.mockResolvedValue({
+      id: 'item-1',
+      shopId: 'shop-1',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'US',
+      asin: 'B0TESTASIN',
+      sku: 'SKU-1',
+      title: 'Test listing',
+      price: { currency: 'USD' },
+      listingId: 'listing-1',
+    });
+    catalogPublic.findOrCreateDraftListingForOrderItem.mockResolvedValue({
+      id: 'listing-1',
+      productImageUrl: 'https://m.media-amazon.com/images/I/preview.png',
+    });
+    orderPublic.syncOrderWorkbenchListingImage.mockResolvedValue({ modifiedCount: 1 });
     postImportMappingQueue.enqueuePostImportMappingJob.mockResolvedValue({ queued: true });
   });
 
@@ -117,5 +141,28 @@ describe('customizationAssetProcessor.service', () => {
     expect(issueRepository.create).not.toHaveBeenCalledWith(expect.objectContaining({
       issueType: 'CUSTOMIZATION_MISMATCH',
     }));
+  });
+
+  test('uses parsed listing preview as the fallback Listing image', async () => {
+    customizationPublic.extractZipImagesForOrderItem.mockResolvedValue({
+      payload: {
+        parsedData: {
+          amazonCustomization: {
+            customerInputs: { listingPreviewImageUrl: 'https://m.media-amazon.com/images/I/preview.png' },
+          },
+        },
+      },
+    });
+
+    await processCustomizationAssets(payload);
+
+    expect(catalogPublic.findOrCreateDraftListingForOrderItem).toHaveBeenCalledWith(expect.objectContaining({
+      asin: 'B0TESTASIN',
+      productImageUrl: 'https://m.media-amazon.com/images/I/preview.png',
+    }), expect.objectContaining({ system: true }));
+    expect(orderPublic.syncOrderWorkbenchListingImage).toHaveBeenCalledWith(
+      'listing-1',
+      'https://m.media-amazon.com/images/I/preview.png',
+    );
   });
 });

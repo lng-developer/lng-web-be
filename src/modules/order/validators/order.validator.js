@@ -99,6 +99,10 @@ const orderItemIdParamSchema = Joi.object({
   orderItemId: objectIdSchema.required(),
 });
 
+const recheckJobIdParamSchema = Joi.object({
+  jobId: objectIdSchema.required(),
+});
+
 const shippingAddressSchema = Joi.object({
   name: Joi.string().trim().allow(null, '').max(200),
   company: Joi.string().trim().allow(null, '').max(200),
@@ -194,10 +198,6 @@ const cancelOrderItemSchema = Joi.object({
   reason: Joi.string().trim().max(1000).required(),
 });
 
-const requestDesignFileSchema = Joi.object({
-  note: Joi.string().trim().allow(null, '').max(1000),
-});
-
 const addOrderCaseCommentSchema = Joi.object({
   body: Joi.string().trim().max(4000).required(),
 });
@@ -238,6 +238,7 @@ module.exports = {
   orderIdParamSchema,
   listOrderItemsQuerySchema,
   orderItemIdParamSchema,
+  recheckJobIdParamSchema,
   shippingAddressSchema,
   assignStaffSchema,
   buyerSchema,
@@ -253,7 +254,6 @@ module.exports = {
   createReplacementSchema,
   createOrderReplacementSchema,
   cancelOrderItemSchema,
-  requestDesignFileSchema,
   addOrderCaseCommentSchema,
   customerExceptionsQuerySchema,
   paginationQuerySchema,

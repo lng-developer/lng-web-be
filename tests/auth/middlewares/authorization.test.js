@@ -3,6 +3,7 @@ const {
   authorizeScopedPermission,
   canAccessScope,
   authorizeAnyPermission,
+  authorizeAnyGlobalPermission,
   authorizeRoles,
 } = require('../../../src/modules/auth/middlewares/authorization');
 
@@ -53,6 +54,17 @@ describe('authorization middleware', () => {
     });
 
     expect(error).toBeUndefined();
+  });
+
+  test('authorizeAnyGlobalPermission rejects a permission granted only through a team scope', async () => {
+    const error = await runMiddleware(authorizeAnyGlobalPermission('HR_EMPLOYEES:READ'), {
+      auth: {
+        permissions: [],
+        scopes: [{ scopeType: 'team', scopeId: 'sales-team', permissions: ['HR_EMPLOYEES:READ'] }],
+      },
+    });
+
+    expect(error).toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
   });
 
   test('authorizeRoles rejects missing role with 403', async () => {

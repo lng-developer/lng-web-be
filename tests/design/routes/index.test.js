@@ -81,6 +81,16 @@ describe('design routes', () => {
     jest.clearAllMocks();
   });
 
+  test('does not mount the removed Design Request route', async () => {
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/requests',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:READ'] }) },
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
   test('GET /tasks requires DESIGN:READ and passes query', async () => {
     service.listTasks.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
 
@@ -123,6 +133,18 @@ describe('design routes', () => {
       permissions: ['DESIGN:WORK'],
       accountId: '660000000000000000510006',
     });
+  });
+
+  test('GET /tasks permits the narrow PSD requester permission', async () => {
+    service.listTasks.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/tasks',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:PSD_REQUEST'] }) },
+    });
+
+    expect(response.statusCode).toBe(200);
   });
 
   test('GET /tasks/workload requires design read or work permission', async () => {

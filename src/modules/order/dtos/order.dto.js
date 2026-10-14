@@ -420,8 +420,6 @@ function toWorkbenchCustomization(customization = null) {
     assetDownloadUrl: toAssetDownloadUrl(input.assetId),
     mimeType: input.mimeType || null,
   }));
-  const firstImageAsset = customization.imageAssets?.find((asset) => asset.assetId);
-
   return {
     payloadId: toId(customization.payloadId),
     status: customization.status || null,
@@ -431,7 +429,7 @@ function toWorkbenchCustomization(customization = null) {
       ? { sourceCustomizationUrl: customization.sourceCustomizationUrl }
       : {}),
     ...(customization.downloadedZip ? { downloadedZip: customization.downloadedZip } : {}),
-    previewImageUrl: customization.listingPreviewImageUrl || toAssetDownloadUrl(firstImageAsset?.assetId),
+    previewImageUrl: customization.listingPreviewImageUrl || null,
     extractedImages: (customization.imageAssets || []).map((asset) => ({
       assetId: toId(asset.assetId),
       assetDownloadUrl: toAssetDownloadUrl(asset.assetId),
@@ -457,17 +455,10 @@ function toVendorSummary(vendor) {
   };
 }
 
-function toWorkbenchMapping(fulfillmentPlan = null, listingVariant = null, listing = null) {
-  if (!fulfillmentPlan) return null;
-  const vendorProduct = fulfillmentPlan.vendorProduct || null;
-  const vendorCostCenter = fulfillmentPlan.vendorCostCenter || null;
-  const vendor = fulfillmentPlan.vendor || vendorProduct?.vendor || vendorProduct?.vendorId || vendorCostCenter?.vendor || vendorCostCenter?.vendorId || null;
+function toWorkbenchPsd(listingVariant = null, listing = null) {
   const listingPsdAssetId = listing?.defaultPsdTemplateAssetId || null;
 
   return {
-    id: toId(fulfillmentPlan.id),
-    status: fulfillmentPlan.status || null,
-    selectionMode: fulfillmentPlan.selectionMode || null,
     listingVariant: listingVariant ? {
       id: toId(listingVariant.id || listingVariant._id),
       productTypeGroup: listingVariant.productTypeGroup || null,
@@ -481,6 +472,20 @@ function toWorkbenchMapping(fulfillmentPlan = null, listingVariant = null, listi
       psdReadiness: { status: 'PRESENT' },
       psdTemplate: { downloadUrl: toAssetDownloadUrl(listingPsdAssetId) },
     } : null,
+  };
+}
+
+function toWorkbenchMapping(fulfillmentPlan = null, listingVariant = null, listing = null) {
+  if (!fulfillmentPlan) return null;
+  const vendorProduct = fulfillmentPlan.vendorProduct || null;
+  const vendorCostCenter = fulfillmentPlan.vendorCostCenter || null;
+  const vendor = fulfillmentPlan.vendor || vendorProduct?.vendor || vendorProduct?.vendorId || vendorCostCenter?.vendor || vendorCostCenter?.vendorId || null;
+
+  return {
+    id: toId(fulfillmentPlan.id),
+    status: fulfillmentPlan.status || null,
+    selectionMode: fulfillmentPlan.selectionMode || null,
+    ...toWorkbenchPsd(listingVariant, listing),
     vendor: toVendorSummary(vendor),
     vendorProduct: vendorProduct ? {
       id: toId(vendorProduct.id || vendorProduct._id),
@@ -526,6 +531,7 @@ function toWorkbenchItem(row = {}) {
       name: row.seller.name || null,
     } : null,
     listing: toCompactListing(row.listing),
+    psd: toWorkbenchPsd(row.listingVariant, row.listing),
     customization: toWorkbenchCustomization(row.customization),
     mapping: toWorkbenchMapping(fulfillmentPlan, row.listingVariant, row.listing),
     pricing: {

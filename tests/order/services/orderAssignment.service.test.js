@@ -15,6 +15,9 @@ jest.mock('../../../src/modules/order/repositories/order.repository', () => ({
 jest.mock('../../../src/modules/auth/public', () => ({
   canAccessScope: jest.fn(),
 }));
+jest.mock('../../../src/modules/organization/public', () => ({
+  listRoleAssignmentSource: jest.fn(),
+}));
 jest.mock('../../../src/modules/audit/public', () => ({ record: jest.fn() }));
 jest.mock('../../../src/modules/notification/public', () => ({ notify: jest.fn() }));
 jest.mock('../../../src/modules/order/services/orderWorkbenchProjection.service', () => ({
@@ -22,6 +25,7 @@ jest.mock('../../../src/modules/order/services/orderWorkbenchProjection.service'
 }));
 
 const authPublic = require('../../../src/modules/auth/public');
+const organizationPublic = require('../../../src/modules/organization/public');
 const orderRepository = require('../../../src/modules/order/repositories/order.repository');
 const service = require('../../../src/modules/order/services/orderAssignment.service');
 const auditPublic = require('../../../src/modules/audit/public');
@@ -40,15 +44,19 @@ describe('orderAssignment.service', () => {
     orderRepository.findById.mockResolvedValue({ _id: orderId, shopId, assignedStaffIds: [], updatedAt });
     orderRepository.updateAssignedStaffIds.mockResolvedValue({ _id: orderId, shopId, assignedStaffIds, updatedAt });
     authPublic.canAccessScope.mockReturnValue(true);
+    organizationPublic.listRoleAssignmentSource.mockResolvedValue({
+      teams: [{ id: '660000000000000000000401', code: 'SALE1' }],
+      memberships: [{ accountId: assignedStaffId, teamId: '660000000000000000000401', status: 'active' }],
+    });
     notificationPublic.notify.mockResolvedValue({ delivered: true, id: 'notification-1' });
   });
 
-  test('assigns staff when caller has scoped order write access', async () => {
+  test('assigns active SALE1 staff when caller has global order-assignment access', async () => {
     const result = await service.assignStaff(orderId, assignedStaffIds, { permissions: [], scopes: [] });
 
-    expect(authPublic.canAccessScope).toHaveBeenCalledWith(expect.any(Object), 'ORDERS:WRITE', {
-      scopeType: 'shop',
-      scopeId: shopId,
+    expect(authPublic.canAccessScope).toHaveBeenCalledWith(expect.any(Object), 'ORDERS:ASSIGN', {
+      scopeType: 'global',
+      scopeId: null,
     });
     expect(orderRepository.updateAssignedStaffIds).toHaveBeenCalledWith(orderId, assignedStaffIds, {
       session: mockSession,
@@ -74,6 +82,17 @@ describe('orderAssignment.service', () => {
 
     await expect(service.assignStaff(orderId, assignedStaffIds, { permissions: [], scopes: [] }))
       .rejects.toMatchObject({ statusCode: 403 });
+    expect(orderRepository.updateAssignedStaffIds).not.toHaveBeenCalled();
+  });
+
+  test('rejects an assignee outside the active SALE1 team', async () => {
+    organizationPublic.listRoleAssignmentSource.mockResolvedValue({
+      teams: [{ id: '660000000000000000000401', code: 'SALE1' }],
+      memberships: [],
+    });
+
+    await expect(service.assignStaff(orderId, assignedStaffIds, { permissions: [], scopes: [] }))
+      .rejects.toMatchObject({ statusCode: 400 });
     expect(orderRepository.updateAssignedStaffIds).not.toHaveBeenCalled();
   });
 

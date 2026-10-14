@@ -171,35 +171,35 @@ describeIfDb('demo RBAC accounts from MongoDB', () => {
 
   test('canonical demo accounts resolve expected roles and scopes', () => {
     expect(accounts.salesLeader).toMatchObject({
-      roleCode: 'LEADER',
+      roleCode: 'SALES_LEADER',
       profile: { employeeCode: 'J2506' },
     });
     expect(accounts.salesLeader.assignment.scopeType).toBe('team');
     expect(String(accounts.salesLeader.assignment.scopeId)).toBe(salesTeamId);
 
     expect(accounts.designLeader).toMatchObject({
-      roleCode: 'LEADER',
+      roleCode: 'DESIGN_LEADER',
       profile: { employeeCode: 'J2510' },
     });
     expect(accounts.designLeader.assignment.scopeType).toBe('team');
     expect(String(accounts.designLeader.assignment.scopeId)).toBe(designTeamId);
 
     expect(accounts.designUser).toMatchObject({
-      roleCode: 'USER',
+      roleCode: 'SCALE_OPERATOR',
       profile: { employeeCode: 'J2523' },
     });
     expect(accounts.designUser.assignment.scopeType).toBe('team');
     expect(String(accounts.designUser.assignment.scopeId)).toBe(designTeamId);
 
     expect(accounts.csUser).toMatchObject({
-      roleCode: 'USER',
+      roleCode: 'SCALE_LEADER',
       profile: { employeeCode: 'J2515' },
     });
     expect(accounts.csUser.assignment.scopeType).toBe('team');
-    expect(String(accounts.csUser.assignment.scopeId)).toBe(salesTeamId);
+    expect(String(accounts.csUser.assignment.scopeId)).toBe(designTeamId);
 
     expect(accounts.qcUser).toMatchObject({
-      roleCode: 'USER',
+      roleCode: 'QC_REVIEWER',
       profile: { employeeCode: 'J2524' },
     });
     expect(accounts.qcUser.assignment.scopeType).toBe('team');
@@ -223,8 +223,8 @@ describeIfDb('demo RBAC accounts from MongoDB', () => {
     expect(designUserScope.permissions).not.toContain('DESIGN:REVIEW');
 
     const qcUserScope = accounts.qcUser.auth.scopes[0];
-    expect(qcUserScope.permissions).toContain('DESIGN:REVIEW');
-    expect(qcUserScope.permissions).not.toContain('DESIGN:WORK');
+    expect(qcUserScope.permissions).toContain('PRODUCTION:QC_REVIEW');
+    expect(qcUserScope.permissions).not.toContain('PRODUCTION:SCALE_WORK');
 
     const designLeaderScope = accounts.designLeader.auth.scopes[0];
     expect(designLeaderScope.permissions).toEqual(expect.arrayContaining([
@@ -253,11 +253,11 @@ describeIfDb('demo RBAC accounts from MongoDB', () => {
 
     const csUserScope = accounts.csUser.auth.scopes[0];
     expect(csUserScope.permissions).toEqual(expect.arrayContaining([
-      'ORDERS:READ',
       'PRODUCTION:READ',
-      'PRODUCTION:WRITE',
+      'PRODUCTION:SCALE_WORK',
+      'PRODUCTION:SCALE_ASSIGN',
     ]));
-    expect(csUserScope.permissions).not.toContain('ORDERS:WRITE');
+    expect(csUserScope.permissions).not.toContain('PRODUCTION:WRITE');
   });
 
   test('shop production personas split scale, QC, and CS permissions', () => {

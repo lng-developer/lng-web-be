@@ -27,11 +27,11 @@ router.get(
   (_req, res) => res.json({ module: 'hr', status: 'ok' }),
 );
 
-const requireEmployeeRead = authPublic.authorizeAnyPermission(
+const requireEmployeeRead = authPublic.authorizeAnyGlobalPermission(
   hrPermissions.EMPLOYEE_READ,
   hrPermissions.EMPLOYEE_WRITE,
 );
-const requireEmployeeDirectoryRead = authPublic.authorizeAnyPermission(
+const requireEmployeeDirectoryRead = authPublic.authorizeAnyGlobalPermission(
   hrPermissions.EMPLOYEE_READ,
   hrPermissions.EMPLOYEE_WRITE,
   hrPermissions.CALENDAR_READ,
@@ -41,17 +41,22 @@ const requireEmployeeDirectoryRead = authPublic.authorizeAnyPermission(
   hrTimePermissions.ATTENDANCE_READ,
   hrTimePermissions.ATTENDANCE_MANAGE,
 );
-const requireEmployeeWrite = authPublic.authorizeAnyPermission(hrPermissions.EMPLOYEE_WRITE);
-const requireScheduleRead = authPublic.authorizeAnyPermission(
+const requireEmployeeWrite = authPublic.authorizeAnyGlobalPermission(hrPermissions.EMPLOYEE_WRITE);
+const requireScheduleRead = authPublic.authorizeAnyGlobalPermission(
   hrTimePermissions.SCHEDULE_READ,
   hrTimePermissions.SCHEDULE_WRITE,
 );
-const requireScheduleWrite = authPublic.authorizeAnyPermission(hrTimePermissions.SCHEDULE_WRITE);
-const requireCalendarRead = authPublic.authorizeAnyPermission(
+const requireScheduleWrite = authPublic.authorizeAnyGlobalPermission(hrTimePermissions.SCHEDULE_WRITE);
+const requireCalendarRead = authPublic.authorizeAnyGlobalPermission(
   hrPermissions.CALENDAR_READ,
   hrPermissions.CALENDAR_WRITE,
 );
-const requireCalendarWrite = authPublic.authorizeAnyPermission(hrPermissions.CALENDAR_WRITE);
+const requireCalendarWrite = authPublic.authorizeAnyGlobalPermission(hrPermissions.CALENDAR_WRITE);
+const requireRotationRead = authPublic.authorizeAnyPermission(
+  hrPermissions.CALENDAR_READ,
+  hrPermissions.CALENDAR_WRITE,
+);
+const requireRotationWrite = authPublic.authorizeAnyPermission(hrPermissions.CALENDAR_WRITE);
 const requireGlobalScheduleWrite = authPublic.authorizeScopedPermission(
   hrTimePermissions.SCHEDULE_WRITE,
   { scopeType: 'global', scopeId: null },
@@ -60,15 +65,16 @@ const requireAttendanceRead = authPublic.authorizeAnyPermission(
   hrTimePermissions.ATTENDANCE_READ,
   hrTimePermissions.ATTENDANCE_MANAGE,
 );
-const requireAttendanceWrite = authPublic.authorizeAnyPermission(hrTimePermissions.ATTENDANCE_WRITE);
-const requireAttendanceManage = authPublic.authorizeAnyPermission(hrTimePermissions.ATTENDANCE_MANAGE);
+const requireAttendanceWrite = authPublic.authorizeAnyGlobalPermission(hrTimePermissions.ATTENDANCE_WRITE);
+const requireAttendanceManage = authPublic.authorizeAnyGlobalPermission(hrTimePermissions.ATTENDANCE_MANAGE);
 const requireLeaveRead = authPublic.authorizeAnyPermission(
   hrTimePermissions.LEAVE_READ,
   hrTimePermissions.LEAVE_APPROVE,
 );
-const requireLeaveWrite = authPublic.authorizeAnyPermission(hrTimePermissions.LEAVE_WRITE);
-const requireLeaveApprove = authPublic.authorizeAnyPermission(hrTimePermissions.LEAVE_APPROVE);
-const requireLeaveWriteOrApprove = authPublic.authorizeAnyPermission(
+const requireLeaveWrite = authPublic.authorizeAnyGlobalPermission(hrTimePermissions.LEAVE_WRITE);
+const requireLeaveApprove = authPublic.authorizeAnyGlobalPermission(hrTimePermissions.LEAVE_APPROVE);
+const requireLeaveDecision = authPublic.authorizeAnyPermission(hrTimePermissions.LEAVE_APPROVE);
+const requireLeaveWriteOrApprove = authPublic.authorizeAnyGlobalPermission(
   hrTimePermissions.LEAVE_WRITE,
   hrTimePermissions.LEAVE_APPROVE,
 );
@@ -76,17 +82,17 @@ const requireOvertimeRead = authPublic.authorizeAnyPermission(
   hrTimePermissions.OVERTIME_READ,
   hrTimePermissions.OVERTIME_APPROVE,
 );
-const requireOvertimeWrite = authPublic.authorizeAnyPermission(hrTimePermissions.OVERTIME_WRITE);
+const requireOvertimeWrite = authPublic.authorizeAnyGlobalPermission(hrTimePermissions.OVERTIME_WRITE);
 const requireOvertimeApprove = authPublic.authorizeAnyPermission(hrTimePermissions.OVERTIME_APPROVE);
-const requirePayrollRead = authPublic.authorizeAnyPermission(hrPermissions.PAYROLL_READ);
-const requirePayrollWrite = authPublic.authorizeAnyPermission(hrPermissions.PAYROLL_WRITE);
-const requirePayrollFinalize = authPublic.authorizeAnyPermission(hrPermissions.PAYROLL_FINALIZE);
-const requirePayrollPay = authPublic.authorizeAnyPermission(hrPermissions.PAYROLL_PAY);
-const requireAnnouncementRead = authPublic.authorizeAnyPermission(
+const requirePayrollRead = authPublic.authorizeAnyGlobalPermission(hrPermissions.PAYROLL_READ);
+const requirePayrollWrite = authPublic.authorizeAnyGlobalPermission(hrPermissions.PAYROLL_WRITE);
+const requirePayrollFinalize = authPublic.authorizeAnyGlobalPermission(hrPermissions.PAYROLL_FINALIZE);
+const requirePayrollPay = authPublic.authorizeAnyGlobalPermission(hrPermissions.PAYROLL_PAY);
+const requireAnnouncementRead = authPublic.authorizeAnyGlobalPermission(
   hrPermissions.ANNOUNCEMENTS_READ,
   hrPermissions.ANNOUNCEMENTS_WRITE,
 );
-const requireAnnouncementWrite = authPublic.authorizeAnyPermission(hrPermissions.ANNOUNCEMENTS_WRITE);
+const requireAnnouncementWrite = authPublic.authorizeAnyGlobalPermission(hrPermissions.ANNOUNCEMENTS_WRITE);
 const requireTeamWorkspace = authPublic.authorizeAnyPermission(
   hrTimePermissions.SCHEDULE_READ,
   hrTimePermissions.SCHEDULE_WRITE,
@@ -211,13 +217,13 @@ router.post('/holidays', authPublic.authenticate, requireCalendarWrite, asyncHan
 router.patch('/holidays/:id', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.updateHoliday));
 router.delete('/holidays/:id', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.deleteHoliday));
 
-router.get('/saturday-rotations', authPublic.authenticate, requireCalendarRead, asyncHandler(calendarPolicyController.listRotations));
-router.get('/saturday-rotations/matrix', authPublic.authenticate, requireCalendarRead, asyncHandler(calendarPolicyController.listRotationMatrix));
-router.post('/saturday-rotations', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.createRotation));
-router.post('/saturday-rotations/generate', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.generateRotations));
-router.patch('/saturday-rotations/:id', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.updateRotation));
-router.delete('/saturday-rotations/team/:teamId', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.deleteTeamRotations));
-router.delete('/saturday-rotations/:id', authPublic.authenticate, requireCalendarWrite, asyncHandler(calendarPolicyController.deleteRotation));
+router.get('/saturday-rotations', authPublic.authenticate, requireRotationRead, asyncHandler(calendarPolicyController.listRotations));
+router.get('/saturday-rotations/matrix', authPublic.authenticate, requireRotationRead, asyncHandler(calendarPolicyController.listRotationMatrix));
+router.post('/saturday-rotations', authPublic.authenticate, requireRotationWrite, asyncHandler(calendarPolicyController.createRotation));
+router.post('/saturday-rotations/generate', authPublic.authenticate, requireRotationWrite, asyncHandler(calendarPolicyController.generateRotations));
+router.patch('/saturday-rotations/:id', authPublic.authenticate, requireRotationWrite, asyncHandler(calendarPolicyController.updateRotation));
+router.delete('/saturday-rotations/team/:teamId', authPublic.authenticate, requireRotationWrite, asyncHandler(calendarPolicyController.deleteTeamRotations));
+router.delete('/saturday-rotations/:id', authPublic.authenticate, requireRotationWrite, asyncHandler(calendarPolicyController.deleteRotation));
 
 router.get('/attendance', authPublic.authenticate, requireAttendanceRead, asyncHandler(attendanceController.listAttendance));
 router.get('/attendance/month-matrix', authPublic.authenticate, requireAttendanceRead, asyncHandler(attendanceController.listMonthMatrix));
@@ -239,8 +245,8 @@ router.post('/leave-requests', authPublic.authenticate, requireLeaveWrite, async
 router.patch('/leave-requests/:requestId', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.updateRequest));
 router.post('/leave-requests/preview', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.previewRequest));
 router.get('/leave-requests/me', authPublic.authenticate, asyncHandler(leaveController.listMyRequests));
-router.post('/leave-requests/:requestId/approve', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.approveRequest));
-router.post('/leave-requests/:requestId/reject', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.rejectRequest));
+router.post('/leave-requests/:requestId/approve', authPublic.authenticate, requireLeaveDecision, asyncHandler(leaveController.approveRequest));
+router.post('/leave-requests/:requestId/reject', authPublic.authenticate, requireLeaveDecision, asyncHandler(leaveController.rejectRequest));
 router.post('/leave-requests/:requestId/refund', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.refundRequest));
 router.post('/leave-requests/:requestId/cancel', authPublic.authenticate, requireLeaveWriteOrApprove, asyncHandler(leaveController.cancelRequest));
 router.post('/leave-requests/:requestId/attachments', authPublic.authenticate, requireLeaveWrite, asyncHandler(leaveController.attachReferences));

@@ -206,12 +206,15 @@ async function upsertTeamMembership({ accountId, teamId, memberType = teamMember
 
 async function syncTeamMembership(payload, options = {}) {
   const { membership, moved } = await upsertTeamMembership(payload, options);
+  await getHrPublic().syncEmployeeProfileTeam(payload.accountId, membership.teamId, { session: options.session });
   return { ...toTeamMemberDto(membership), moved };
 }
 
 async function deactivateTeamMembership(accountId, { session } = {}) {
   assertValidObjectId(accountId, 'accountId');
-  return teamMembershipRepository.deactivateActiveByAccountId(accountId, { session });
+  const membership = await teamMembershipRepository.deactivateActiveByAccountId(accountId, { session });
+  await getHrPublic().syncEmployeeProfileTeam(accountId, null, { session });
+  return membership;
 }
 
 async function listDepartments(query = {}, { actorAuth } = {}) {
@@ -474,6 +477,7 @@ async function addTeamMember(teamId, payload, { actorAuth, httpContext } = {}) {
         teamId: team._id,
         memberType: payload.memberType,
       }, { session }));
+      await getHrPublic().syncEmployeeProfileTeam(accountId, membership.teamId, { session });
 
       if (moved) {
         await authPublic.deactivateTeamRoleAssignments(accountId, previousTeamId, {
@@ -512,6 +516,7 @@ async function removeTeamMember(teamId, accountId, { actorAuth, httpContext } = 
       if (!membership) {
         throw new AppError('Team membership not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
       }
+      await getHrPublic().syncEmployeeProfileTeam(accountId, null, { session });
       await authPublic.deactivateTeamRoleAssignments(accountId, teamId, {
         session, authContext: actorAuth, httpContext,
       });
@@ -557,6 +562,16 @@ async function listTeamMembers(teamId, { actorAuth } = {}) {
     leaders: members.filter((member) => member.memberType === teamMemberTypes.LEADER),
     members: members.filter((member) => member.memberType === teamMemberTypes.MEMBER),
   };
+}
+
+async function listTeamMemberAccess(teamId) {
+  const team = await assertActiveTeam(teamId);
+  const memberships = await teamMembershipRepository.listActiveByTeam(team._id);
+
+  return memberships.map((membership) => ({
+    accountId: String(membership.accountId),
+    memberType: membership.memberType,
+  }));
 }
 
 async function listMemberCandidates(query = {}) {
@@ -649,6 +664,7 @@ module.exports = {
   addTeamMember,
   removeTeamMember,
   listTeamMembers,
+  listTeamMemberAccess,
   listMemberCandidates,
   listTeamsByDepartment,
   listDesignTeams,

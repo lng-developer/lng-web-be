@@ -7,6 +7,7 @@ const integration = require('../../src/modules/integration/public');
 const catalog = require('../../src/modules/catalog/public');
 const Listing = require('../../src/modules/catalog/models/listing.model');
 const OrderItem = require('../../src/modules/order/models/orderItem.model');
+const OrderWorkbenchProjection = require('../../src/modules/order/models/orderWorkbenchProjection.model');
 const Agent = require('../../src/modules/integration/extensionCommand/models/extensionAgent.model');
 const Command = require('../../src/modules/integration/extensionCommand/models/extensionCommand.model');
 const extension = integration.extensionCommand;
@@ -154,6 +155,33 @@ test('valid result stores Cloudinary URL, duplicate acknowledgement is idempoten
   expect(await acknowledge(next, next.batch.items[0])).toEqual({ status: 'UNCHANGED' });
   expect(cloudinary.uploader.upload_stream).toHaveBeenCalledTimes(1);
 });
+
+test('syncing a listing image refreshes matching Order workbench projection snapshots', async () => {
+  const row = await listing();
+  const orderId = oid();
+  const orderItemId = oid();
+  await OrderWorkbenchProjection.create({
+    orderId,
+    shopId,
+    externalOrderId: '111-4881801-4522610',
+    order: { _id: orderId, externalOrderId: '111-4881801-4522610' },
+    items: [{
+      orderItemId,
+      item: { _id: orderItemId, listingId: row._id },
+      listing: { id: row._id, productImageUrl: 'https://m.media-amazon.com/images/S/legacy.png' },
+    }],
+  });
+
+  await request();
+  const batch = await claim();
+  await acknowledge(batch, batch.batch.items[0]);
+
+  const projection = await OrderWorkbenchProjection.findOne({ orderId }).lean();
+  expect(projection.items[0].listing).toMatchObject({
+    productImageUrl: expect.stringMatching(/^https:\/\/res\.cloudinary\.com/),
+  });
+});
+
 test('manual edit during upload wins CAS and is not overwritten', async () => {
   const row = await listing(); await request(); const batch = await claim();
   cloudinary.uploader.upload_stream.mockImplementation((options, callback) => new Writable({ write(chunk, encoding, done) { done(); }, final(done) {

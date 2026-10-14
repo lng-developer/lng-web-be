@@ -38,7 +38,6 @@ const {
 } = require('../dtos/productionTask.dto');
 
 const SHOP_SCOPE_TYPE = 'shop';
-const SCALE_ASSIGNMENT_TEAM_CODE = 'DES';
 const DESIGN_WORK_PERMISSION = 'DESIGN:WORK';
 const DESIGN_REVIEW_PERMISSION = 'DESIGN:REVIEW';
 const { addressValidationStatuses } = orderPublic;
@@ -60,11 +59,15 @@ async function notifyAssignedDesigner(task, { type, title, message, version }) {
 const PRODUCTION_QUEUE_READ_PERMISSIONS = [
   productionPermissions.READ,
   productionPermissions.WRITE,
+  productionPermissions.SCALE_WORK,
+  productionPermissions.SCALE_ASSIGN,
+  productionPermissions.QC_REVIEW,
   DESIGN_WORK_PERMISSION,
   DESIGN_REVIEW_PERMISSION,
 ];
-const SCALE_WORK_PERMISSIONS = [productionPermissions.WRITE, DESIGN_WORK_PERMISSION];
-const QC_REVIEW_PERMISSIONS = [productionPermissions.WRITE, DESIGN_REVIEW_PERMISSION];
+const SCALE_WORK_PERMISSIONS = [productionPermissions.WRITE, productionPermissions.SCALE_WORK];
+const QC_REVIEW_PERMISSIONS = [productionPermissions.WRITE, productionPermissions.QC_REVIEW];
+const DESIGN_TASK_WORK_PERMISSIONS = [productionPermissions.WRITE, DESIGN_WORK_PERMISSION];
 const DESIGN_ASSIGNABLE_STATUSES = [
   productionTaskStatuses.BLOCKED,
   productionTaskStatuses.NEED_SCALE,
@@ -236,6 +239,14 @@ function hasAnyScopedPermission(authContext = {}, permissions = []) {
   ));
 }
 
+function hasAnyTeamScopedPermission(authContext = {}, permissions = []) {
+  const requiredPermissions = Array.isArray(permissions) ? permissions : [permissions];
+  return (authContext.scopes || []).some((scope) => (
+    String(scope.scopeType).toLowerCase() === 'team'
+    && requiredPermissions.some((permission) => hasScopedPermission(scope.permissions || [], permission))
+  ));
+}
+
 function hasTeamQueueScope(authContext = {}) {
   return authPublic.hasTeamQueueScope(authContext, {
     permissions: [DESIGN_REVIEW_PERMISSION, productionPermissions.WRITE],
@@ -251,9 +262,9 @@ function canReadProductionQueue(authContext = {}) {
 
 function isAssignedScaleWorker(task = {}, authContext = {}) {
   return Boolean(authContext.accountId)
-    && toId(task.assignedDesignUserId) === String(authContext.accountId)
-    && (hasPermission(authContext, DESIGN_WORK_PERMISSION)
-      || hasAnyScopedPermission(authContext, [DESIGN_WORK_PERMISSION]));
+    && toId(task.csAssigneeId) === String(authContext.accountId)
+    && (hasPermission(authContext, productionPermissions.SCALE_WORK)
+      || hasAnyScopedPermission(authContext, [productionPermissions.SCALE_WORK]));
 }
 
 function getScopedShopIds(authContext = {}, permissions) {
@@ -301,9 +312,7 @@ function assertCanScaleTask(task, authContext) {
 }
 
 async function assertCanReviewTask(task, authContext) {
-  if (isSystemContext(authContext) || hasAnyPermission(authContext, QC_REVIEW_PERMISSIONS)) return;
-  const accountIds = await teamScopedDesignAccountIds(authContext);
-  if (accountIds.includes(toId(task.assignedDesignUserId))) return;
+  if (hasAnyTeamScopedPermission(authContext, QC_REVIEW_PERMISSIONS)) return;
   assertCanAccessShopAny(task.shopId, QC_REVIEW_PERMISSIONS, authContext);
 }
 
@@ -354,9 +363,29 @@ function emptyQueueCounts() {
 }
 
 async function applyReadScope(query, authContext) {
-  if (isSystemContext(authContext) || hasAnyGlobalPermission(authContext, PRODUCTION_QUEUE_READ_PERMISSIONS)) {
+  if (isSystemContext(authContext) || hasAnyGlobalPermission(authContext, [productionPermissions.WRITE])) {
     return query;
   }
+
+  if (hasAnyPermission(authContext, [productionPermissions.SCALE_ASSIGN])
+    || hasAnyTeamScopedPermission(authContext, [productionPermissions.SCALE_ASSIGN])) {
+    return { ...query, scaleQueueOnly: true };
+  }
+
+  if (hasAnyPermission(authContext, [productionPermissions.QC_REVIEW])
+    || hasAnyTeamScopedPermission(authContext, [productionPermissions.QC_REVIEW])) {
+    return { ...query, qcQueueOnly: true };
+  }
+
+  if (authContext?.accountId && (
+    hasAnyPermission(authContext, [productionPermissions.SCALE_WORK])
+    || hasAnyTeamScopedPermission(authContext, [productionPermissions.SCALE_WORK])
+  )) {
+    if (query.csAssigneeId && String(query.csAssigneeId) !== String(authContext.accountId)) return null;
+    return { ...query, csAssigneeId: authContext.accountId };
+  }
+
+  if (hasAnyGlobalPermission(authContext, PRODUCTION_QUEUE_READ_PERMISSIONS)) return query;
 
   if (hasTeamQueueScope(authContext)) {
     const accountIds = await teamScopedDesignAccountIds(authContext);
@@ -370,7 +399,8 @@ async function applyReadScope(query, authContext) {
   if (scopedShopIds.length === 0) {
     if (
       authContext?.accountId
-      && hasAnyScopedPermission(authContext, [DESIGN_WORK_PERMISSION])
+      && (hasAnyPermission(authContext, [DESIGN_WORK_PERMISSION])
+        || hasAnyScopedPermission(authContext, [DESIGN_WORK_PERMISSION]))
     ) {
       return { ...query, assignedDesignUserId: authContext.accountId };
     }
@@ -557,10 +587,7 @@ function customerImages(customization) {
     }));
 
   const seen = new Set();
-  return [
-    ...linkedImages,
-    ...(customization?.imageAssets || []),
-  ].filter((image) => {
+  return linkedImages.filter((image) => {
     const key = image?.assetId && String(image.assetId);
     if (!key || seen.has(key)) return false;
     seen.add(key);
@@ -582,8 +609,7 @@ function customerImageForSlot(images = [], slot = {}, index = 0) {
   const acceptedKeys = (slot.acceptedFieldKeys || []).map(normalizeSlotKey).filter(Boolean);
   return images.find((image) => normalizeSlotKey(image.slotKey) === slotKey)
     || images.find((image) => normalizedInputKeys(image).some((key) => acceptedKeys.includes(key)))
-    || images[index]
-    || images[0]
+    || (images.length === 1 ? images[0] : null)
     || null;
 }
 
@@ -602,6 +628,8 @@ function shouldRequireCustomerImageForSlot({ customization, slot, index, image }
   const inputs = customerImageInputs(customization);
   if (!inputs.length) return false;
   if (inputs.some((input) => customerImageInputMatchesSlot(input, slot))) return true;
+
+  if (inputs.length > 1) return true;
 
   const acceptedKeys = (slot.acceptedFieldKeys || []).map(normalizeSlotKey).filter(Boolean);
   if (!normalizeSlotKey(slot.key) && !acceptedKeys.length) return true;
@@ -828,7 +856,7 @@ async function filterDesignTeamProfiles(profiles = []) {
   const organizations = await organizationPublic.listAccountOrganizationSummaries(accountIds);
   const designTeamAccountIds = new Set(
     organizations
-      .filter((organization) => organization.team?.code === SCALE_ASSIGNMENT_TEAM_CODE)
+      .filter((organization) => /^DES(?:IGN)?$/i.test(String(organization.team?.code || '')))
       .map((organization) => toId(organization.accountId)),
   );
 
@@ -948,21 +976,21 @@ function toOrderSnapshot(order) {
 }
 
 function productImageUrlFrom(item = {}, listing = {}, customization = {}) {
-  return item.productImageUrl
+  return listing?.productImageUrl
+    || listing?.thumbnailUrl
+    || listing?.thumbnailAsset?.secureUrl
+    || item.productImageUrl
     || item.imageUrl
     || item.externalData?.productImageUrl
     || item.externalData?.imageUrl
     || customization?.listingPreviewImageUrl
-    || listing?.productImageUrl
-    || listing?.thumbnailUrl
-    || listing?.thumbnailAsset?.secureUrl
     || null;
 }
 
 function taskProductImageUrl(task = {}) {
-  return task.orderItemSnapshot?.productImageUrl
+  return task.listingSnapshot?.productImageUrl
+    || task.orderItemSnapshot?.productImageUrl
     || task.customizationSnapshot?.listingPreviewImageUrl
-    || task.listingSnapshot?.productImageUrl
     || null;
 }
 
@@ -1436,7 +1464,10 @@ async function recheckPsdBlockedTasks(payload = {}, authContext = {}) {
     try {
       items.push(toPsdRecheckItem(
         task,
-        await createOrRecheckTaskForOrderItem(toId(task.orderItemId), authContext),
+        await createOrRecheckTaskForOrderItem(toId(task.orderItemId), {
+          ...authContext,
+          system: true,
+        }),
       ));
     } catch (error) {
       items.push({
@@ -1491,7 +1522,15 @@ async function recheckPsdBlockedTasksByListing(listingId, authContext = {}) {
 
 async function getTaskById(taskId, authContext) {
   const task = await loadTask(taskId);
-  assertCanAccessShop(task.shopId, productionPermissions.READ, authContext);
+  const scopedQuery = await applyReadScope({}, authContext);
+  const canReadCompletedTask = hasAnyGlobalPermission(authContext, [
+    productionPermissions.SCALE_ASSIGN,
+    productionPermissions.QC_REVIEW,
+  ]) && [
+    productionTaskStatuses.READY_TO_SEND_VENDOR,
+    productionTaskStatuses.SENT_TO_VENDOR,
+  ].includes(task.status);
+  if ((!scopedQuery || !taskMatchesScopedReadQuery(task, scopedQuery)) && !canReadCompletedTask) throw forbidden();
   const [enrichedTask] = await attachVendorSubmissions(await attachProductionUsers(await attachShops([
     ...(await attachOrderSnapshots([
       await attachCustomizationSnapshot(task, authContext),
@@ -1512,6 +1551,15 @@ function taskMatchesScopedReadQuery(task = {}, query = {}) {
     && !query.assignedDesignUserIds.map(String).includes(toId(task.assignedDesignUserId))
     && !(query.includeUnassignedDesignUser && !toId(task.assignedDesignUserId))
   ) return false;
+  if (
+    Object.prototype.hasOwnProperty.call(query, 'csAssigneeId')
+    && toId(task.csAssigneeId) !== String(query.csAssigneeId)
+  ) return false;
+  if (
+    query.scaleQueueOnly
+    && ![productionTaskStatuses.NEED_SCALE, productionTaskStatuses.QC_REJECTED].includes(task.status)
+  ) return false;
+  if (query.qcQueueOnly && task.qcStatus !== productionQcStatuses.PENDING) return false;
   return true;
 }
 
@@ -1744,7 +1792,7 @@ async function uploadScaledFileForTask(task, fileCheckId, mediaAssetId, authCont
   const current = findCheck(task, fileCheckId);
   const checkPatch = {
     outputAssetId: mediaAssetId,
-    outputWorkerId: task.assignedDesignUserId || null,
+    outputWorkerId: authContext.accountId || null,
     scaleStatus: productionScaleStatuses.SCALED,
     qcStatus: productionQcStatuses.NOT_READY,
     blockers: (current.blockers || []).filter((blocker) => ![
@@ -1977,7 +2025,9 @@ async function assignDesignTask(taskId, payload = {}, authContext) {
 
 async function assignCsTask(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
-  assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+  if (!hasAnyTeamScopedPermission(authContext, [productionPermissions.WRITE, productionPermissions.SCALE_ASSIGN])) {
+    assertCanAccessShopAny(task.shopId, [productionPermissions.WRITE, productionPermissions.SCALE_ASSIGN], authContext);
+  }
   const assigneeId = payload.csAssigneeId || null;
 
   if (!assigneeId) {
@@ -2010,7 +2060,7 @@ async function assignCsTask(taskId, payload = {}, authContext) {
   assertValidObjectId(assigneeId, 'csAssigneeId');
   await assertAssignableAccount(
     assigneeId,
-    productionPermissions.WRITE,
+    productionPermissions.SCALE_WORK,
     'Assigned user is not eligible for production CS tasks',
   );
   const patch = {
@@ -2071,7 +2121,7 @@ async function bulkAssignDesignTasks(payload = {}, authContext) {
 async function claimDesignTask(taskId, authContext = {}) {
   assertValidObjectId(authContext.accountId, 'accountId');
   const task = await loadTask(taskId);
-  assertCanAccessShopAny(task.shopId, SCALE_WORK_PERMISSIONS, authContext);
+  assertCanAccessShopAny(task.shopId, DESIGN_TASK_WORK_PERMISSIONS, authContext);
   assertDesignAssignable(task);
   if (task.assignedDesignUserId) {
     throw conflict('Production task is already assigned', {
@@ -2318,6 +2368,13 @@ async function listWorkScoreCandidates({ limit = 100 } = {}) {
 async function markSentToVendor(taskId, vendorSubmissionId, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+  if (
+    task.status === productionTaskStatuses.SENT_TO_VENDOR
+    && vendorSubmissionId
+    && toId(task.vendorSubmissionId) === String(vendorSubmissionId)
+  ) {
+    return toProductionTaskDto(task);
+  }
   if (task.status !== productionTaskStatuses.READY_TO_SEND_VENDOR) {
     throw conflict('Production task is not ready to send vendor', {
       status: task.status,
@@ -2338,19 +2395,34 @@ async function markSentToVendor(taskId, vendorSubmissionId, authContext) {
       vendorSubmissionStatus: submission.status || null,
     });
   }
-  const updated = await commitProductionMutation({
-    task, filter: { status: productionTaskStatuses.READY_TO_SEND_VENDOR },
-    patch: {
-      status: productionTaskStatuses.SENT_TO_VENDOR,
-      sentToVendorAt: new Date(),
-      vendorSubmissionId: vendorSubmissionId || null,
-    },
-    eventType: 'VENDOR_SUBMISSION_SENT', action: 'PRODUCTION_SENT_TO_VENDOR', authContext,
-    targetItemStatus: 'SENT_TO_VENDOR',
-    changes: { status: { from: task.status, to: productionTaskStatuses.SENT_TO_VENDOR } },
-    metadata: { vendorSubmissionId },
-  });
-  return toProductionTaskDto(updated);
+  try {
+    const updated = await commitProductionMutation({
+      task, filter: { status: productionTaskStatuses.READY_TO_SEND_VENDOR },
+      patch: {
+        status: productionTaskStatuses.SENT_TO_VENDOR,
+        sentToVendorAt: new Date(),
+        vendorSubmissionId: vendorSubmissionId || null,
+      },
+      eventType: 'VENDOR_SUBMISSION_SENT', action: 'PRODUCTION_SENT_TO_VENDOR', authContext,
+      targetItemStatus: 'SENT_TO_VENDOR',
+      changes: { status: { from: task.status, to: productionTaskStatuses.SENT_TO_VENDOR } },
+      metadata: { vendorSubmissionId },
+    });
+    return toProductionTaskDto(updated);
+  } catch (error) {
+    const isConcurrentMutation = error?.statusCode === httpStatus.CONFLICT
+      && error?.message === 'Production task changed concurrently';
+    if (!isConcurrentMutation) throw error;
+
+    const currentTask = await loadTask(taskId);
+    if (
+      currentTask.status === productionTaskStatuses.SENT_TO_VENDOR
+      && toId(currentTask.vendorSubmissionId) === String(vendorSubmissionId)
+    ) {
+      return toProductionTaskDto(currentTask);
+    }
+    throw error;
+  }
 }
 
 async function bulkPushVendor(payload = {}, authContext) {
@@ -2575,7 +2647,7 @@ async function getCsAssignees(query = {}, authContext) {
   const profiles = await hrPublic.listAssignableProfiles({
     search: query.search,
     limit: Math.min(Number(query.limit || 50), 100),
-    requiredPermission: productionPermissions.WRITE,
+    requiredPermission: productionPermissions.SCALE_WORK,
   });
   return {
     items: (profiles || []).map((profile) => ({

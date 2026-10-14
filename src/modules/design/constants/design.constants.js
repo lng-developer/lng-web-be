@@ -3,7 +3,9 @@ const designPermissions = Object.freeze({
   WRITE: 'DESIGN:WRITE',
   WORK: 'DESIGN:WORK',
   REVIEW: 'DESIGN:REVIEW',
+  PSD_REQUEST: 'DESIGN:PSD_REQUEST',
 });
+
 
 const designTaskTypes = Object.freeze({
   PSD_TEMPLATE: 'PSD_TEMPLATE',

@@ -26,13 +26,18 @@ const upload = multer({
 const requireProductionRead = authPublic.authorizeAnyPermission(
   'PRODUCTION:READ',
   'PRODUCTION:WRITE',
+  'PRODUCTION:SCALE_WORK',
+  'PRODUCTION:SCALE_ASSIGN',
+  'PRODUCTION:QC_REVIEW',
   'DESIGN:WORK',
   'DESIGN:REVIEW',
 );
 const requireProductionWrite = authPublic.authorizeAnyPermission('PRODUCTION:WRITE');
+const requireScaleAssign = authPublic.authorizeAnyPermission('PRODUCTION:WRITE', 'PRODUCTION:SCALE_ASSIGN');
 const requireDesignAssign = authPublic.authorizeAnyPermission('PRODUCTION:WRITE', 'DESIGN:REVIEW');
-const requireScaleWork = authPublic.authorizeAnyPermission('PRODUCTION:WRITE', 'DESIGN:WORK');
-const requireQcReview = authPublic.authorizeAnyPermission('PRODUCTION:WRITE', 'DESIGN:REVIEW');
+const requireDesignWork = authPublic.authorizeAnyPermission('PRODUCTION:WRITE', 'DESIGN:WORK');
+const requireScaleWork = authPublic.authorizeAnyPermission('PRODUCTION:WRITE', 'PRODUCTION:SCALE_WORK');
+const requireQcReview = authPublic.authorizeAnyPermission('PRODUCTION:WRITE', 'PRODUCTION:QC_REVIEW');
 
 router.get('/health', (req, res) => {
   res.status(200).json({ module: 'production', status: 'ok' });
@@ -125,14 +130,14 @@ router.patch(
 router.patch(
   '/tasks/:taskId/assign-cs',
   authPublic.authenticate,
-  requireProductionWrite,
+  requireScaleAssign,
   asyncHandler(controller.assignCsTask),
 );
 
 router.patch(
   '/tasks/:taskId/claim',
   authPublic.authenticate,
-  requireScaleWork,
+  requireDesignWork,
   asyncHandler(controller.claimDesignTask),
 );
 

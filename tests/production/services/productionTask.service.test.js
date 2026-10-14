@@ -219,6 +219,7 @@ describe('productionTask.service', () => {
   const customization = {
     listingPreviewImageUrl: 'https://m.media-amazon.com/images/S/main-listing.png',
     imageAssets: [{ assetId: mediaAssetId, secureUrl: 'https://example.test/image.png' }],
+    customerInputs: { images: [{ assetId: mediaAssetId, label: 'Buyer image' }] },
   };
 
   beforeEach(() => {
@@ -822,6 +823,12 @@ describe('productionTask.service', () => {
         { assetId: backAssetId, filename: 'back.png', slotKey: 'BACK', label: 'Back upload' },
         { assetId: mediaAssetId, filename: 'front.png', slotKey: 'FRONT', label: 'Front upload' },
       ],
+      customerInputs: {
+        images: [
+          { assetId: backAssetId, filename: 'back.png', slotKey: 'BACK', label: 'Back upload' },
+          { assetId: mediaAssetId, filename: 'front.png', slotKey: 'FRONT', label: 'Front upload' },
+        ],
+      },
     });
 
     await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
@@ -839,6 +846,37 @@ describe('productionTask.service', () => {
       inputSlotKey: 'BACK',
       inputImageName: 'back.png',
     });
+  });
+
+  test('blocks ambiguous multi-image customization instead of assigning images by order', async () => {
+    const backAssetId = '660000000000000000000905';
+    catalogPublic.getInternalTemplateById.mockResolvedValueOnce({
+      ...template,
+      artworkSlots: [
+        { key: 'FRONT', label: 'Front', required: true },
+        { key: 'BACK', label: 'Back', required: true },
+      ],
+    });
+    customizationPublic.getOrderItemCustomizationView.mockResolvedValueOnce({
+      imageAssets: [
+        { assetId: backAssetId, filename: 'first-upload.png' },
+        { assetId: mediaAssetId, filename: 'second-upload.png' },
+      ],
+      customerInputs: {
+        images: [
+          { assetId: backAssetId, label: 'Upload Photo' },
+          { assetId: mediaAssetId, label: 'Upload Photo' },
+        ],
+      },
+    });
+
+    await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+
+    const fileChecks = repository.upsertByOrderItem.mock.calls[0][1].fileChecks;
+    expect(fileChecks.filter((check) => check.sourceType === 'CUSTOMER_IMAGE')).toEqual([
+      expect.objectContaining({ slotKey: 'FRONT', required: true, inputAssetId: null }),
+      expect.objectContaining({ slotKey: 'BACK', required: true, inputAssetId: null }),
+    ]);
   });
 
   test('stores slim production snapshots instead of raw source documents', async () => {
@@ -1363,6 +1401,27 @@ describe('productionTask.service', () => {
     });
   });
 
+  test('does not use an unlinked ZIP image as customer artwork', async () => {
+    customizationPublic.getOrderItemCustomizationView.mockResolvedValueOnce({
+      customerInputs: {
+        texts: [{ label: 'Personalization', value: 'Grandpa' }],
+        options: [],
+        images: [],
+      },
+      imageAssets: [{ assetId: mediaAssetId, filename: 'product-details.jpg' }],
+    });
+
+    const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result.fileChecks[1]).toMatchObject({
+      slotKey: 'FRONT',
+      required: false,
+      inputAssetId: null,
+      scaleStatus: 'NOT_REQUIRED',
+      blockers: [],
+    });
+  });
+
   test('blocks with CUSTOMER_IMAGE_MISSING when a required customer image input has no asset', async () => {
     customizationPublic.getOrderItemCustomizationView.mockResolvedValueOnce({
       customerInputs: {
@@ -1421,6 +1480,7 @@ describe('productionTask.service', () => {
     });
     customizationPublic.getOrderItemCustomizationView.mockResolvedValueOnce({
       imageAssets: [{ assetId: mediaAssetId }],
+      customerInputs: { images: [{ assetId: mediaAssetId, label: 'Buyer image' }] },
     });
 
     const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
@@ -2053,7 +2113,7 @@ describe('productionTask.service', () => {
     expect(hrPublic.listAssignableProfiles).toHaveBeenCalledWith({
       search: 'CS',
       limit: 10,
-      requiredPermission: 'PRODUCTION:WRITE',
+      requiredPermission: 'PRODUCTION:SCALE_WORK',
     });
     expect(result).toEqual({
       items: [{ id: designerId, fullName: 'Scale User', employeeCode: 'J2605' }],
@@ -2219,6 +2279,30 @@ describe('productionTask.service', () => {
       status: 'CLEARED',
       blockers: ['SCALED_OUTPUT_MISSING'],
     });
+  });
+
+  test('rechecks PSD-blocked tasks with system context after authorizing production access', async () => {
+    repository.list.mockResolvedValueOnce({
+      items: [{ _id: taskId, shopId, orderItemId, blockers: ['PSD_MISSING'] }],
+      total: 1,
+      page: 1,
+      limit: 50,
+    });
+    mappingPublic.getFulfillmentPlanForOrderItem.mockImplementation(async (_orderItemId, authContext = {}) => {
+      if (!authContext.system) throw new Error('Forbidden');
+      return plan;
+    });
+
+    const result = await service.recheckPsdBlockedTasks({}, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result).toMatchObject({
+      checked: 1,
+      cleared: 1,
+      stillBlocked: 0,
+    });
+    expect(mappingPublic.getFulfillmentPlanForOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      system: true,
+    }));
   });
 
   test('recheck PSD-blocked task remains blocked when listing still lacks PSD', async () => {
@@ -2501,7 +2585,7 @@ describe('productionTask.service', () => {
     expect(hrPublic.listAssignableProfiles).toHaveBeenCalledWith({
       accountIds: [csAssigneeId],
       limit: 1,
-      requiredPermission: 'PRODUCTION:WRITE',
+      requiredPermission: 'PRODUCTION:SCALE_WORK',
     });
     expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
       csAssigneeId,
@@ -2540,6 +2624,42 @@ describe('productionTask.service', () => {
       csAssigneeId: null,
       csStatus: 'UNASSIGNED',
     });
+  });
+
+  test('scale leader can assign an eligible scale worker', async () => {
+    hrPublic.listAssignableProfiles.mockResolvedValueOnce([
+      { accountId: csAssigneeId, fullName: 'Scale Worker', employeeCode: 'SC01' },
+    ]);
+    mockTaskUpdate({ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE' });
+
+    const result = await service.assignCsTask(taskId, { csAssigneeId }, scopedShopAuth(
+      designerId,
+      ['PRODUCTION:SCALE_ASSIGN'],
+    ));
+
+    expect(result).toMatchObject({ csAssigneeId, csStatus: 'ASSIGNED' });
+  });
+
+  test('team-scoped scale leader can assign an eligible scale worker', async () => {
+    hrPublic.listAssignableProfiles.mockResolvedValueOnce([
+      { accountId: csAssigneeId, fullName: 'Scale Worker', employeeCode: 'SC01' },
+    ]);
+    mockTaskUpdate({ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE' });
+
+    await expect(service.assignCsTask(taskId, { csAssigneeId }, scopedTeamAuth(
+      designerId,
+      ['PRODUCTION:SCALE_ASSIGN'],
+    ))).resolves.toMatchObject({ csAssigneeId, csStatus: 'ASSIGNED' });
+  });
+
+  test('scale worker cannot assign another worker', async () => {
+    repository.findById.mockResolvedValueOnce({ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE' });
+
+    await expect(service.assignCsTask(taskId, { csAssigneeId }, scopedShopAuth(
+      designerId,
+      ['PRODUCTION:SCALE_WORK'],
+    ))).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+    expect(repository.updateById).not.toHaveBeenCalled();
   });
 
   test('assign design task rejects accounts that cannot work scale tasks', async () => {
@@ -2625,13 +2745,14 @@ describe('productionTask.service', () => {
     expect(repository.updateById).not.toHaveBeenCalled();
   });
 
-  test('scale designer can claim and upload with shop-scoped DESIGN:WORK only', async () => {
+  test('design worker can claim legacy design work but cannot upload scale output', async () => {
     repository.findById.mockResolvedValue({
       _id: taskId,
       shopId,
       orderItemId,
       status: 'NEED_SCALE',
       assignedDesignUserId: null,
+      csAssigneeId,
       fileChecks: [{
         _id: fileCheckId,
         required: true,
@@ -2655,19 +2776,20 @@ describe('productionTask.service', () => {
 
     const authContext = scopedShopAuth(designerId, ['DESIGN:WORK']);
     const claimResult = await service.claimDesignTask(taskId, authContext);
-    const uploadResult = await service.uploadScaledFile(taskId, fileCheckId, outputAssetId, authContext);
 
     expect(claimResult).toMatchObject({ assignedDesignUserId: designerId });
-    expect(uploadResult).toMatchObject({ scaleStatus: 'SCALED' });
+    await expect(service.uploadScaledFile(taskId, fileCheckId, outputAssetId, authContext))
+      .rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
   });
 
-  test('team-scoped scale designer can upload an assigned task without shop scope', async () => {
+  test('team-scoped assigned scale worker can upload without shop scope', async () => {
     repository.findById.mockResolvedValue({
       _id: taskId,
       shopId,
       orderItemId,
       status: 'NEED_SCALE',
       assignedDesignUserId: designerId,
+      csAssigneeId: designerId,
       addressValidationStatus: 'VALID',
       fileChecks: [{
         _id: fileCheckId,
@@ -2681,6 +2803,7 @@ describe('productionTask.service', () => {
       orderItemId,
       status: 'NEED_SCALE',
       assignedDesignUserId: designerId,
+      csAssigneeId: designerId,
       fileChecks: [{ _id: fileCheckId, required: true, blockers: [], ...patch }],
     }));
 
@@ -2688,7 +2811,7 @@ describe('productionTask.service', () => {
       taskId,
       fileCheckId,
       outputAssetId,
-      scopedTeamAuth(designerId, ['DESIGN:WORK']),
+      scopedTeamAuth(designerId, ['PRODUCTION:SCALE_WORK']),
     );
 
     expect(result).toMatchObject({ scaleStatus: 'SCALED' });
@@ -2919,7 +3042,10 @@ describe('productionTask.service', () => {
       }],
     });
 
-    const result = await service.uploadScaledFile(taskId, fileCheckId, outputAssetId, { permissions: ['PRODUCTION:WRITE'] });
+    const result = await service.uploadScaledFile(taskId, fileCheckId, outputAssetId, {
+      accountId: designerId,
+      permissions: ['PRODUCTION:WRITE'],
+    });
 
     expect(mediaPublic.assertMediaAssetExists).toHaveBeenCalledWith(outputAssetId);
     expect(result).toMatchObject({
@@ -3345,7 +3471,7 @@ describe('productionTask.service', () => {
     expect(result.status).toBe('READY_TO_SEND_VENDOR');
   });
 
-  test('QC reviewer can submit QC with shop-scoped DESIGN:REVIEW only', async () => {
+  test('QC reviewer can submit QC with shop-scoped PRODUCTION:QC_REVIEW only', async () => {
     repository.findById.mockResolvedValueOnce({
       _id: taskId,
       shopId,
@@ -3372,7 +3498,7 @@ describe('productionTask.service', () => {
     const result = await service.submitQc(
       taskId,
       { decision: 'PASSED' },
-      scopedShopAuth(qcUserId, ['DESIGN:REVIEW']),
+      scopedShopAuth(qcUserId, ['PRODUCTION:QC_REVIEW']),
     );
 
     expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
@@ -3382,12 +3508,11 @@ describe('productionTask.service', () => {
     expect(result).toMatchObject({ qcBy: qcUserId });
   });
 
-  test('team-scoped QC reviewer can submit QC without shop scope', async () => {
+  test('team-scoped QC reviewer can submit QC without a shop scope', async () => {
     repository.findById.mockResolvedValueOnce({
       _id: taskId,
-      shopId: otherShopId,
+      shopId,
       orderItemId,
-      assignedDesignUserId: designerId,
       fileChecks: [{
         _id: fileCheckId,
         required: true,
@@ -3398,7 +3523,7 @@ describe('productionTask.service', () => {
     });
     repository.updateById.mockResolvedValueOnce({
       _id: taskId,
-      shopId: otherShopId,
+      shopId,
       orderItemId,
       status: 'READY_TO_SEND_VENDOR',
       scaleStatus: 'SCALED',
@@ -3407,17 +3532,41 @@ describe('productionTask.service', () => {
       qcBy: qcUserId,
     });
 
-    const result = await service.submitQc(
+    await expect(service.submitQc(
       taskId,
       { decision: 'PASSED' },
-      scopedTeamAuth(qcUserId, ['DESIGN:REVIEW']),
-    );
+      scopedTeamAuth(qcUserId, ['PRODUCTION:QC_REVIEW']),
+    )).resolves.toMatchObject({ qcBy: qcUserId });
+  });
 
-    expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
-      qcBy: qcUserId,
-      qcStatus: 'PASSED',
-    }));
-    expect(result).toMatchObject({ qcBy: qcUserId });
+  test('scale leader cannot pass QC without the QC review permission', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      fileChecks: [{ _id: fileCheckId, required: true, outputAssetId, qcStatus: 'NOT_READY', blockers: [] }],
+    });
+
+    await expect(service.submitQc(taskId, { decision: 'PASSED' }, scopedShopAuth(
+      designerId,
+      ['PRODUCTION:SCALE_ASSIGN'],
+    ))).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+  });
+
+  test('QC reviewer cannot upload scaled output', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      csAssigneeId,
+      fileChecks: [{ _id: fileCheckId, required: true, blockers: ['SCALED_OUTPUT_MISSING'] }],
+    });
+
+    await expect(service.uploadScaledFile(taskId, fileCheckId, outputAssetId, scopedShopAuth(
+      qcUserId,
+      ['PRODUCTION:QC_REVIEW'],
+    ))).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
   });
 
   test('QC pass records one score for every passing Scale output', async () => {
@@ -3634,6 +3783,32 @@ describe('productionTask.service', () => {
       eventType: 'VENDOR_SUBMISSION_SENT',
       source: 'PRODUCTION',
     }), { session: mockSession });
+  });
+
+  test('mark sent to vendor accepts a concurrent handoff for the same submission', async () => {
+    const sentTask = {
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'SENT_TO_VENDOR',
+      vendorSubmissionId,
+    };
+    repository.findById
+      .mockResolvedValueOnce({
+        _id: taskId,
+        shopId,
+        orderItemId,
+        status: 'READY_TO_SEND_VENDOR',
+      })
+      .mockResolvedValueOnce(sentTask);
+    repository.updateByIdIf.mockResolvedValueOnce(null);
+
+    const result = await service.markSentToVendor(taskId, vendorSubmissionId, {
+      permissions: ['PRODUCTION:WRITE'],
+    });
+
+    expect(result).toMatchObject({ id: taskId, status: 'SENT_TO_VENDOR', vendorSubmissionId });
+    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
   });
 
   test('mark sent to vendor requires a submitted submission for the same production task', async () => {
@@ -4030,5 +4205,68 @@ describe('productionTask.service', () => {
     expect(result).toMatchObject({
       status: 'NEED_SCALE', assignedDesignUserId: designerId, designNote: 'operator note',
     });
+  });
+
+  test('scale worker lists and reads only tasks assigned through csAssigneeId', async () => {
+    repository.list.mockResolvedValueOnce({ items: [], total: 0, page: 1, limit: 50 });
+    const authContext = { accountId: csAssigneeId, permissions: ['PRODUCTION:SCALE_WORK'], scopes: [] };
+
+    await service.listTasks({}, authContext);
+
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({ csAssigneeId }));
+
+    repository.findById.mockResolvedValueOnce({ _id: taskId, shopId, csAssigneeId });
+    await expect(service.getTaskById(taskId, authContext)).resolves.toMatchObject({ id: taskId });
+
+    repository.findById.mockResolvedValueOnce({ _id: taskId, shopId, csAssigneeId: designerId });
+    await expect(service.getTaskById(taskId, authContext)).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'AUTHORIZATION_ERROR',
+    });
+  });
+
+  test('scale leader sees the scale queue without gaining production administration', async () => {
+    repository.list.mockResolvedValueOnce({ items: [], total: 0, page: 1, limit: 50 });
+
+    await service.listTasks({}, { accountId: designerId, permissions: ['PRODUCTION:SCALE_ASSIGN'], scopes: [] });
+
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({ scaleQueueOnly: true }));
+  });
+
+  test('global scale leader can read a completed task outside the active scale queue', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      status: 'READY_TO_SEND_VENDOR',
+      qcStatus: 'PASSED',
+    });
+
+    await expect(service.getTaskById(taskId, {
+      accountId: designerId,
+      permissions: ['PRODUCTION:SCALE_ASSIGN'],
+      scopes: [],
+    })).resolves.toMatchObject({ id: taskId, status: 'READY_TO_SEND_VENDOR' });
+  });
+
+  test('global QC reviewer can read a task after it leaves the QC queue', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId,
+      shopId,
+      status: 'READY_TO_SEND_VENDOR',
+      qcStatus: 'PASSED',
+    });
+
+    await expect(service.getTaskById(taskId, {
+      accountId: qcUserId,
+      permissions: ['PRODUCTION:QC_REVIEW'],
+      scopes: [],
+    })).resolves.toMatchObject({ id: taskId, qcStatus: 'PASSED' });
+  });
+
+  test('sales account without production permission receives no production queue data', async () => {
+    const result = await service.listTasks({}, { accountId: designerId, permissions: ['ORDERS:READ'], scopes: [] });
+
+    expect(result).toMatchObject({ items: [], total: 0 });
+    expect(repository.list).not.toHaveBeenCalled();
   });
 });

@@ -230,6 +230,24 @@ async function findCalendarOverrides(dateKey, context) {
   }).lean();
 }
 
+async function findCalendarOverridesForDates(workDateKeys = [], contexts = []) {
+  const dateKeys = [...new Set(workDateKeys.filter(Boolean))];
+  if (!dateKeys.length) return [];
+  const idsFor = (key) => [...new Set(contexts.map((context) => context[key]).filter(Boolean).map(String))];
+  const scopeFilters = [
+    { scopeType: 'GLOBAL', scopeId: null },
+    ...idsFor('workLocationId').length ? [{ scopeType: 'WORK_LOCATION', scopeId: { $in: idsFor('workLocationId') } }] : [],
+    ...idsFor('departmentId').length ? [{ scopeType: 'DEPARTMENT', scopeId: { $in: idsFor('departmentId') } }] : [],
+    ...idsFor('teamId').length ? [{ scopeType: 'TEAM', scopeId: { $in: idsFor('teamId') } }] : [],
+    ...idsFor('profileId').length ? [{ scopeType: 'PROFILE', scopeId: { $in: idsFor('profileId') } }] : [],
+  ];
+  return CalendarOverride.find({
+    dateKey: { $in: dateKeys },
+    status: hrEmployeeStatuses.ACTIVE,
+    $or: scopeFilters,
+  }).lean();
+}
+
 module.exports = {
   createAssignment,
   createCalendarOverride,
@@ -238,6 +256,7 @@ module.exports = {
   findAssignmentById,
   findAssignmentOverlaps,
   findCalendarOverrides,
+  findCalendarOverridesForDates,
   findCalendarConflict,
   findEffectiveAssignment,
   findCalendarOverrideById,

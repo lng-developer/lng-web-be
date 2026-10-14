@@ -123,6 +123,30 @@ describe('orderCostCenterStatus.service', () => {
     expect(orderRepository.updatePsdStatus).toHaveBeenCalledWith(orderId, 'MISSING');
   });
 
+  test('refreshes both statuses from one item and plan read', async () => {
+    const listingVariantId = '660000000000000000000901';
+    orderItemRepository.listAllByOrder.mockResolvedValueOnce([{ _id: itemA }]);
+    mappingPublic.listFulfillmentPlansForOrderItems.mockResolvedValueOnce([{
+      orderItemId: itemA,
+      vendorCostCenter: { id: 'cc1' },
+      listingVariantId,
+    }]);
+    catalogPublic.getListingVariantById.mockResolvedValueOnce({
+      id: listingVariantId,
+      psdReadiness: { status: 'PRESENT' },
+    });
+
+    await service.refreshFulfillmentStatusesForOrder(orderId);
+
+    expect(orderItemRepository.listAllByOrder).toHaveBeenCalledTimes(1);
+    expect(mappingPublic.listFulfillmentPlansForOrderItems).toHaveBeenCalledTimes(1);
+    expect(orderRepository.updateCostCenterStatus).toHaveBeenCalledWith(orderId, 'PRESENT');
+    expect(orderRepository.updatePsdStatus).toHaveBeenCalledWith(orderId, 'PRESENT');
+    expect(orderWorkbenchProjectionService.updateOrderWorkbenchOrder).toHaveBeenCalledWith(orderId, expect.objectContaining({
+      costCenterStatus: 'PRESENT', psdStatus: 'PRESENT', hasCurrentPsd: true,
+    }));
+  });
+
   test('refreshes PSD status for every order that uses an updated listing', async () => {
     const listingVariantId = '660000000000000000000901';
     orderItemRepository.listOrderIdsByListingId.mockResolvedValueOnce([orderId, 'order-2']);

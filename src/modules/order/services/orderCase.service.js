@@ -81,8 +81,9 @@ async function loadCase(caseId, permission, authContext) {
   assertValidObjectId(caseId, 'caseId');
   const orderCase = await repository.findById(caseId);
   if (!orderCase) throw notFound('Order case not found');
-  if (permission === ORDER_READ_PERMISSION) orderAccess.assertCanReadShop(orderCase.shopId, authContext);
-  else orderAccess.assertCanWriteShop(orderCase.shopId, authContext);
+  const order = await loadOrder(orderCase.orderId);
+  if (permission === ORDER_READ_PERMISSION) await orderAccess.assertCanReadOrder(order, authContext);
+  else await orderAccess.assertCanWriteOrder(order, authContext);
   return orderCase;
 }
 
@@ -151,20 +152,20 @@ async function getOrderCase(caseId, authContext = {}) {
 
 async function createOrderCase(payload = {}, authContext = {}) {
   const order = await loadOrder(payload.orderId);
-  orderAccess.assertCanWriteShop(order.shopId, authContext);
+  await orderAccess.assertCanWriteOrder(order, authContext);
   await assertOrderItemBelongsToOrder(payload.orderItemId, payload.orderId);
 
   const result = await withOrderOperation(async (session) => {
     const created = await repository.create({
-    orderId: payload.orderId,
-    orderItemId: payload.orderItemId || null,
-    shopId: order.shopId,
-    status: orderCaseStatuses.OPEN,
-    severity: payload.severity || 'MEDIUM',
-    caseType: payload.caseType || 'OTHER',
-    title: payload.title,
-    description: payload.description || null,
-    createdBy: authContext.accountId || null,
+      orderId: payload.orderId,
+      orderItemId: payload.orderItemId || null,
+      shopId: order.shopId,
+      status: orderCaseStatuses.OPEN,
+      severity: payload.severity || 'MEDIUM',
+      caseType: payload.caseType || 'OTHER',
+      title: payload.title,
+      description: payload.description || null,
+      createdBy: authContext.accountId || null,
     }, { session });
     await orderRepository.updateCaseStatus(payload.orderId, caseStatuses.OPEN, { session });
     await syncWorkbenchCase(payload.orderId, created, caseStatuses.OPEN, session);
@@ -261,8 +262,12 @@ async function resolveOrderCase(caseId, payload = {}, authContext = {}) {
     message: 'A case was resolved for an assigned order.',
     deduplicationScope: caseId,
   });
-  await orderProductionRecheckService.recheckProductionForOrder(orderCase.orderId, authContext, 'ORDER_CASE_RESOLVED');
-  return result;
+  const productionRecheck = await orderProductionRecheckService.recheckProductionForOrder(
+    orderCase.orderId,
+    authContext,
+    'ORDER_CASE_RESOLVED',
+  );
+  return { ...result, productionRecheck };
 }
 
 async function cancelOrderCase(caseId, payload = {}, authContext = {}) {
@@ -294,8 +299,12 @@ async function cancelOrderCase(caseId, payload = {}, authContext = {}) {
     message: 'A case was cancelled for an assigned order.',
     deduplicationScope: caseId,
   });
-  await orderProductionRecheckService.recheckProductionForOrder(orderCase.orderId, authContext, 'ORDER_CASE_CANCELLED');
-  return result;
+  const productionRecheck = await orderProductionRecheckService.recheckProductionForOrder(
+    orderCase.orderId,
+    authContext,
+    'ORDER_CASE_CANCELLED',
+  );
+  return { ...result, productionRecheck };
 }
 
 async function addOrderCaseComment(caseId, payload = {}, authContext = {}) {

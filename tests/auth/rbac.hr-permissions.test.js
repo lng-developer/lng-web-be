@@ -43,6 +43,7 @@ describe('HR RBAC seed', () => {
       'HR_OVERTIME:APPROVE',
     ]));
     expect(rolePermissions.LEADER).toEqual(expect.arrayContaining([
+      'HR_EMPLOYEES:READ',
       'HR_SCHEDULE:READ',
       'HR_ATTENDANCE:READ',
       'HR_LEAVE:READ',
@@ -50,6 +51,12 @@ describe('HR RBAC seed', () => {
       'HR_OVERTIME:READ',
       'HR_OVERTIME:APPROVE',
     ]));
+    expect(rolePermissions.LEADER).not.toContain('TEAMS:READ');
+    expect(rolePermissions.LEADER).not.toContain('TEAMS:WRITE');
+    expect(rolePermissions.LEADER).not.toContain('HR_SCHEDULE:WRITE');
+    expect(rolePermissions.LEADER).not.toContain('HR_ATTENDANCE:MANAGE');
+    expect(rolePermissions.LEADER).not.toContain('HR_PAYROLL:READ');
+    expect(rolePermissions.LEADER).not.toContain('HR_COMPENSATION:READ');
     expect(rolePermissions.USER.filter((code) => code.startsWith('HR_'))).toEqual([
       'HR_ATTENDANCE:WRITE',
       'HR_LEAVE:WRITE',

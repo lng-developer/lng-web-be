@@ -309,6 +309,9 @@ describe('vendorSubmission.service', () => {
       auditActorType: 'ACCOUNT',
       auditSource: 'HTTP',
     }));
+    expect(shipmentPublic.ensureFromVendorSubmission).toHaveBeenCalledWith(submissionId, expect.objectContaining({
+      accountId: actorId,
+    }));
     expect(result.status).toBe('SUBMITTED');
   });
 

@@ -5,6 +5,7 @@ const { connectRedis, disconnectRedis } = require('./config/redis');
 const { startFulfillmentSideEffectWorker } = require('./modules/mapping/workers/fulfillmentSideEffect.worker');
 const { startFinanceSnapshotWorker } = require('./modules/finance/workers/financeSnapshot.worker');
 const { startFinanceImportWorker } = require('./modules/finance/workers/financeImport.worker');
+const { startOrderRecheckJobWorker } = require('./modules/order/workers/orderRecheckJob.worker');
 const {
   startExternalOrderImportWorkers,
   stopExternalOrderImportWorkers,
@@ -47,6 +48,7 @@ async function bootstrap() {
     importWorkers.push(startFulfillmentSideEffectWorker());
     importWorkers.push(startFinanceSnapshotWorker());
     importWorkers.push(startFinanceImportWorker());
+    importWorkers.push(startOrderRecheckJobWorker());
     startPostImportMappingRecoveryScheduler();
   } else {
     logger.warn('redis_connection_disabled');

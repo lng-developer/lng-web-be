@@ -12,6 +12,14 @@ jest.mock('../../../src/modules/auth/public', () => {
       next();
     },
     authorizeAnyPermission: (...permissions) => (req, _res, next) => (
+      permissions.some((permission) => [
+        ...(req.auth.permissions || []),
+        ...(req.auth.scopes || []).flatMap((scope) => scope.permissions || []),
+      ].includes(permission))
+        ? next()
+        : next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR))
+    ),
+    authorizeAnyGlobalPermission: (...permissions) => (req, _res, next) => (
       permissions.some((permission) => (req.auth.permissions || []).includes(permission))
         ? next()
         : next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR))
@@ -44,7 +52,7 @@ function createServer() {
   return http.createServer(app);
 }
 
-function request(server, { method, path, permissions = [], body }) {
+function request(server, { method, path, permissions = [], authContext, body }) {
   return new Promise((resolve, reject) => {
     server.listen(0, () => {
       const payload = body ? JSON.stringify(body) : undefined;
@@ -53,7 +61,7 @@ function request(server, { method, path, permissions = [], body }) {
         port: server.address().port,
         path,
         headers: {
-          'X-Auth-Context': JSON.stringify({ accountId: '660000000000000000000002', permissions }),
+          'X-Auth-Context': JSON.stringify(authContext || { accountId: '660000000000000000000002', permissions }),
           ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
         },
       }, (res) => {
@@ -75,6 +83,23 @@ function request(server, { method, path, permissions = [], body }) {
 
 describe('overtime routes', () => {
   beforeEach(() => jest.clearAllMocks());
+
+  test('allows a team-scoped overtime reader to reach the scoped list service', async () => {
+    service.listRequests.mockResolvedValue({ items: [], pagination: { page: 1, limit: 20, total: 0 } });
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/overtime-requests',
+      authContext: {
+        accountId: '660000000000000000000002',
+        permissions: [],
+        scopes: [{ scopeType: 'team', scopeId: '660000000000000000000004', permissions: ['HR_OVERTIME:READ'] }],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.listRequests).toHaveBeenCalledWith({}, expect.objectContaining({ scopes: expect.any(Array) }));
+  });
 
   test('stores overtime durations as integer minutes and protects active minute conflicts', async () => {
     const requestModel = new OvertimeRequest({
@@ -211,6 +236,23 @@ describe('overtime routes', () => {
       { approvedMinutes: 90 },
       expect.objectContaining({ accountId: '660000000000000000000002' }),
     );
+  });
+
+  test('allows a team-scoped leader to reach overtime decisions', async () => {
+    service.approveRequest.mockResolvedValue({ id: 'ot-1', status: 'APPROVED', approvedMinutes: 90 });
+
+    const response = await request(createServer(), {
+      method: 'POST',
+      path: '/overtime-requests/660000000000000000000010/approve',
+      authContext: {
+        accountId: '660000000000000000000002',
+        permissions: [],
+        scopes: [{ scopeType: 'team', scopeId: '660000000000000000000004', permissions: ['HR_OVERTIME:APPROVE'] }],
+      },
+      body: { approvedMinutes: 90 },
+    });
+
+    expect(response.statusCode).toBe(200);
   });
 
   test('forwards reject and cancel lifecycle decisions', async () => {

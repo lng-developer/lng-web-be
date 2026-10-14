@@ -17,6 +17,8 @@ jobs:
   core-test:
     name: Core test ${{ matrix.shard }}/2
     runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --experimental-vm-modules
     strategy:
       fail-fast: false
       matrix:
@@ -27,6 +29,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - run: npm i -g npm@11.6.2
       - run: npm ci
       - name: Run core Jest shard
         shell: bash
@@ -48,12 +51,15 @@ jobs:
   windows-powershell-test:
     name: Windows PowerShell test
     runs-on: windows-latest
+    env:
+      NODE_OPTIONS: --experimental-vm-modules
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
+      - run: npm i -g npm@11.6.2
       - run: npm ci
       - run: npx jest tests/hr/scripts/hrCutoverTools.test.js --runInBand --silent
 
@@ -80,23 +86,22 @@ jobs:
 
       - name: Install dependencies and build in workspace
         run: |
-          npm install
+          npx --yes npm@11.6.2 ci
           npm run build --if-present
 
       - name: Pull production folder
         working-directory: /home/lng/apps/lng-web-be
         run: |
-          git fetch origin --prune
-          git checkout develop
-          git pull --ff-only origin develop
+          git fetch origin --prune "${{ github.sha }}"
+          git checkout --detach "${{ github.sha }}"
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
           git rev-parse HEAD > .release
           git log -1 --oneline > .release-info
 
       - name: Install production dependencies
         working-directory: /home/lng/apps/lng-web-be
         run: |
-          npm install --omit=dev
-          git checkout -- package-lock.json
+          npx --yes npm@11.6.2 ci --omit=dev
 
       - name: Create finance import indexes
         working-directory: /home/lng/apps/lng-web-be

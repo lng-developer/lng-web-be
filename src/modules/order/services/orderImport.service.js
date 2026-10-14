@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const { isDuplicateKeyError } = require('../../../shared/utils/mongo');
 const shopPublic = require('../../shop/public');
 const hrPublic = require('../../hr/public');
+const catalogPublic = require('../../catalog/public');
 const logger = require('../../../shared/utils/logger');
 const { orderTimelineEventTypes } = require('../constants/orderTimelineEventTypes');
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
@@ -241,6 +242,27 @@ async function upsertItem({ item, dto, identity, orderId, importSources, now }) 
   return { orderItem, created: false, updated: true };
 }
 
+async function ensureImportedAmazonListing({ item, orderItem, dto, identity }) {
+  if (identity.salesChannelCode !== 'AMAZON') return orderItem;
+  const asin = (normalizeTrimmed(item.asin) || '').toUpperCase();
+  const sku = (normalizeTrimmed(item.sku || orderItem.sku) || '').toUpperCase();
+  const title = normalizeTrimmed(item.title || orderItem.title) || '';
+  if (!/^[A-Z0-9]{10}$/.test(asin) || !sku || !title) return orderItem;
+
+  const listing = await catalogPublic.findOrCreateDraftListingForOrderItem({
+    shopId: dto.shopId,
+    salesChannelCode: identity.salesChannelCode,
+    marketplaceCode: identity.marketplaceCode,
+    asin,
+    sku,
+    title,
+    currency: item.price?.currency || dto.currency || null,
+  }, { system: true, source: 'ORDER_IMPORT' });
+  const listingId = getEntityId(listing);
+  if (!listingId || String(orderItem.listingId || '') === String(listingId)) return orderItem;
+  return orderItemRepository.updateListingId(getEntityId(orderItem), listingId);
+}
+
 async function importExternalOrder(externalOrderDto = {}) {
   validateDto(externalOrderDto);
   const importSources = getImportSources(externalOrderDto);
@@ -283,6 +305,12 @@ async function importExternalOrder(externalOrderDto = {}) {
       importSources,
       now,
     });
+    result.orderItem = await ensureImportedAmazonListing({
+      item,
+      orderItem: result.orderItem,
+      dto: externalOrderDto,
+      identity,
+    });
 
     await appendImportTimeline({
       order,
@@ -311,7 +339,10 @@ async function importExternalOrder(externalOrderDto = {}) {
 
   await orderReadinessService.updateCostCenterStatusForOrder(orderId);
   await orderReadinessService.updatePsdStatusForOrder(orderId);
-  await orderWorkbenchProjectionService.upsertOrderWorkbenchBase(order, persistedItems);
+  await orderWorkbenchProjectionService.rebuildOrderWorkbenchProjection(orderId, {
+    system: true,
+    permissions: ['ORDERS:READ'],
+  }, { source: 'ORDER_IMPORT' });
   await syncWorkbenchSellers(orderId, persistedItems, sellerProfiles);
   await projectCustomerSnapshot(externalOrderDto, identity, order, itemResults);
   const financePublic = require('../../finance/public');

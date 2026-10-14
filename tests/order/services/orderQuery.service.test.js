@@ -330,11 +330,11 @@ describe('orderQuery.service summary and expanded reads', () => {
     }
   });
 
-  test('forces a non-shop scoped reader to their own assigned orders', async () => {
+  test('forces an own-scoped reader to their assigned orders', async () => {
     const authContext = {
       accountId: '660000000000000000000901',
       permissions: [],
-      scopes: [{ scopeType: 'team', scopeId: '660000000000000000000801', permissions: ['ORDERS:READ'] }],
+      scopes: [{ scopeType: 'own', scopeId: null, permissions: ['ORDERS:READ'] }],
     };
 
     await service.listOrders({}, authContext);

@@ -167,6 +167,31 @@ function authorizeAnyPermission(...candidatePermissions) {
   return middleware;
 }
 
+function authorizeAnyGlobalPermission(...candidatePermissions) {
+  const normalizedPermissions = normalizeValues(candidatePermissions);
+
+  const middleware = function authorizeAnyGlobalPermissionMiddleware(req, res, next) {
+    const grantedPermissions = [
+      ...(req.auth?.permissions || []),
+      ...((req.auth?.scopes || [])
+        .filter((scope) => String(scope.scopeType || '').toLowerCase() !== 'team')
+        .filter(isScopeActive)
+        .flatMap((scope) => scope.permissions || [])),
+    ];
+    const hasAnyPermission = isSuperAdmin(req.auth)
+      || normalizedPermissions.some((permission) => grantedPermissions.includes(permission));
+
+    if (!hasAnyPermission) {
+      next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR));
+      return;
+    }
+
+    next();
+  };
+  middleware.authorization = { mode: 'ANY_GLOBAL', permissions: normalizedPermissions };
+  return middleware;
+}
+
 function authorizeRoles(...requiredRoles) {
   const normalizedRoles = normalizeValues(requiredRoles);
 
@@ -192,5 +217,6 @@ module.exports = {
   canAccessScope,
   isSuperAdmin,
   authorizeAnyPermission,
+  authorizeAnyGlobalPermission,
   authorizeRoles,
 };

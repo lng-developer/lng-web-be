@@ -1,6 +1,8 @@
 jest.mock('../../../src/modules/order/models/orderWorkbenchProjection.model', () => ({
   aggregate: jest.fn(),
+  findOne: jest.fn(),
   findOneAndUpdate: jest.fn(),
+  updateMany: jest.fn(),
   find: jest.fn(),
   countDocuments: jest.fn(),
 }));
@@ -24,6 +26,26 @@ describe('orderWorkbenchProjection.repository', () => {
         arrayFilters: [{ 'item.orderItemId': 'item-1' }],
         returnDocument: 'after',
       }),
+    );
+  });
+
+  test('reads one projection by order id', async () => {
+    const chain = { lean: jest.fn().mockResolvedValue({ orderId: 'order-1' }) };
+    OrderWorkbenchProjection.findOne.mockReturnValue(chain);
+
+    await expect(repository.findByOrderId('order-1')).resolves.toEqual({ orderId: 'order-1' });
+    expect(OrderWorkbenchProjection.findOne).toHaveBeenCalledWith({ orderId: 'order-1' });
+  });
+
+  test('materializes a legacy null listing snapshot when syncing a Listing image', async () => {
+    OrderWorkbenchProjection.updateMany.mockResolvedValue({ modifiedCount: 1 });
+
+    await repository.setListingImageByListingId('660000000000000000000003', 'https://example.com/listing.jpg');
+
+    expect(OrderWorkbenchProjection.updateMany).toHaveBeenCalledWith(
+      { 'items.item.listingId': expect.anything() },
+      [expect.objectContaining({ $set: expect.objectContaining({ items: expect.objectContaining({ $map: expect.any(Object) }) }) })],
+      expect.objectContaining({ runValidators: true, updatePipeline: true }),
     );
   });
 

@@ -29,6 +29,7 @@ function buildProfileOperations(users, accounts) {
             status: hrEmployeeStatuses.ACTIVE,
             employmentType: hrEmploymentTypes.FULL_TIME,
             workMode: hrWorkModes.ONSITE,
+            isProfileUpdated: true,
             isDeleted: false,
             deletedAt: null,
           },
@@ -71,4 +72,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { buildProfileOperations, seedHrDemoProfiles };
+module.exports = { buildProfileOperations, seedHrDemoProfiles, run };

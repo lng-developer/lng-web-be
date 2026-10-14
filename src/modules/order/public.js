@@ -9,6 +9,7 @@ const orderItemStatusTransitionService = require('./services/orderItemStatusTran
 const orderWorkflowService = require('./services/orderWorkflow.service');
 const orderCaseService = require('./services/orderCase.service');
 const orderWorkbenchProjectionService = require('./services/orderWorkbenchProjection.service');
+const orderRecheckJobService = require('./services/orderRecheckJob.service');
 const { addressValidationStatuses } = require('./constants/orderStatuses');
 
 const publicPort = {
@@ -18,6 +19,7 @@ const publicPort = {
   findAssignedOrderIds: orderRepository.findIdsByAssignedStaff,
   findOrderIdsByBuyerSearch: orderRepository.findIdsByBuyerSearch,
   findByExternalIdentity: orderRepository.findByExternalIdentity,
+  findOrderByFinanceIdentity: orderRepository.findByFinanceIdentity,
   findItemById: orderItemRepository.findById,
   findItemIds: orderItemRepository.findIds,
   findItemsByIds: orderItemRepository.findByIds,
@@ -49,6 +51,7 @@ const publicPort = {
   markFulfillmentReady: orderReadinessService.markFulfillmentReady,
   updateCostCenterStatusForOrder: orderCostCenterStatusService.updateCostCenterStatusForOrder,
   updatePsdStatusForOrder: orderCostCenterStatusService.updatePsdStatusForOrder,
+  refreshFulfillmentStatusesForOrder: orderCostCenterStatusService.refreshFulfillmentStatusesForOrder,
   updatePsdStatusesForListing: orderCostCenterStatusService.updatePsdStatusesForListing,
   listTimelineByOrder: orderTimelineService.listByOrder,
   listTimelineByOrderItem: orderTimelineService.listByOrderItem,
@@ -57,6 +60,9 @@ const publicPort = {
   upsertOrderWorkbenchBase: orderWorkbenchProjectionService.upsertOrderWorkbenchBase,
   updateOrderWorkbenchOrder: orderWorkbenchProjectionService.updateOrderWorkbenchOrder,
   updateOrderWorkbenchItem: orderWorkbenchProjectionService.updateOrderWorkbenchItem,
+  syncOrderWorkbenchListingImage: orderWorkbenchProjectionService.syncOrderWorkbenchListingImage,
+  requestRecheckJob: orderRecheckJobService.requestRecheckJob,
+  getRecheckJob: orderRecheckJobService.getRecheckJob,
   addressValidationStatuses,
 };
 

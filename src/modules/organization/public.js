@@ -15,6 +15,7 @@ const publicPort = {
     return (await organizationService.listTeams({ ids: uniqueIds, page: 1, limit: uniqueIds.length })).items;
   },
   listTeamMembers: organizationService.listTeamMembers,
+  listTeamMemberAccess: organizationService.listTeamMemberAccess,
   listTeamsByDepartment: organizationService.listTeamsByDepartment,
   listDesignTeams: organizationService.listDesignTeams,
   listRoleAssignmentSource: organizationService.listRoleAssignmentSource,

@@ -10,10 +10,12 @@ const shopPublic = require('../../src/modules/shop/public');
 
 jest.mock('../../src/modules/auth/public', () => ({
   canAccessScope: jest.fn(),
+  hasTeamQueueScope: jest.fn(() => false),
 }));
 
 jest.mock('../../src/modules/hr/public', () => ({
   getEmployeeProfileByEmployeeCode: jest.fn(),
+  listAssignableProfiles: jest.fn(),
   listEmployeeProfilesByAccountIds: jest.fn(),
   listEmployeeProfilesByEmployeeCodes: jest.fn(),
 }));
@@ -39,6 +41,10 @@ jest.mock('../../src/modules/order/public', () => ({
 }));
 
 jest.mock('../../src/modules/order/repositories/orderItem.repository', () => ({
+  findById: jest.fn(),
+}));
+
+jest.mock('../../src/modules/order/repositories/order.repository', () => ({
   findById: jest.fn(),
 }));
 
@@ -77,6 +83,10 @@ jest.mock('../../src/modules/media/public', () => ({
   getPublicAssetUrl: jest.fn(),
 }));
 
+jest.mock('../../src/modules/workScore/public', () => ({
+  recordProductionScaleScores: jest.fn(),
+}));
+
 jest.mock('../../src/modules/shop/public', () => ({
   findById: jest.fn(),
 }));
@@ -104,6 +114,7 @@ jest.mock('../../src/modules/vendorSubmission/public', () => ({
 }));
 
 jest.mock('../../src/modules/shipment/public', () => ({
+  ensureFromVendorSubmission: jest.fn(),
   getShipmentByOrderItem: jest.fn((...args) => mockShipmentService.getShipmentByOrderItem(...args)),
 }));
 
@@ -167,6 +178,7 @@ jest.mock('../../src/modules/audit/public', () => ({
 
 const mappingRuleService = require('../../src/modules/mapping/services/mappingRule.service');
 const orderItemRepository = require('../../src/modules/order/repositories/orderItem.repository');
+const orderRepository = require('../../src/modules/order/repositories/order.repository');
 const orderItemStatusTransitionService = require('../../src/modules/order/services/orderItemStatusTransition.service');
 const orderTimelineService = require('../../src/modules/order/services/orderTimeline.service');
 const fulfillmentPlanRepository = require('../../src/modules/mapping/repositories/fulfillmentPlan.repository');
@@ -218,6 +230,9 @@ describe('order fulfillment E2E contract', () => {
   const psdScaledAssetId = '660000000000000000200022';
   const customerImageAssetId = '660000000000000000200017';
   const accountId = '660000000000000000200018';
+  const scaleLeaderId = '660000000000000000200023';
+  const scaleWorkerId = '660000000000000000200024';
+  const qcReviewerId = '660000000000000000200025';
 
   const authContext = {
     accountId,
@@ -374,6 +389,9 @@ describe('order fulfillment E2E contract', () => {
 
     authPublic.canAccessScope.mockReturnValue(true);
     hrPublic.getEmployeeProfileByEmployeeCode.mockResolvedValue(null);
+    hrPublic.listAssignableProfiles.mockResolvedValue([
+      { accountId: scaleWorkerId, fullName: 'Scale Worker', employeeCode: 'SC01' },
+    ]);
     hrPublic.listEmployeeProfilesByAccountIds.mockResolvedValue([]);
     hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([]);
     orderPublic.findById.mockImplementation(async () => order);
@@ -396,6 +414,7 @@ describe('order fulfillment E2E contract', () => {
       return item;
     });
     orderItemRepository.findById.mockImplementation(async () => item);
+    orderRepository.findById.mockImplementation(async () => order);
     orderItemStatusTransitionService.transitionItemStatus.mockImplementation(async (_orderItemId, status) => {
       item.status = status;
       return item;
@@ -602,14 +621,30 @@ describe('order fulfillment E2E contract', () => {
     });
     expect(item.status).toBe('NEED_PRODUCTION');
 
-    await productionService.uploadScaledFile(productionTaskId, psdFileCheckId, psdScaledAssetId, authContext);
-    const scaledTask = await productionService.uploadScaledFile(productionTaskId, fileCheckId, scaledAssetId, authContext);
+    await productionService.assignCsTask(productionTaskId, {
+      csAssigneeId: scaleWorkerId,
+    }, {
+      accountId: scaleLeaderId,
+      permissions: ['PRODUCTION:SCALE_ASSIGN'],
+    });
+
+    const scaleAuthContext = {
+      accountId: scaleWorkerId,
+      permissions: ['PRODUCTION:SCALE_WORK'],
+    };
+    const qcAuthContext = {
+      accountId: qcReviewerId,
+      permissions: ['PRODUCTION:QC_REVIEW'],
+    };
+
+    await productionService.uploadScaledFile(productionTaskId, psdFileCheckId, psdScaledAssetId, scaleAuthContext);
+    const scaledTask = await productionService.uploadScaledFile(productionTaskId, fileCheckId, scaledAssetId, scaleAuthContext);
     expect(scaledTask).toMatchObject({
       status: 'NEED_SCALE',
       scaleStatus: 'SCALED',
       qcStatus: 'NOT_READY',
     });
-    const qcPendingTask = await productionService.submitScaleForQc(productionTaskId, authContext);
+    const qcPendingTask = await productionService.submitScaleForQc(productionTaskId, scaleAuthContext);
     expect(qcPendingTask).toMatchObject({
       status: 'QC_PENDING',
       scaleStatus: 'SCALED',
@@ -617,7 +652,7 @@ describe('order fulfillment E2E contract', () => {
     });
     expect(item.status).toBe('IN_PRODUCTION');
 
-    const readyTask = await productionService.submitQc(productionTaskId, { decision: 'PASSED' }, authContext);
+    const readyTask = await productionService.submitQc(productionTaskId, { decision: 'PASSED' }, qcAuthContext);
     expect(readyTask).toMatchObject({
       status: 'READY_TO_SEND_VENDOR',
       qcStatus: 'PASSED',
@@ -857,10 +892,6 @@ describe('order fulfillment E2E contract', () => {
       id: vendorSubmissionId,
       status: 'READY',
       shopId,
-    });
-    expect(authPublic.canAccessScope).toHaveBeenCalledWith(scopedContext, 'PRODUCTION:READ', {
-      scopeType: 'shop',
-      scopeId: shopId,
     });
     expect(authPublic.canAccessScope).toHaveBeenCalledWith(scopedContext, 'VENDOR_SUBMISSIONS:WRITE', {
       scopeType: 'shop',

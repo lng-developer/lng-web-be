@@ -269,6 +269,24 @@ describe('importVendorTemplateRows', () => {
     expect(catalogPublic.findProductTypeGroupByCode).not.toHaveBeenCalled();
   });
 
+  test('uses a valid Product Type Group when importing with unassigned groups allowed', async () => {
+    catalogPublic.findProductTypeGroupByCode.mockResolvedValue({ _id: 'group1', status: 'ACTIVE' });
+    vendorService.findVendorByCode.mockResolvedValue({ _id: 'vendor1' });
+    vendorService.findVendorProductByCode.mockResolvedValue(null);
+    vendorService.createVendorProduct.mockResolvedValue({ id: 'product1' });
+
+    await importVendorTemplateRows({
+      dryRun: false,
+      vendors: [{ code: 'PRINTWAY', name: 'Printway', fulfillmentType: 'POD' }],
+      vendorProducts: [{ vendorCode: 'PRINTWAY', code: 'PRODUCT_1', name: 'Product 1', productTypeGroupCode: 'APPAREL' }],
+      vendorCostCenters: [],
+    });
+
+    expect(vendorService.createVendorProduct).toHaveBeenCalledWith(expect.objectContaining({
+      productTypeGroupId: 'group1',
+    }), { import: true });
+  });
+
   test('preserves the HTTP audit context while importing from the UI', async () => {
     vendorService.findVendorByCode.mockResolvedValue(null);
     vendorService.createVendor.mockResolvedValue({ id: 'vendor1' });

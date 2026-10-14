@@ -30,7 +30,7 @@ describe('orderProductionRecheck.service', () => {
   test('rechecks production for every order item with unblock source', async () => {
     const result = await service.recheckProductionForOrder(orderId, { accountId: 'actor-1' }, 'ORDER_CASE_RESOLVED');
 
-    expect(result).toEqual({ checked: 2, rechecked: 2, failed: 0 });
+    expect(result).toEqual({ checked: 2, rechecked: 2, failed: 0, failures: [] });
     expect(productionPublic.createOrRecheckTaskForOrderItem).toHaveBeenCalledWith(firstItemId, expect.objectContaining({
       accountId: 'actor-1',
       system: true,
@@ -48,7 +48,16 @@ describe('orderProductionRecheck.service', () => {
 
     const result = await service.recheckProductionForOrder(orderId, {}, 'ADDRESS_OVERRIDDEN');
 
-    expect(result).toEqual({ checked: 2, rechecked: 1, failed: 1 });
+    expect(result).toEqual({
+      checked: 2,
+      rechecked: 1,
+      failed: 1,
+      failures: [{
+        orderItemId: secondItemId,
+        code: 'PRODUCTION_RECHECK_FAILED',
+        message: 'Plan is not ready',
+      }],
+    });
     expect(logger.warn).toHaveBeenCalledWith('Production recheck after order unblock skipped', expect.objectContaining({
       orderId,
       orderItemId: secondItemId,

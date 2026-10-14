@@ -93,6 +93,7 @@ describe('Production concurrent mutation persistence', () => {
     });
     customizationPublic.getOrderItemCustomizationView.mockResolvedValue({
       imageAssets: [{ assetId: inputAssetId }],
+      customerInputs: { images: [{ assetId: inputAssetId, slotKey: 'FRONT' }] },
     });
     shopPublic.findById.mockResolvedValue({ _id: shopId, name: 'Shop' });
   }

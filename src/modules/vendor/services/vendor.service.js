@@ -975,8 +975,10 @@ async function searchActiveVendors({ q, limit = 20 } = {}) {
 
 async function listActiveVendorProductsByVendor(vendorId, { productTypeGroupId } = {}) {
   if (productTypeGroupId) assertValidObjectId(productTypeGroupId, 'productTypeGroupId');
-  await assertVendorActive(vendorId);
-  const rows = await productRepository.listActiveByVendor(vendorId, { productTypeGroupId });
+  const [, rows] = await Promise.all([
+    assertVendorActive(vendorId),
+    productRepository.listActiveByVendor(vendorId, { productTypeGroupId }),
+  ]);
   return rows.map((product) => ({
     id: String(product._id || product.id),
     code: product.code,
@@ -985,8 +987,10 @@ async function listActiveVendorProductsByVendor(vendorId, { productTypeGroupId }
 }
 
 async function getVendorProductOptions(productId, { size, color } = {}) {
-  await assertActiveVendorProduct(productId);
-  const rows = await costCenterRepository.listOptionsByProduct(productId);
+  const [, rows] = await Promise.all([
+    assertActiveVendorProduct(productId),
+    costCenterRepository.listOptionsByProduct(productId),
+  ]);
   const hasSize = rows.some((row) => Boolean(row.standardSize));
   const hasColor = rows.some((row) => Boolean(row.standardColor));
   const selectionComplete = (!hasSize || Boolean(size)) && (!hasColor || Boolean(color));
@@ -995,21 +999,23 @@ async function getVendorProductOptions(productId, { size, color } = {}) {
   ));
   const unique = (values) => [...new Set(values.filter(Boolean))].sort();
 
+  const toCandidate = (row) => ({
+    id: String(row._id || row.id),
+    code: row.code,
+    sku: row.sku,
+    size: row.standardSize || null,
+    color: row.standardColor || null,
+    baseCostAmount: row.baseCostAmount,
+    currency: row.currency,
+  });
   return {
     dimensions: { hasSize, hasColor },
     options: {
       sizes: unique(rows.filter((row) => !color || row.standardColor === color).map((row) => row.standardSize)),
       colors: unique(rows.filter((row) => !size || row.standardSize === size).map((row) => row.standardColor)),
     },
-    candidates: (selectionComplete ? matchingRows : []).map((row) => ({
-      id: String(row._id || row.id),
-      code: row.code,
-      sku: row.sku,
-      size: row.standardSize || null,
-      color: row.standardColor || null,
-      baseCostAmount: row.baseCostAmount,
-      currency: row.currency,
-    })),
+    candidates: (selectionComplete ? matchingRows : []).map(toCandidate),
+    allCandidates: rows.map(toCandidate),
   };
 }
 
@@ -1255,6 +1261,13 @@ async function listActiveVendorCostCenters(productId) {
 }
 
 async function listActiveVendorCostCentersByProductIds(productIds = []) {
+  return listActiveCostCentersForProducts(
+    productIds,
+    (activeProductIds) => costCenterRepository.listActiveByProducts(activeProductIds),
+  );
+}
+
+async function listActiveCostCentersForProducts(productIds, listRows) {
   const uniqueProductIds = [...new Set((productIds || []).filter(Boolean).map(String))];
   uniqueProductIds.forEach((productId) => assertValidObjectId(productId, 'vendorProductId'));
   if (!uniqueProductIds.length) return [];
@@ -1263,10 +1276,21 @@ async function listActiveVendorCostCentersByProductIds(productIds = []) {
   const activeProductVendorById = new Map(products
     .filter((product) => product.vendorId && product.vendorId.status === recordStatuses.ACTIVE)
     .map((product) => [toId(product), toId(product.vendorId)]));
-  const activeProductIds = [...activeProductVendorById.keys()];
-
-  const rows = await costCenterRepository.listActiveByProducts(activeProductIds);
+  const rows = await listRows([...activeProductVendorById.keys()]);
   return rows.filter((row) => idEquals(row.vendorId, activeProductVendorById.get(toId(row.vendorProductId))));
+}
+
+async function listActiveVendorCostCenterMatchProbesByProductIds(productIds = []) {
+  return listActiveCostCentersForProducts(
+    productIds,
+    (activeProductIds) => costCenterRepository.listActiveMatchProbesByProducts(activeProductIds),
+  );
+}
+
+async function listActiveVendorCostCentersByIds(costCenterIds = []) {
+  const uniqueCostCenterIds = [...new Set((costCenterIds || []).filter(Boolean).map(String))];
+  uniqueCostCenterIds.forEach((costCenterId) => assertValidObjectId(costCenterId, 'vendorCostCenterId'));
+  return costCenterRepository.listActiveByIds(uniqueCostCenterIds);
 }
 
 function toVendorCostCenterCandidateDto(row = {}) {
@@ -1346,6 +1370,8 @@ module.exports = {
   updateVendorCostCenter,
   listActiveVendorCostCenters,
   listActiveVendorCostCentersByProductIds,
+  listActiveVendorCostCenterMatchProbesByProductIds,
+  listActiveVendorCostCentersByIds,
   searchVendorCostCenters,
   findVendorCostCenterByCode,
   findVendorCostCenterByLegacyId,

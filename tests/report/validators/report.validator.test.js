@@ -26,6 +26,19 @@ test('base report query accepts departmentId', () => {
   expect(result.value.departmentId).toBe('660000000000000000000501');
 });
 
+test('base report query accepts Ads status and attribution filters', () => {
+  const result = validate(baseReportQuerySchema, {
+    adStatus: 'paused',
+    sellerAttributionSource: 'unassigned',
+  });
+
+  expect(result.details).toBeUndefined();
+  expect(result.value).toMatchObject({
+    adStatus: 'PAUSED',
+    sellerAttributionSource: 'UNASSIGNED',
+  });
+});
+
 test('finance report query defaults to order date and only accepts known date bases', () => {
   expect(validate(financeReportQuerySchema, {}).value.dateBasis).toBe('ORDERED_AT');
   expect(validate(financeReportQuerySchema, { dateBasis: 'calculated_at' }).value.dateBasis).toBe('CALCULATED_AT');

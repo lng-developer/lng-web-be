@@ -4,9 +4,11 @@ const mappingRouter = require('../../../src/modules/mapping/routes');
 const errorHandler = require('../../../src/middlewares/errorHandler');
 const service = require('../../../src/modules/mapping/services/fulfillmentPlan.service');
 const ruleService = require('../../../src/modules/mapping/services/mappingRule.service');
+const orderPublic = require('../../../src/modules/order/public');
 
 jest.mock('../../../src/modules/mapping/services/fulfillmentPlan.service');
 jest.mock('../../../src/modules/mapping/services/mappingRule.service');
+jest.mock('../../../src/modules/order/public', () => ({ requestRecheckJob: jest.fn() }));
 
 jest.mock('../../../src/modules/auth/public', () => {
   const AppError = require('../../../src/shared/errors/appError');
@@ -291,8 +293,8 @@ describe('mapping routes', () => {
     }), { permissions: ['MAPPING:READ'] });
   });
 
-  test('POST recheck requires MAPPING:WRITE and calls auto resolver', async () => {
-    service.recheckFulfillmentPlan.mockResolvedValue({ orderItemId, ready: false });
+  test('POST recheck requires MAPPING:WRITE and queues a mapping job', async () => {
+    orderPublic.requestRecheckJob.mockResolvedValue({ id: 'job-1', status: 'QUEUED' });
 
     const forbidden = await request(createServer(), {
       method: 'POST',
@@ -306,10 +308,10 @@ describe('mapping routes', () => {
       path: `/order-items/${orderItemId}/recheck`,
       headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:WRITE'] }) },
     });
-    expect(allowed.statusCode).toBe(200);
-    expect(service.recheckFulfillmentPlan).toHaveBeenCalledWith(
+    expect(allowed.statusCode).toBe(202);
+    expect(orderPublic.requestRecheckJob).toHaveBeenCalledWith(
       orderItemId,
-      { deferSideEffects: true, refreshOrderStatus: true },
+      'MAPPING',
       { permissions: ['MAPPING:WRITE'] },
     );
   });

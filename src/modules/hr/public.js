@@ -59,6 +59,12 @@ async function listAssignableProfiles(query = {}) {
   return profiles.filter((profile) => allowedIds.has(String(profile.accountId))).map(toPublicProfileDto);
 }
 
+async function syncEmployeeProfileTeam(accountId, teamId, { session } = {}) {
+  const profile = await employeeProfileRepository.findByAccountId(accountId, { session });
+  if (!profile) return null;
+  return toPublicProfileDto(await employeeProfileRepository.updateById(profile._id, { teamId: teamId || null }, { session }));
+}
+
 function inDateRange(dateKey, { dateFrom, dateTo } = {}) {
   return (!dateFrom || dateKey >= dateFrom) && (!dateTo || dateKey <= dateTo);
 }
@@ -188,4 +194,5 @@ module.exports = {
   listEmployeeProfilesByAccountIds,
   listEmployeeProfilesByEmployeeCodes,
   listAssignableProfiles,
+  syncEmployeeProfileTeam,
 };

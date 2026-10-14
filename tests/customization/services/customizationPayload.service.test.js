@@ -224,6 +224,12 @@ describe('customizationPayload.service', () => {
       status: customizationStatuses.PARSED,
     }));
     expect(result.orderItemId).toBe('660000000000000000000402');
+    expect(orderPublic.updateOrderWorkbenchItem).toHaveBeenCalledWith(
+      '660000000000000000000302',
+      '660000000000000000000402',
+      expect.objectContaining({ customization: expect.any(Object) }),
+      { source: 'CUSTOMIZATION' },
+    );
   });
 
   test('does not import order public at top-level', () => {

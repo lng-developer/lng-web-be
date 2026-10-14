@@ -12,7 +12,8 @@ const orderItemRecheckService = require('../services/orderItemRecheck.service');
 const orderReplacementService = require('../services/orderReplacement.service');
 const orderItemCancelService = require('../services/orderItemCancel.service');
 const customerExceptionService = require('../services/customerException.service');
-const orderDesignRequestService = require('../services/orderDesignRequest.service');
+const orderWorkbenchProjectionService = require('../services/orderWorkbenchProjection.service');
+const orderRecheckJobService = require('../services/orderRecheckJob.service');
 const {
   toOrderDto,
   toPaginatedOrderDto,
@@ -37,6 +38,7 @@ const {
   orderIdParamSchema,
   listOrderItemsQuerySchema,
   orderItemIdParamSchema,
+  recheckJobIdParamSchema,
   paginationQuerySchema,
   buyerSchema,
   csNoteSchema,
@@ -53,7 +55,6 @@ const {
   createReplacementSchema,
   createOrderReplacementSchema,
   cancelOrderItemSchema,
-  requestDesignFileSchema,
   addOrderCaseCommentSchema,
   customerExceptionsQuerySchema,
   validate,
@@ -97,6 +98,16 @@ async function listOrderWorkbench(req, res) {
   });
 
   res.status(httpStatus.OK).json({ success: true, data: toOrderWorkbenchDto(result) });
+}
+
+async function rebuildOrderWorkbenchProjection(req, res) {
+  const { orderId } = assertValid(orderIdParamSchema, req.params);
+  const result = await orderWorkbenchProjectionService.rebuildOrderWorkbenchProjection(
+    orderId,
+    auditAuth(req),
+    { source: 'HTTP_ORDER_WORKBENCH_REBUILD' },
+  );
+  res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
 async function getOrderSummary(req, res) {
@@ -166,6 +177,12 @@ async function recheckOrderItem(req, res) {
   const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
   const result = await orderItemRecheckService.recheckOrderItem(orderItemId, auditAuth(req));
 
+  res.status(httpStatus.OK).json({ success: true, data: result });
+}
+
+async function getRecheckJob(req, res) {
+  const { jobId } = assertValid(recheckJobIdParamSchema, req.params);
+  const result = await orderRecheckJobService.getRecheckJob(jobId, req.auth);
   res.status(httpStatus.OK).json({ success: true, data: result });
 }
 
@@ -273,7 +290,10 @@ async function resolveOrderCase(req, res) {
   const body = assertValid(resolveOrderCaseSchema, req.body);
   const result = await orderCaseService.resolveOrderCase(caseId, body, auditAuth(req));
 
-  res.status(httpStatus.OK).json({ success: true, data: toOrderCaseDto(result) });
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: { ...toOrderCaseDto(result), productionRecheck: result.productionRecheck || null },
+  });
 }
 
 async function cancelOrderCase(req, res) {
@@ -281,7 +301,10 @@ async function cancelOrderCase(req, res) {
   const body = assertValid(cancelOrderCaseSchema, req.body);
   const result = await orderCaseService.cancelOrderCase(caseId, body, auditAuth(req));
 
-  res.status(httpStatus.OK).json({ success: true, data: toOrderCaseDto(result) });
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: { ...toOrderCaseDto(result), productionRecheck: result.productionRecheck || null },
+  });
 }
 
 async function addOrderCaseComment(req, res) {
@@ -315,7 +338,10 @@ async function overrideAddress(req, res) {
   const body = assertValid(overrideAddressSchema, req.body || {});
   const result = await orderAddressValidationService.overrideAddressValidation(orderId, body, auditAuth(req));
 
-  res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: { ...toOrderDto(result), productionRecheck: result.productionRecheck || null },
+  });
 }
 
 async function assignStaff(req, res) {
@@ -324,14 +350,6 @@ async function assignStaff(req, res) {
   const result = await orderAssignmentService.assignStaff(orderId, assignedStaffIds, auditAuth(req));
 
   res.status(httpStatus.OK).json({ success: true, data: toOrderDto(result) });
-}
-
-async function requestOrderItemPsd(req, res) {
-  const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
-  const body = assertValid(requestDesignFileSchema, req.body || {});
-  const result = await orderDesignRequestService.requestPsdForOrderItem(orderItemId, body, auditAuth(req));
-
-  res.status(httpStatus.CREATED).json({ success: true, data: result });
 }
 
 async function listOrderItemTimeline(req, res) {
@@ -346,6 +364,7 @@ module.exports = {
   listOrders,
   exportOrdersCsv,
   listOrderWorkbench,
+  rebuildOrderWorkbenchProjection,
   listCustomerExceptions,
   getOrderSummary,
   getOrder,
@@ -353,9 +372,9 @@ module.exports = {
   listOrderItems,
   getOrderItem,
   getOrderItemReadiness,
-  requestOrderItemPsd,
   markFulfillmentReady,
   recheckOrderItem,
+  getRecheckJob,
   createReplacementForItem,
   createReplacementForOrder,
   cancelOrderItem,

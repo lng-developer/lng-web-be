@@ -34,6 +34,14 @@ function hasPsd(listing = {}, production = {}) {
   return !psdCheck || Boolean(psdCheck.inputAssetId);
 }
 
+function hasListingPsd(listing = {}) {
+  return Boolean(
+    listing?.psdReadiness?.effectivePsdAssetId
+    || listing?.psdTemplateAssetId
+    || listing?.defaultPsdTemplateAssetId,
+  );
+}
+
 function deriveOrderItemWorkflow({
   item = {},
   order = {},
@@ -77,7 +85,10 @@ function deriveOrderItemWorkflow({
   if (!hasReadyMapping(mapping)) {
     return stage('NEED_MAPPING', workflowOwners.MAPPING, ['MAPPING_NOT_READY'], ['RECHECK_MAPPING']);
   }
-  if (mapping?.checks?.internalTemplate?.ok === false || blockers.includes('TEMPLATE_NOT_FOUND')) {
+  if (
+    (mapping?.checks?.internalTemplate?.ok === false && !hasListingPsd(listing))
+    || blockers.includes('TEMPLATE_NOT_FOUND')
+  ) {
     return stage('NEED_TEMPLATE', workflowOwners.DESIGN, ['TEMPLATE_NOT_FOUND'], ['CREATE_TEMPLATE']);
   }
   if (!hasPsd(listing, production)) {

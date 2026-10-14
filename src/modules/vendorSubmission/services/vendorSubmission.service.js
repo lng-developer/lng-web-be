@@ -506,16 +506,7 @@ async function markSubmitted(submissionId, authContext) {
     action: 'VENDOR_SUBMISSION_SUBMITTED', submission: updated, authContext,
     changes: { status: { from: submission.status, to: vendorSubmissionStatuses.SUBMITTED } },
   });
-  try {
-    await productionPublic.markSentToVendor(
-      String(submission.productionTaskId), submissionId, productionHandoffContext(authContext),
-    );
-  } catch (error) {
-    const sameSubmittedTask = error?.statusCode === httpStatus.CONFLICT
-      && error?.details?.status === 'SENT_TO_VENDOR'
-      && String(error?.details?.vendorSubmissionId || '') === String(submissionId);
-    if (!sameSubmittedTask) throw error;
-  }
+  await repairProductionHandoff(updated, authContext);
   return toVendorSubmissionDto(updated, { detail: true });
 }
 

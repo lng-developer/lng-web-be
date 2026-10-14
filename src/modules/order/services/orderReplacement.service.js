@@ -7,11 +7,12 @@ const { orderStatuses } = require('../constants/orderStatuses');
 const { orderTimelineEventTypes } = require('../constants/orderTimelineEventTypes');
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
 const customizationPublic = require('../../customization/public');
-const mappingPublic = require('../../mapping/public');
 const orderRepository = require('../repositories/order.repository');
 const orderItemRepository = require('../repositories/orderItem.repository');
+const orderCaseRepository = require('../repositories/orderCase.repository');
+const orderWorkbenchProjectionRepository = require('../repositories/orderWorkbenchProjection.repository');
 const orderTimelineService = require('./orderTimeline.service');
-const orderReadinessService = require('./orderCostCenterStatus.service');
+const orderCaseService = require('./orderCase.service');
 const orderWorkbenchProjectionService = require('./orderWorkbenchProjection.service');
 const orderAccess = require('./orderAccess.service');
 const orderNotificationService = require('./orderNotification.service');
@@ -43,13 +44,31 @@ function zeroPrice(currency = 'USD') {
   };
 }
 
-async function nextReplacementSequence(originalOrder, authContext) {
-  const base = originalOrder.externalOrderId;
+async function resolveReplacementRootOrder(originalOrder) {
+  let rootOrder = originalOrder;
+  const visitedOrderIds = new Set();
+  while (rootOrder.replacementOfOrderId) {
+    const orderId = toId(rootOrder);
+    if (!orderId || visitedOrderIds.has(orderId)) {
+      throw conflict('Replacement order lineage is invalid', { orderId });
+    }
+    visitedOrderIds.add(orderId);
+    const parentOrder = await orderRepository.findById(rootOrder.replacementOfOrderId);
+    if (!parentOrder) {
+      throw conflict('Replacement order parent was not found', { orderId, parentOrderId: toId(rootOrder.replacementOfOrderId) });
+    }
+    rootOrder = parentOrder;
+  }
+  return rootOrder;
+}
+
+async function nextReplacementSequence(rootOrder, authContext) {
+  const base = rootOrder.externalOrderId;
   for (let sequence = 1; sequence <= 100; sequence += 1) {
     const externalOrderId = `${base}-R${sequence}`;
     const existing = await orderRepository.findByExternalIdentity({
-      salesChannelCode: originalOrder.salesChannelCode,
-      marketplaceCode: originalOrder.marketplaceCode,
+      salesChannelCode: rootOrder.salesChannelCode,
+      marketplaceCode: rootOrder.marketplaceCode,
       externalOrderId,
     });
     if (!existing) return sequence;
@@ -61,8 +80,8 @@ async function nextReplacementSequence(originalOrder, authContext) {
   });
 }
 
-function buildReplacementOrderPayload(originalOrder, originalItem, { reason, sequence, now }) {
-  const externalOrderId = `${originalOrder.externalOrderId}-R${sequence}`;
+function buildReplacementOrderPayload(originalOrder, rootOrder, originalItem, { reason, sequence, now }) {
+  const externalOrderId = `${rootOrder.externalOrderId}-R${sequence}`;
 
   return {
     shopId: originalOrder.shopId,
@@ -74,7 +93,7 @@ function buildReplacementOrderPayload(originalOrder, originalItem, { reason, seq
     externalAccountId: originalOrder.externalAccountId || null,
     assignedStaffIds: originalOrder.assignedStaffIds || [],
     costCenterStatus: 'MISSING',
-    psdStatus: 'MISSING',
+    psdStatus: originalOrder.psdStatus || 'MISSING',
     paymentStatus: 'UNKNOWN',
     caseStatus: 'NONE',
     importSources: originalOrder.importSources || [],
@@ -95,6 +114,7 @@ function buildReplacementOrderPayload(originalOrder, originalItem, { reason, seq
       replacement: {
         internal: true,
         originalExternalOrderId: originalOrder.externalOrderId,
+        rootExternalOrderId: rootOrder.externalOrderId,
         replacementOfOrderId: toId(originalOrder),
         replacementOfOrderItemId: toId(originalItem),
       },
@@ -149,29 +169,71 @@ function buildReplacementItemPayload(originalItem, replacementOrder, { reason, q
   };
 }
 
-async function recheckReplacementMapping(orderItemId) {
-  try {
-    await mappingPublic.recheckFulfillmentPlan(orderItemId, {}, {
-      system: true,
-      source: 'ORDER_REPLACEMENT',
+function hasPsdSnapshot(item = {}) {
+  if (item.listingVariant?.psdReadiness) return item.listingVariant.psdReadiness.status !== 'MISSING';
+  return Boolean(item.listing?.defaultPsdTemplateAssetId);
+}
+
+async function copyReplacementDisplayContext(originalOrder, originalItems, replacementOrder, replacements) {
+  const source = await orderWorkbenchProjectionRepository.findByOrderId(toId(originalOrder));
+  const sourceItems = new Map((source?.items || []).map((item) => [toId(item.orderItemId), item]));
+  const copiedItems = originalItems.map((originalItem, index) => ({
+    source: sourceItems.get(toId(originalItem)),
+    replacement: replacements[index],
+  })).filter(({ source, replacement }) => source && replacement);
+
+  await Promise.all(copiedItems.map(({ source, replacement }) => {
+    const patch = {};
+    ['seller', 'listing', 'listingVariant'].forEach((field) => {
+      if (source[field]) patch[field] = source[field];
     });
-  } catch (_) {
-    // Replacement creation must not fail after the order/item has already been created.
-  }
+    return Object.keys(patch).length
+      ? orderWorkbenchProjectionService.updateOrderWorkbenchItem(
+        toId(replacementOrder),
+        toId(replacement),
+        patch,
+        { source: 'ORDER_REPLACEMENT' },
+      )
+      : null;
+  }).filter(Boolean));
+
+  const hasCurrentPsd = copiedItems.length === replacements.length
+    && copiedItems.every(({ source }) => hasPsdSnapshot(source));
+  await orderWorkbenchProjectionService.updateOrderWorkbenchOrder(
+    toId(replacementOrder),
+    { psdStatus: originalOrder.psdStatus || 'MISSING', hasCurrentPsd },
+    { source: 'ORDER_REPLACEMENT' },
+  );
+}
+
+async function copyOpenCases(originalOrder, originalItems, replacementOrder, replacements, authContext) {
+  const replacementItemIds = new Map(originalItems.map((item, index) => [toId(item), toId(replacements[index])]));
+  const openCases = await orderCaseRepository.listOpenByOrder(toId(originalOrder));
+  await Promise.all(openCases
+    .filter((orderCase) => !orderCase.orderItemId || replacementItemIds.has(toId(orderCase.orderItemId)))
+    .map((orderCase) => orderCaseService.createOrderCase({
+      orderId: toId(replacementOrder),
+      orderItemId: orderCase.orderItemId ? replacementItemIds.get(toId(orderCase.orderItemId)) : null,
+      caseType: orderCase.caseType,
+      severity: orderCase.severity,
+      title: orderCase.title,
+      description: orderCase.description || null,
+    }, authContext)));
 }
 
 async function createReplacementForItem(orderItemId, payload = {}, authContext = {}) {
   const originalItem = await orderItemRepository.findById(orderItemId);
   if (!originalItem) throw notFound('Order item not found');
-  orderAccess.assertCanWriteShop(originalItem.shopId, authContext);
 
   const originalOrder = await orderRepository.findById(originalItem.orderId);
   if (!originalOrder) throw notFound('Order not found');
-  const sequence = await nextReplacementSequence(originalOrder, authContext);
+  await orderAccess.assertCanWriteOrder(originalOrder, authContext);
+  const rootOrder = await resolveReplacementRootOrder(originalOrder);
+  const sequence = await nextReplacementSequence(rootOrder, authContext);
   const now = new Date();
   let replacementOrder;
   try {
-    replacementOrder = await orderRepository.create(buildReplacementOrderPayload(originalOrder, originalItem, {
+    replacementOrder = await orderRepository.create(buildReplacementOrderPayload(originalOrder, rootOrder, originalItem, {
       reason: payload.reason || null,
       sequence,
       now,
@@ -198,7 +260,7 @@ async function createReplacementForItem(orderItemId, payload = {}, authContext =
     replacementOrderItemId: toId(replacement),
     replacementShopId: toId(replacement.shopId),
   });
-  await recheckReplacementMapping(toId(replacement));
+  await copyOpenCases(originalOrder, [originalItem], replacementOrder, [replacement], authContext);
 
   await orderTimelineService.appendTimeline({
     orderId: replacement.orderId,
@@ -217,8 +279,7 @@ async function createReplacementForItem(orderItemId, payload = {}, authContext =
     },
   });
 
-  await orderReadinessService.updateCostCenterStatusForOrder(replacement.orderId);
-  await orderReadinessService.updatePsdStatusForOrder(replacement.orderId);
+  await copyReplacementDisplayContext(originalOrder, [originalItem], replacementOrder, [replacement]);
   await recordOrderOperation({
     action: 'ORDER_ITEM_REPLACEMENT_CREATED', entityType: 'ORDER_ITEM', entityId: toId(replacement),
     shopId: replacement.shopId, authContext,
@@ -244,7 +305,7 @@ async function createReplacementForItem(orderItemId, payload = {}, authContext =
 async function createReplacementForOrder(orderId, payload = {}, authContext = {}) {
   const originalOrder = await orderRepository.findById(orderId);
   if (!originalOrder) throw notFound('Order not found');
-  orderAccess.assertCanWriteShop(originalOrder.shopId, authContext);
+  await orderAccess.assertCanWriteOrder(originalOrder, authContext);
 
   const selections = payload.items || [];
   const selectedIds = selections.map(({ orderItemId }) => String(orderItemId));
@@ -255,10 +316,12 @@ async function createReplacementForOrder(orderId, payload = {}, authContext = {}
     throw conflict('Replacement items must belong to the selected order');
   }
 
-  const sequence = await nextReplacementSequence(originalOrder, authContext);
+  const rootOrder = await resolveReplacementRootOrder(originalOrder);
+  const sequence = await nextReplacementSequence(rootOrder, authContext);
   const now = new Date();
   const replacementOrder = await orderRepository.create(buildReplacementOrderPayload(
     originalOrder,
+    rootOrder,
     null,
     { reason: payload.reason || null, sequence, now },
   ));
@@ -286,7 +349,6 @@ async function createReplacementForOrder(orderId, payload = {}, authContext = {}
       replacementOrderItemId: toId(replacement),
       replacementShopId: toId(replacement.shopId),
     });
-    await recheckReplacementMapping(toId(replacement));
     await orderTimelineService.appendTimeline({
       orderId: toId(replacementOrder),
       orderItemId: toId(replacement),
@@ -315,8 +377,8 @@ async function createReplacementForOrder(orderId, payload = {}, authContext = {}
     });
   }
 
-  await orderReadinessService.updateCostCenterStatusForOrder(toId(replacementOrder));
-  await orderReadinessService.updatePsdStatusForOrder(toId(replacementOrder));
+  await copyOpenCases(originalOrder, originalItems, replacementOrder, replacements, authContext);
+  await copyReplacementDisplayContext(originalOrder, originalItems, replacementOrder, replacements);
   await orderNotificationService.notifyAssignedStaff({
     order: originalOrder,
     actorAccountId: authContext.accountId || null,

@@ -141,6 +141,11 @@ function buildFilter(query = {}) {
   if (query.status) filter.status = query.status;
   if (query.scaleStatus) filter.scaleStatus = query.scaleStatus;
   if (query.qcStatus) filter.qcStatus = query.qcStatus;
+  if (query.scaleQueueOnly) {
+    const scaleQueueStatuses = [productionTaskStatuses.NEED_SCALE, productionTaskStatuses.QC_REJECTED];
+    filter.status = scaleQueueStatuses.includes(query.status) ? query.status : { $in: scaleQueueStatuses };
+  }
+  if (query.qcQueueOnly) filter.qcStatus = productionQcStatuses.PENDING;
   if (query.view === 'QC') filter.qcStatus = productionQcStatuses.PENDING;
   if (query.view === 'SCALE' && !query.status) {
     filter.status = { $in: [productionTaskStatuses.NEED_SCALE, productionTaskStatuses.QC_REJECTED] };

@@ -12,6 +12,7 @@ describe('productionTask.dto', () => {
       sourceType: 'PSD_TEMPLATE',
       inputAssetId: '660000000000000000000901',
       outputAssetId: '660000000000000000000902',
+      outputWorkerId: '660000000000000000000903',
       scaleStatus: 'NEED_SCALE',
       qcStatus: 'NOT_READY',
     });
@@ -21,6 +22,7 @@ describe('productionTask.dto', () => {
       inputAssetDownloadUrl: '/api/media/assets/660000000000000000000901/download',
       outputAssetId: '660000000000000000000902',
       outputAssetDownloadUrl: '/api/media/assets/660000000000000000000902/download',
+      outputWorkerId: '660000000000000000000903',
       outputStatus: 'UPLOADED',
     });
   });
@@ -40,6 +42,20 @@ describe('productionTask.dto', () => {
     expect(dto.scaleContext.use.psdTemplate).toMatchObject({
       assetId: '660000000000000000000901',
       assetDownloadUrl: '/api/media/assets/660000000000000000000901/download',
+    });
+  });
+
+  test('keeps the main listing image separate from the Amazon customization preview', () => {
+    const dto = toProductionTaskSummaryDto({
+      _id: '660000000000000000100001',
+      listingSnapshot: { productImageUrl: 'https://example.test/main-listing.jpg' },
+      customizationSnapshot: { listingPreviewImageUrl: 'https://example.test/customization-preview.jpg' },
+    });
+
+    expect(dto).toMatchObject({
+      mainListingImageUrl: 'https://example.test/main-listing.jpg',
+      amazonCustomizationPreviewUrl: 'https://example.test/customization-preview.jpg',
+      productImageUrl: 'https://example.test/main-listing.jpg',
     });
   });
 

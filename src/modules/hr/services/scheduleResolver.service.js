@@ -45,6 +45,12 @@ function isValidTimezone(timezone) {
   }
 }
 
+function cached(cache, key, load) {
+  if (!cache) return load();
+  if (!cache.has(key)) cache.set(key, load());
+  return cache.get(key);
+}
+
 function selectOverride(items = []) {
   return items.reduce((selected, item) => (
     !selected || overridePriority[item.scopeType] > overridePriority[selected.scopeType] ? item : selected
@@ -111,44 +117,25 @@ function toShiftSnapshot(shift, durationMinutes) {
   };
 }
 
-async function resolveWorkContext({ profileId, workDateKey } = {}) {
-  if (!profileId || !isValidWorkDateKey(workDateKey)) return unresolved(profileId, workDateKey);
-
-  const profile = await profileRepository.findById(profileId);
-  if (!isActive(profile)) return unresolved(profileId, workDateKey);
-
-  const assignment = await scheduleRepository.findEffectiveAssignment(profileId, workDateKey);
-  if (!isActive(assignment)) return unresolved(profileId, workDateKey);
-
-  const [shift, workLocation] = await Promise.all([
-    scheduleRepository.findShiftById(assignment.shiftId),
-    scheduleRepository.findWorkLocationById(assignment.workLocationId),
-  ]);
+function resolveContext({ profile, assignment, shift, workLocation, calendarOverrides = [], holiday, rotationOff, workDateKey }) {
   const durationMinutes = getShiftDurationMinutes(shift?.startTime, shift?.endTime);
   if (
-    !isActive(shift)
+    !isActive(assignment)
+    || !isActive(shift)
     || !isActive(workLocation)
     || (shift.workLocationId && toId(shift.workLocationId) !== toId(assignment.workLocationId))
     || !isValidTimezone(workLocation.timezone)
     || durationMinutes === null
     || durationMinutes > 960
   ) {
-    return unresolved(profileId, workDateKey);
+    return unresolved(toId(profile), workDateKey);
   }
-
   const context = {
     profileId: toId(profile),
     workLocationId: toId(workLocation),
     departmentId: toId(profile.departmentId),
     teamId: toId(profile.teamId),
   };
-  const [calendarOverrides, holiday, rotationOff] = await Promise.all([
-    scheduleRepository.findCalendarOverrides(workDateKey, context),
-    calendarPolicyRepository.findApplicable({ dateKey: workDateKey, ...context }),
-    context.teamId
-      ? calendarPolicyRepository.isRotationOff(profileId, workDateKey, context.teamId)
-      : false,
-  ]);
   const calendarOverride = selectOverride(calendarOverrides);
   const decision = calendarOverride
     ? getCalendarDecision(calendarOverride, shift, workDateKey)
@@ -157,7 +144,6 @@ async function resolveWorkContext({ profileId, workDateKey } = {}) {
       : rotationOff
         ? { status: 'REST_DAY', isWorkingDay: false }
         : getCalendarDecision(null, shift, workDateKey);
-
   return {
     ...decision,
     profileId: toId(profile),
@@ -176,4 +162,119 @@ async function resolveWorkContext({ profileId, workDateKey } = {}) {
   };
 }
 
-module.exports = { resolveWorkContext };
+function matchesContext(override, context) {
+  if (override.scopeType === 'GLOBAL') return !override.scopeId;
+  const scopeKey = {
+    WORK_LOCATION: 'workLocationId',
+    DEPARTMENT: 'departmentId',
+    TEAM: 'teamId',
+    PROFILE: 'profileId',
+  }[override.scopeType];
+  return Boolean(scopeKey) && toId(override.scopeId) === context[scopeKey];
+}
+
+async function resolveWorkContext({ profileId, workDateKey } = {}, { cache } = {}) {
+  if (!profileId || !isValidWorkDateKey(workDateKey)) return unresolved(profileId, workDateKey);
+
+  const profile = await cached(cache, `profile:${profileId}`, () => profileRepository.findById(profileId));
+  if (!isActive(profile)) return unresolved(profileId, workDateKey);
+
+  const assignment = await scheduleRepository.findEffectiveAssignment(profileId, workDateKey);
+  if (!isActive(assignment)) return unresolved(profileId, workDateKey);
+
+  const [shift, workLocation] = await Promise.all([
+    cached(cache, `shift:${assignment.shiftId}`, () => scheduleRepository.findShiftById(assignment.shiftId)),
+    cached(cache, `workLocation:${assignment.workLocationId}`, () => scheduleRepository.findWorkLocationById(assignment.workLocationId)),
+  ]);
+  const durationMinutes = getShiftDurationMinutes(shift?.startTime, shift?.endTime);
+  if (
+    !isActive(shift)
+    || !isActive(workLocation)
+    || (shift.workLocationId && toId(shift.workLocationId) !== toId(assignment.workLocationId))
+    || !isValidTimezone(workLocation.timezone)
+    || durationMinutes === null
+    || durationMinutes > 960
+  ) {
+    return unresolved(profileId, workDateKey);
+  }
+  const context = {
+    profileId: toId(profile),
+    workLocationId: toId(workLocation),
+    departmentId: toId(profile.departmentId),
+    teamId: toId(profile.teamId),
+  };
+  const [calendarOverrides, holiday, rotationOff] = await Promise.all([
+    scheduleRepository.findCalendarOverrides(workDateKey, context),
+    calendarPolicyRepository.findApplicable({ dateKey: workDateKey, ...context }),
+    context.teamId
+      ? calendarPolicyRepository.isRotationOff(profileId, workDateKey, context.teamId)
+      : false,
+  ]);
+  return resolveContext({ profile, assignment, shift, workLocation, calendarOverrides, holiday, rotationOff, workDateKey });
+}
+
+async function resolveWorkContexts({ profileId, workDateKeys = [] } = {}) {
+  const dateKeys = [...new Set(workDateKeys.filter(isValidWorkDateKey))];
+  if (!profileId || !dateKeys.length) return dateKeys.map((workDateKey) => unresolved(profileId, workDateKey));
+  const profile = await profileRepository.findById(profileId);
+  if (!isActive(profile)) return dateKeys.map((workDateKey) => unresolved(profileId, workDateKey));
+
+  const dateFrom = dateKeys[0];
+  const dateTo = dateKeys.at(-1);
+  const profileContext = {
+    profileId: toId(profile),
+    departmentId: toId(profile.departmentId),
+    teamId: toId(profile.teamId),
+  };
+  const [assignments, holidays, rotations] = await Promise.all([
+    scheduleRepository.listAssignmentsEffectiveForProfiles([profileId], dateFrom, dateTo),
+    calendarPolicyRepository.listHolidayRange({ dateFrom, dateTo, departmentId: profileContext.departmentId, teamId: profileContext.teamId }),
+    profileContext.teamId
+      ? calendarPolicyRepository.listRotationsForProfileDates(profileId, profileContext.teamId, dateKeys)
+      : [],
+  ]);
+  const activeAssignments = assignments.filter(isActive);
+  const [shifts, workLocations] = await Promise.all([
+    scheduleRepository.findShiftsByIds(activeAssignments.map((assignment) => assignment.shiftId)),
+    scheduleRepository.findWorkLocationsByIds(activeAssignments.map((assignment) => assignment.workLocationId)),
+  ]);
+  const shiftsById = new Map(shifts.map((shift) => [toId(shift), shift]));
+  const workLocationsById = new Map(workLocations.map((location) => [toId(location), location]));
+  const contexts = activeAssignments.map((assignment) => ({
+    ...profileContext,
+    workLocationId: toId(assignment.workLocationId),
+  }));
+  const overrides = await scheduleRepository.findCalendarOverridesForDates(dateKeys, contexts);
+  const overridesByDate = new Map();
+  overrides.forEach((override) => {
+    const items = overridesByDate.get(override.dateKey) || [];
+    items.push(override);
+    overridesByDate.set(override.dateKey, items);
+  });
+  const holidaysByDate = new Map(holidays.map((holiday) => [holiday.dateKey, holiday]));
+  const rotationDates = new Set(rotations.map((rotation) => rotation.workDateKey));
+
+  return dateKeys.map((workDateKey) => {
+    const assignment = activeAssignments.find((item) => (
+      item.effectiveFrom <= workDateKey && (!item.effectiveTo || item.effectiveTo >= workDateKey)
+    ));
+    if (!assignment) return unresolved(profileId, workDateKey);
+    const shift = shiftsById.get(toId(assignment.shiftId));
+    const workLocation = workLocationsById.get(toId(assignment.workLocationId));
+    const context = { ...profileContext, workLocationId: toId(assignment.workLocationId) };
+    const calendarOverrides = (overridesByDate.get(workDateKey) || [])
+      .filter((override) => matchesContext(override, context));
+    return resolveContext({
+      profile,
+      assignment,
+      shift,
+      workLocation,
+      calendarOverrides,
+      holiday: holidaysByDate.get(workDateKey) || null,
+      rotationOff: rotationDates.has(workDateKey),
+      workDateKey,
+    });
+  });
+}
+
+module.exports = { resolveWorkContext, resolveWorkContexts };

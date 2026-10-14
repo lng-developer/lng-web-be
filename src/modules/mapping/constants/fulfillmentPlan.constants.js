@@ -92,6 +92,7 @@ const productTypeCodeReplacements = Object.freeze([
 
 const fulfillmentTimelineEvents = Object.freeze({
   PLAN_READY: 'FULFILLMENT_PLAN_READY',
+  PLAN_RECHECKED: 'FULFILLMENT_PLAN_RECHECKED',
   MANUAL_VENDOR_MATCHED: 'MANUAL_VENDOR_MATCHED',
   PLAN_BLOCKED: 'FULFILLMENT_PLAN_BLOCKED',
 });

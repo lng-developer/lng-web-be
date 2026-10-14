@@ -52,6 +52,11 @@ function buildFilter(query = {}) {
     };
   }
   if (query.unassigned) filter.assignedDesignerId = null;
+  if (query.requestedByAccountId) filter.requestedByAccountId = toObjectId(query.requestedByAccountId);
+  if (query.requestedByAccountIds) {
+    if (!query.requestedByAccountIds.length) return emptyFilter();
+    filter.requestedByAccountId = { $in: query.requestedByAccountIds.map(toObjectId) };
+  }
   if (query.dateFrom || query.dateTo) {
     filter.createdAt = {};
     if (query.dateFrom) filter.createdAt.$gte = new Date(query.dateFrom);

@@ -20,6 +20,16 @@ jest.mock('../../../src/modules/auth/public', () => {
         ? next()
         : next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR))
     ),
+    authorizeAnyGlobalPermission: (...permissions) => (req, _res, next) => (
+      permissions.some((permission) => [
+        ...(req.auth.permissions || []),
+        ...(req.auth.scopes || [])
+          .filter((scope) => String(scope.scopeType || '').toLowerCase() !== 'team')
+          .flatMap((scope) => scope.permissions || []),
+      ].includes(permission))
+        ? next()
+        : next(new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR))
+    ),
     authorizeScopedPermission: (permission, scope) => (req, _res, next) => (
       scope?.scopeType === 'global' && (req.auth.permissions || []).includes(permission)
         ? next()
@@ -139,8 +149,8 @@ describe('employee profile routes', () => {
         headers: { 'X-Auth-Context': JSON.stringify(auth) },
       });
 
-      expect(response.statusCode).toBe(200);
-      expect(service.listProfiles).toHaveBeenCalledWith({ page: 1, limit: 20 }, auth);
+      expect(response.statusCode).toBe(403);
+      expect(service.listProfiles).not.toHaveBeenCalled();
     },
   );
 

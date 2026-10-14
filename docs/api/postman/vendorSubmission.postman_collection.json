@@ -496,6 +496,40 @@
       ]
     },
     {
+      "name": "Export.csv",
+      "item": [
+        {
+          "name": "GET /api/vendor-submissions/export.csv",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): VENDOR_SUBMISSIONS:READ.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vendor-submissions/export.csv",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "vendor-submissions",
+                "export.csv"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "From Production Tasks",
       "item": [
         {
