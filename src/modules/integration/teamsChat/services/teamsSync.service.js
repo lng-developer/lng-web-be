@@ -576,22 +576,31 @@ async function ensureWebhookSubscription() {
 
   const active = await teamsSubscriptionRepository.findActiveSubscription();
   if (active) {
-    const msUntilExpiry = new Date(active.expirationDateTime).getTime() - Date.now();
-    if (msUntilExpiry > 15 * 60 * 1000) {
-      return { status: 'ACTIVE', subscription: active };
-    }
+    if (active.notificationUrl && active.notificationUrl !== config.teams.webhookUrl) {
+      try {
+        await graphClient.deleteSubscription(active.subscriptionId);
+      } catch (_err) {
+        // ignore if already deleted on Graph
+      }
+      await teamsSubscriptionRepository.updateStatus(active.subscriptionId, 'SUPERSEDED');
+    } else {
+      const msUntilExpiry = new Date(active.expirationDateTime).getTime() - Date.now();
+      if (msUntilExpiry > 15 * 60 * 1000) {
+        return { status: 'ACTIVE', subscription: active };
+      }
 
-    try {
-      const expirationDateTime = new Date(Date.now() + 55 * 60 * 1000).toISOString();
-      const res = await graphClient.renewSubscription(active.subscriptionId, { expirationDateTime });
-      const saved = await teamsSubscriptionRepository.saveSubscription({
-        ...active,
-        expirationDateTime: new Date(res?.expirationDateTime || expirationDateTime),
-        status: 'ACTIVE',
-      });
-      return { status: 'RENEWED', subscription: saved };
-    } catch (_err) {
-      await teamsSubscriptionRepository.updateStatus(active.subscriptionId, 'EXPIRED');
+      try {
+        const expirationDateTime = new Date(Date.now() + 55 * 60 * 1000).toISOString();
+        const res = await graphClient.renewSubscription(active.subscriptionId, { expirationDateTime });
+        const saved = await teamsSubscriptionRepository.saveSubscription({
+          ...active,
+          expirationDateTime: new Date(res?.expirationDateTime || expirationDateTime),
+          status: 'ACTIVE',
+        });
+        return { status: 'RENEWED', subscription: saved };
+      } catch (_err) {
+        await teamsSubscriptionRepository.updateStatus(active.subscriptionId, 'EXPIRED');
+      }
     }
   }
 
