@@ -68,7 +68,14 @@ async function resolveUserEntraId(accountId) {
 async function resolveAccountForEntraUser({ entraUserId, email, displayName, tenantId = null, userType = TEAMS_USER_TYPES.INTERNAL }) {
   if (entraUserId) {
     const existing = await teamsUserMappingRepository.findByEntraUserId(entraUserId);
-    if (existing?.accountId) return existing.accountId;
+    if (existing?.accountId) {
+      try {
+        const current = await authPublic.getCurrentAccount(existing.accountId);
+        if (current?.account) return existing.accountId;
+      } catch (_err) {
+        // Account might have been deleted/recreated, fall through
+      }
+    }
   }
 
   const account = await authPublic.ensureTeamsAccount({
@@ -527,7 +534,7 @@ async function processInboundWebhookNotification(notification = {}) {
       mentions: [],
       ...(messageDetails.createdDateTime ? { createdAt: new Date(messageDetails.createdDateTime) } : {}),
     },
-    { accountId: senderAccountId },
+    { accountId: senderAccountId, isSystem: true },
     { source: 'TEAMS_INBOUND' },
   );
 
@@ -686,7 +693,7 @@ async function syncInboundMessagesForConversation({ conversationId, limit = 30 }
           mentions: [],
           createdAt: msg.createdDateTime ? new Date(msg.createdDateTime) : undefined,
         },
-        { accountId: senderAccountId },
+        { accountId: senderAccountId, isSystem: true },
         { source: 'TEAMS_INBOUND' },
       );
 
