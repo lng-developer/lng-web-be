@@ -631,7 +631,7 @@ describe('Teams chat synchronization service', () => {
       const result = await teamsSyncService.ensureWebhookSubscription();
 
       expect(graphClient.deleteSubscription).toHaveBeenCalledWith('old-sub-id');
-      expect(teamsSubscriptionRepository.updateStatus).toHaveBeenCalledWith('old-sub-id', 'SUPERSEDED');
+      expect(teamsSubscriptionRepository.updateStatus).toHaveBeenCalledWith('old-sub-id', 'REVOKED');
       expect(graphClient.createSubscription).toHaveBeenCalled();
       expect(teamsSubscriptionRepository.saveSubscription).toHaveBeenCalled();
       expect(result.status).toBe('CREATED');
