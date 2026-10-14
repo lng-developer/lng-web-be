@@ -102,6 +102,32 @@ describe('Teams chat synchronization service', () => {
     config.teams.enabled = true;
   });
 
+  test('repairs a stale Teams mapping from the canonical Microsoft account', async () => {
+    authPublic.findAccountByMicrosoftId.mockResolvedValueOnce({ id: 'current-account', email: 'user@example.com' });
+    teamsUserMappingRepository.findByEntraUserId.mockResolvedValueOnce({ accountId: 'deleted-account' });
+    const result = await teamsSyncService.resolveAccountForEntraUser({ entraUserId: 'entra-user' });
+    expect(result).toBe('current-account');
+    expect(teamsUserMappingRepository.upsertMapping).toHaveBeenCalledWith(expect.objectContaining({
+      accountId: 'current-account', entraUserId: 'entra-user', email: 'user@example.com',
+    }));
+  });
+
+  test.each(['notificationUrl', 'clientState'])('replaces a subscription with changed %s', async (field) => {
+    const repository = require('../../../src/modules/integration/teamsChat/repositories/teamsSubscription.repository');
+    repository.findActiveSubscription.mockResolvedValueOnce({
+      subscriptionId: 'old-sub', notificationUrl: config.teams.webhookUrl,
+      clientState: config.teams.webhookClientState,
+      expirationDateTime: new Date(Date.now() + 3600000), [field]: 'outdated',
+    });
+    graphClient.createSubscription.mockResolvedValueOnce({ id: 'new-sub' });
+    await teamsSyncService.ensureWebhookSubscription();
+    expect(graphClient.deleteSubscription).toHaveBeenCalledWith('old-sub');
+    expect(repository.updateStatus).toHaveBeenCalledWith('old-sub', 'REVOKED');
+    expect(graphClient.createSubscription).toHaveBeenCalledWith(expect.objectContaining({
+      notificationUrl: config.teams.webhookUrl, clientState: config.teams.webhookClientState,
+    }));
+  });
+
   describe('Outbound dispatch (Portal -> Teams)', () => {
     test('skips dispatch when feature flag is disabled', async () => {
       config.teams.enabled = false;

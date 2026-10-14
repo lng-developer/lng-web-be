@@ -68,6 +68,15 @@ async function resolveUserEntraId(accountId) {
 async function resolveAccountForEntraUser({ entraUserId, email, displayName, tenantId = null, userType = TEAMS_USER_TYPES.INTERNAL }) {
   if (entraUserId) {
     const existing = await teamsUserMappingRepository.findByEntraUserId(entraUserId);
+    const canonical = await authPublic.findAccountByMicrosoftId(entraUserId);
+    if (canonical?.id) {
+      if (String(existing?.accountId || '') !== String(canonical.id)) {
+        await teamsUserMappingRepository.upsertMapping({
+          entraUserId, accountId: canonical.id, email: canonical.email,
+        });
+      }
+      return canonical.id;
+    }
     if (existing?.accountId) return existing.accountId;
   }
 
@@ -574,7 +583,19 @@ async function ensureWebhookSubscription() {
     return { status: 'DISABLED_OR_NO_URL' };
   }
 
-  const active = await teamsSubscriptionRepository.findActiveSubscription();
+  let active = await teamsSubscriptionRepository.findActiveSubscription();
+  const clientState = config.teams.webhookClientState || 'lng-teams-sync-secret';
+  if (active && (active.notificationUrl !== config.teams.webhookUrl || active.clientState !== clientState)) {
+    try {
+      await graphClient.deleteSubscription(active.subscriptionId);
+    } catch (error) {
+      if (error.status !== 404) {
+        return { status: 'FAILED', error: 'Could not replace outdated Teams subscription' };
+      }
+    }
+    await teamsSubscriptionRepository.updateStatus(active.subscriptionId, 'REVOKED');
+    active = null;
+  }
   if (active) {
     const msUntilExpiry = new Date(active.expirationDateTime).getTime() - Date.now();
     if (msUntilExpiry > 15 * 60 * 1000) {
@@ -597,7 +618,6 @@ async function ensureWebhookSubscription() {
 
   const resource = '/chats/getAllMessages';
   const expirationDateTime = new Date(Date.now() + 55 * 60 * 1000).toISOString();
-  const clientState = config.teams.webhookClientState || 'lng-teams-sync-secret';
 
   try {
     const res = await graphClient.createSubscription({
