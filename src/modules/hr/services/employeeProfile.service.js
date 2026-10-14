@@ -20,6 +20,7 @@ const {
 const repository = require('../repositories/employeeProfile.repository');
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+const selfProfileDuplicateRetryDelaysMs = [0, 25, 75];
 const avatarTypes = new Map([
   ['image/jpeg', new Set(['.jpg', '.jpeg'])],
   ['image/png', new Set(['.png'])],
@@ -270,6 +271,15 @@ function duplicateError(error, message) {
   return error;
 }
 
+async function findConcurrentSelfProfile(accountId) {
+  for (const delayMs of selfProfileDuplicateRetryDelaysMs) {
+    if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    const profile = await repository.findByAccountId(accountId, { includeSensitive: true });
+    if (profile) return profile;
+  }
+  return null;
+}
+
 function organizationOptions(profile, organizationsByAccountId) {
   const organization = organizationsByAccountId.get(String(profile.accountId));
   return { department: organization?.department || null, team: organization?.team || null };
@@ -416,7 +426,9 @@ async function ensureMyProfile(authContext = {}) {
     return await repository.create(draft);
   } catch (error) {
     if (error.code !== 11000) throw error;
-    return repository.findByAccountId(authContext.accountId, { includeSensitive: true });
+    const concurrentProfile = await findConcurrentSelfProfile(authContext.accountId);
+    if (concurrentProfile) return concurrentProfile;
+    throw duplicateError(error, 'Unable to create employee profile');
   }
 }
 

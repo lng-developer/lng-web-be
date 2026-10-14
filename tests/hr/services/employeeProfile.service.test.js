@@ -528,6 +528,46 @@ describe('employeeProfile service', () => {
     }));
   });
 
+  test('returns a conflict when a draft profile work email belongs to another account', async () => {
+    const duplicateWorkEmail = Object.assign(new Error('duplicate work email'), {
+      code: 11000,
+      keyPattern: { workEmail: 1 },
+    });
+    repository.findByAccountId
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+    repository.create.mockRejectedValue(duplicateWorkEmail);
+
+    await expect(service.getMyProfile({ accountId, email: 'jane@example.test' })).rejects.toMatchObject({
+      code: 'CONFLICT_ERROR',
+      statusCode: 409,
+    });
+  });
+
+  test('uses a concurrently created self profile after a duplicate work email error', async () => {
+    const profile = {
+      _id: '660000000000000000000004',
+      accountId,
+      employeeCode: 'ACC000001',
+      fullName: 'Jane',
+      isProfileUpdated: false,
+    };
+    const duplicateWorkEmail = Object.assign(new Error('duplicate work email'), {
+      code: 11000,
+      keyPattern: { workEmail: 1 },
+    });
+    repository.findByAccountId
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(profile);
+    repository.create.mockRejectedValue(duplicateWorkEmail);
+
+    await expect(service.getMyProfile({ accountId, email: 'jane@example.test' })).resolves.toMatchObject({
+      employeeCode: 'ACC000001',
+      fullName: 'Jane',
+    });
+  });
+
   test('restores a deleted draft self profile instead of creating a duplicate', async () => {
     const deleted = {
       _id: '660000000000000000000004',
