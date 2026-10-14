@@ -85,7 +85,10 @@ async function listConversations(query = {}, authContext = {}) {
 }
 
 async function listParticipants(query = {}, authContext = {}, onlineAccountIds = new Set()) {
-  const result = await authPublic.listChatDirectory(query);
+  const matchingAccountIds = query.search?.trim()
+    ? await hrPublic.searchChatProfileAccountIds(query)
+    : [];
+  const result = await authPublic.listChatDirectory({ ...query, matchingAccountIds });
   const profiles = await hrPublic.listEmployeeProfilesByAccountIds((result.items || []).map((account) => account.id));
   const profilesByAccountId = new Map(profiles.map((profile) => [String(profile.accountId), profile]));
   const currentAccountId = String(authContext.accountId || '');

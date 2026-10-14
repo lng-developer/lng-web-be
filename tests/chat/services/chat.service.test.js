@@ -11,6 +11,7 @@ jest.mock('../../../src/modules/media/public', () => ({
 
 jest.mock('../../../src/modules/hr/public', () => ({
   listEmployeeProfilesByAccountIds: jest.fn(),
+  searchChatProfileAccountIds: jest.fn().mockResolvedValue([]),
 }));
 
 jest.mock('../../../src/modules/notification/public', () => ({
@@ -106,6 +107,7 @@ describe('chat service', () => {
   });
 
   test('listParticipants delegates to auth public directory and excludes the current account', async () => {
+    hrPublic.searchChatProfileAccountIds.mockResolvedValueOnce([accountId]);
     authPublic.listChatDirectory.mockResolvedValue({
       items: [
         { id: accountId, email: 'admin@lng.co' },
@@ -118,7 +120,8 @@ describe('chat service', () => {
 
     const result = await service.listParticipants({ search: 'user' }, { accountId }, new Set([accountId]));
 
-    expect(authPublic.listChatDirectory).toHaveBeenCalledWith({ search: 'user' });
+    expect(hrPublic.searchChatProfileAccountIds).toHaveBeenCalledWith({ search: 'user' });
+    expect(authPublic.listChatDirectory).toHaveBeenCalledWith({ search: 'user', matchingAccountIds: [accountId] });
     expect(result.items[0].email).toBe('user@lng.co');
     expect(result.items[0].employeeCode).toBe('J2506');
     expect(result.items[0].presence).toBe('OFFLINE');

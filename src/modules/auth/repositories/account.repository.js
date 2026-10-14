@@ -1029,12 +1029,12 @@ async function countByStatus() {
   };
 }
 
-async function listActiveDirectory({ search, limit = 50 } = {}) {
+async function listActiveDirectory({ search, matchingAccountIds = [], limit = 50 } = {}) {
   const normalizedSearch = normalizeSearchTerm(search);
   const emailRegex = buildCaseInsensitivePrefixRegex(normalizedSearch);
   return Account.find({
     status: accountStatuses.ACTIVE,
-    ...(emailRegex ? { email: emailRegex } : {}),
+    ...(emailRegex ? { $or: [{ email: emailRegex }, { _id: { $in: matchingAccountIds } }] } : {}),
   })
     .select('_id email status')
     .sort({ email: 1 })

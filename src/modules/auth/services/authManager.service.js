@@ -1040,7 +1040,7 @@ async function listMigrationAccounts() {
 
 async function listChatDirectory(query = {}) {
   const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 100);
-  const items = await accountRepository.listActiveDirectory({ search: query.search, limit });
+  const items = await accountRepository.listActiveDirectory({ search: query.search, matchingAccountIds: query.matchingAccountIds, limit });
   return {
     items: items.map((account) => ({
       id: String(account._id),

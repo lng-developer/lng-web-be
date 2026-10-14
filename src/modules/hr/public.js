@@ -45,6 +45,11 @@ async function listEmployeeProfilesByAccountIds(accountIds = [], options = {}) {
   return profiles.map(toPublicProfileDto);
 }
 
+async function searchChatProfileAccountIds({ search, limit = 100 } = {}) {
+  const profiles = await employeeProfileRepository.listPublicProfiles({ search, limit });
+  return profiles.map((profile) => toId(profile.accountId)).filter(Boolean);
+}
+
 async function listEmployeeProfilesByEmployeeCodes(employeeCodes = [], options = {}) {
   const profiles = await employeeProfileRepository.listPublicByEmployeeCodes(employeeCodes, options);
   return profiles.map(toPublicProfileDto);
@@ -192,6 +197,7 @@ module.exports = {
   importAttendancePunches: attendanceService.importAttendancePunches,
   markPayrollPaid: payrollService.markPayrollPaid,
   listEmployeeProfilesByAccountIds,
+  searchChatProfileAccountIds,
   listEmployeeProfilesByEmployeeCodes,
   listAssignableProfiles,
   syncEmployeeProfileTeam,
