@@ -232,6 +232,109 @@
           }
         },
         {
+          "name": "POST /api/integration/external-order-imports/:jobId/etsy-assets",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/integration/external-order-imports/{{jobId}}/etsy-assets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "integration",
+                "external-order-imports",
+                "{{jobId}}",
+                "etsy-assets"
+              ],
+              "variable": [
+                {
+                  "key": "jobId",
+                  "value": "{{jobId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "sha256",
+                  "type": "text",
+                  "value": "{{sha256}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/integration/external-order-imports/:jobId/etsy-customization-manifest",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/integration/external-order-imports/{{jobId}}/etsy-customization-manifest",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "integration",
+                "external-order-imports",
+                "{{jobId}}",
+                "etsy-customization-manifest"
+              ],
+              "variable": [
+                {
+                  "key": "jobId",
+                  "value": "{{jobId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"entries\": [\n    {\n      \"externalOrderId\": \"123\",\n      \"externalItemId\": \"456\",\n      \"assets\": [\n        {\n          \"mediaAssetId\": \"64d000000000000000000011\"\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "GET /api/integration/external-order-imports/:jobId/issues",
           "request": {
             "auth": {

@@ -5647,7 +5647,7 @@
             {
               "name": "GET /api/hr/dashboard",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:READ, HR_EMPLOYEES:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:READ, HR_EMPLOYEES:WRITE. Returns HR overview aggregates for employees, attendance, approvals, operations, latest payroll snapshot, announcements, and optional attendanceTrend when days=1|7|30.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -9677,6 +9677,109 @@
               }
             },
             {
+              "name": "POST /api/integration/external-order-imports/:jobId/etsy-assets",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/integration/external-order-imports/{{jobId}}/etsy-assets",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "integration",
+                    "external-order-imports",
+                    "{{jobId}}",
+                    "etsy-assets"
+                  ],
+                  "variable": [
+                    {
+                      "key": "jobId",
+                      "value": "{{jobId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "file",
+                      "type": "file",
+                      "src": []
+                    },
+                    {
+                      "key": "sha256",
+                      "type": "text",
+                      "value": "{{sha256}}"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "POST /api/integration/external-order-imports/:jobId/etsy-customization-manifest",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/integration/external-order-imports/{{jobId}}/etsy-customization-manifest",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "integration",
+                    "external-order-imports",
+                    "{{jobId}}",
+                    "etsy-customization-manifest"
+                  ],
+                  "variable": [
+                    {
+                      "key": "jobId",
+                      "value": "{{jobId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"entries\": [\n    {\n      \"externalOrderId\": \"123\",\n      \"externalItemId\": \"456\",\n      \"assets\": [\n        {\n          \"mediaAssetId\": \"64d000000000000000000011\"\n        }\n      ]\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
               "name": "GET /api/integration/external-order-imports/:jobId/issues",
               "request": {
                 "auth": {
@@ -13019,6 +13122,40 @@
           ]
         },
         {
+          "name": "Export.csv",
+          "item": [
+            {
+              "name": "GET /api/orders/export.csv",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): ORDERS:READ, ORDERS:WRITE.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/orders/export.csv",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "orders",
+                    "export.csv"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
           "name": "Items",
           "item": [
             {
@@ -13311,6 +13448,43 @@
                       "language": "json"
                     }
                   }
+                }
+              }
+            },
+            {
+              "name": "POST /api/orders/items/:orderItemId/request-psd",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): ORDERS:READ, ORDERS:WRITE.",
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/orders/items/{{orderItemId}}/request-psd",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "orders",
+                    "items",
+                    "{{orderItemId}}",
+                    "request-psd"
+                  ],
+                  "variable": [
+                    {
+                      "key": "orderItemId",
+                      "value": "{{orderItemId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
                 }
               }
             },
@@ -16420,6 +16594,43 @@
                       "language": "json"
                     }
                   }
+                }
+              }
+            },
+            {
+              "name": "POST /api/vendors/:vendorId/integration/test-connection",
+              "request": {
+                "description": "Bearer token required. Permissions (ALL): VENDORS:WRITE. Runs a read-only provider connection probe.",
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/vendors/{{vendorId}}/integration/test-connection",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "vendors",
+                    "{{vendorId}}",
+                    "integration",
+                    "test-connection"
+                  ],
+                  "variable": [
+                    {
+                      "key": "vendorId",
+                      "value": "{{vendorId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
                 }
               }
             },

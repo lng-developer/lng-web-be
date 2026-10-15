@@ -932,6 +932,40 @@
       ]
     },
     {
+      "name": "Export.csv",
+      "item": [
+        {
+          "name": "GET /api/orders/export.csv",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): ORDERS:READ, ORDERS:WRITE.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/export.csv",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "export.csv"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "Items",
       "item": [
         {
@@ -1224,6 +1258,43 @@
                   "language": "json"
                 }
               }
+            }
+          }
+        },
+        {
+          "name": "POST /api/orders/items/:orderItemId/request-psd",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): ORDERS:READ, ORDERS:WRITE.",
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/items/{{orderItemId}}/request-psd",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "items",
+                "{{orderItemId}}",
+                "request-psd"
+              ],
+              "variable": [
+                {
+                  "key": "orderItemId",
+                  "value": "{{orderItemId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
             }
           }
         },
