@@ -5,12 +5,6 @@ const teamsWebhookController = require('../controllers/teamsWebhook.controller')
 const teamsAdminController = require('../controllers/teamsAdmin.controller');
 
 const router = express.Router();
-const requireConfigRead = authPublic.authorizeAnyPermission(
-  'SYSTEM:CONFIG:READ',
-  'SYSTEM:CONFIG:WRITE',
-  'USERS:READ',
-  'USERS:WRITE',
-);
 const requireConfigWrite = authPublic.authorizeAnyPermission(
   'SYSTEM:CONFIG:WRITE',
   'USERS:WRITE',
@@ -21,7 +15,7 @@ router.post('/webhook', asyncHandler(teamsWebhookController.handleWebhook));
 router.get('/oauth/callback', asyncHandler(teamsAdminController.completeOAuth));
 
 // Management & Diagnostics endpoints
-router.get('/status', authPublic.authenticate, requireConfigRead, asyncHandler(teamsAdminController.getStatus));
+router.get('/status', authPublic.authenticate, asyncHandler(teamsAdminController.getStatus));
 router.get('/oauth/start', authPublic.authenticate, asyncHandler(teamsAdminController.startOAuth));
 router.post('/link', authPublic.authenticate, requireConfigWrite, asyncHandler(teamsAdminController.linkAccount));
 router.post('/subscription', authPublic.authenticate, requireConfigWrite, asyncHandler(teamsAdminController.ensureSubscription));
