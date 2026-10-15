@@ -2,10 +2,14 @@ const config = require('../../../../config');
 const httpStatus = require('../../../../shared/constants/httpStatus');
 const teamsSyncService = require('../services/teamsSync.service');
 const teamsUserMappingRepository = require('../repositories/teamsUserMapping.repository');
+const teamsOAuthService = require('../services/teamsOAuth.service');
 
 async function getStatus(req, res) {
   const accountId = req.auth?.accountId || req.authContext?.accountId;
   const userMapping = accountId ? await teamsUserMappingRepository.findByAccountId(accountId) : null;
+  const grantRecord = userMapping?.entraUserId
+    ? await teamsUserMappingRepository.getWithRefreshToken(userMapping.entraUserId)
+    : null;
 
   return res.status(httpStatus.OK).json({
     success: true,
@@ -15,8 +19,36 @@ async function getStatus(req, res) {
       webhookConfigured: Boolean(config.teams.webhookUrl),
       userLinked: Boolean(userMapping?.entraUserId),
       entraUserId: userMapping?.entraUserId || null,
+      grantStatus: grantRecord?.encryptedRefreshToken ? 'CONNECTED' : (userMapping?.entraUserId ? 'REAUTH_REQUIRED' : 'NOT_CONNECTED'),
     },
   });
+}
+
+async function getOAuthStatus(req, res) {
+  const accountId = req.auth?.accountId || req.authContext?.accountId;
+  const userMapping = accountId ? await teamsUserMappingRepository.findByAccountId(accountId) : null;
+  const grantRecord = userMapping?.entraUserId
+    ? await teamsUserMappingRepository.getWithRefreshToken(userMapping.entraUserId)
+    : null;
+
+  return res.status(httpStatus.OK).json({
+    success: true,
+    data: {
+      enabled: config.teams.enabled,
+      userLinked: Boolean(userMapping?.entraUserId),
+      grantStatus: grantRecord?.encryptedRefreshToken ? 'CONNECTED' : (userMapping?.entraUserId ? 'REAUTH_REQUIRED' : 'NOT_CONNECTED'),
+    },
+  });
+}
+
+async function startOAuth(req, res) {
+  const authorizationUrl = await teamsOAuthService.startAuthorization(req.auth || req.authContext);
+  return res.status(httpStatus.OK).json({ success: true, data: { authorizationUrl } });
+}
+
+async function completeOAuth(req, res) {
+  await teamsOAuthService.completeAuthorization(req.query || {});
+  return res.status(httpStatus.OK).type('html').send('<!doctype html><title>Teams connected</title><script>window.close()</script><p>Teams connected. You can close this window.</p>');
 }
 
 async function linkAccount(req, res) {
@@ -59,7 +91,10 @@ async function syncConversation(req, res) {
 
 module.exports = {
   getStatus,
+  getOAuthStatus,
   linkAccount,
   ensureSubscription,
   syncConversation,
+  startOAuth,
+  completeOAuth,
 };

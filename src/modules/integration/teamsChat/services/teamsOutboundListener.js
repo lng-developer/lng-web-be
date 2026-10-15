@@ -1,18 +1,17 @@
 const chatPublic = require('../../../chat/public');
+const outboxService = require('./teamsOutboundOutbox.service');
 const teamsSyncService = require('./teamsSync.service');
+const config = require('../../../../config');
 const logger = require('../../../../shared/utils/logger');
 
 let isAttached = false;
 
-async function handleMessageCreated({ conversation, message, source, msGraphToken }) {
+async function handleMessageCreated({ conversation, message, source }) {
   try {
     if (source === 'TEAMS_INBOUND') return;
     if (conversation?.type !== 'DIRECT') return;
-    await teamsSyncService.dispatchMessageToTeams({
-      conversation,
-      message,
-      explicitUserToken: msGraphToken,
-    });
+    if (config.teams.outboxEnabled) await outboxService.enqueue({ conversation, message });
+    else await teamsSyncService.dispatchMessageToTeams({ conversation, message });
   } catch (error) {
     logger.warn('teams_outbound_listener_error', {
       conversationId: conversation?.id,

@@ -214,7 +214,6 @@ async function sendMessage(conversationId, payload = {}, authContext = {}, optio
     conversation: toConversationDto(updatedConversation || conversation),
     message: messageDto,
     source: options.source || payload.source || null,
-    msGraphToken: options.msGraphToken || payload.msGraphToken || null,
   });
   return messageDto;
 }

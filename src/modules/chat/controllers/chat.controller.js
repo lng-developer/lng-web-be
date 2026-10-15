@@ -52,17 +52,12 @@ async function listMessages(req, res) {
 }
 
 async function sendMessage(req, res) {
-  const options = req.headers?.['x-ms-graph-token']
-    ? [{ msGraphToken: req.headers['x-ms-graph-token'] }]
-    : [];
-
   res.status(httpStatus.CREATED).json({
     success: true,
     data: await service.sendMessage(
       req.params.conversationId,
       assertValid(schemas.sendMessageSchema, req.body),
       req.auth,
-      ...options,
     ),
   });
 }

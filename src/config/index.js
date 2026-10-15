@@ -68,6 +68,8 @@ const schema = Joi.object({
   TEAMS_WEBHOOK_URL: Joi.string().uri({ scheme: ['https'] }).allow('').default(''),
   TEAMS_WEBHOOK_CLIENT_STATE: Joi.string().allow('').default(''),
   TEAMS_ENCRYPTION_KEY: Joi.string().allow('').default(''),
+  TEAMS_OAUTH_REDIRECT_URI: Joi.string().uri({ scheme: ['https'] }).allow('').default(''),
+  TEAMS_OUTBOX_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
 }).unknown(true);
 
 const { value, error } = schema.validate(process.env, {
@@ -150,5 +152,7 @@ module.exports = {
     webhookUrl: value.TEAMS_WEBHOOK_URL || null,
     webhookClientState: value.TEAMS_WEBHOOK_CLIENT_STATE || null,
     encryptionKey: value.TEAMS_ENCRYPTION_KEY || null,
+    oauthRedirectUri: value.TEAMS_OAUTH_REDIRECT_URI || null,
+    outboxEnabled: value.TEAMS_OUTBOX_ENABLED,
   },
 };

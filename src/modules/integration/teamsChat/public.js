@@ -1,8 +1,12 @@
 const teamsSyncService = require('./services/teamsSync.service');
+require('./models/teamsOAuthState.model');
+require('./models/teamsOutboundMessage.model');
 const teamsOutboundListener = require('./services/teamsOutboundListener');
 const graphClient = require('./services/microsoftGraphClient');
 
 const teamsSubscriptionScheduler = require('./services/teamsSubscriptionScheduler.service');
+const teamsOAuthService = require('./services/teamsOAuth.service');
+const teamsOutboundOutboxScheduler = require('./services/teamsOutboundOutboxScheduler.service');
 
 module.exports = {
   dispatchMessageToTeams: teamsSyncService.dispatchMessageToTeams,
@@ -19,4 +23,7 @@ module.exports = {
   detachTeamsOutboundListener: teamsOutboundListener.detachTeamsOutboundListener,
   setMockGraphHandler: graphClient.setMockGraphHandler,
   clearMockGraphHandler: graphClient.clearMockGraphHandler,
+  startOAuth: teamsOAuthService.startAuthorization,
+  startTeamsOutboundOutboxScheduler: teamsOutboundOutboxScheduler.startTeamsOutboundOutboxScheduler,
+  stopTeamsOutboundOutboxScheduler: teamsOutboundOutboxScheduler.stopTeamsOutboundOutboxScheduler,
 };
