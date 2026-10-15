@@ -5,6 +5,7 @@ jest.mock('../../../src/modules/vendor/models/vendor.model', () => ({
 
 const Vendor = require('../../../src/modules/vendor/models/vendor.model');
 const VendorProduct = require('../../../src/modules/vendor/models/vendorProduct.model');
+const VendorCostCenter = require('../../../src/modules/vendor/models/vendorCostCenter.model');
 const repository = require('../../../src/modules/vendor/repositories/vendorProduct.repository');
 const { buildListFilter } = repository;
 
@@ -15,6 +16,30 @@ function mockVendorFind(ids = []) {
 }
 
 describe('vendorProduct.repository', () => {
+  test.each([{ productIds: ['660000000000000000000601'] }, { productIds: [] }])('filters products by active variant IDs before pagination: $productIds', async ({ productIds }) => {
+    jest.spyOn(VendorCostCenter, 'distinct').mockResolvedValue(productIds);
+    const filter = await buildListFilter({ hasActiveCostCenters: true });
+    expect(filter._id).toEqual({ $in: productIds });
+    expect(VendorCostCenter.distinct).toHaveBeenCalledWith('vendorProductId', { status: 'ACTIVE' });
+  });
+  test('does not hide products without variants in the administration list', async () => {
+    const distinct = jest.spyOn(VendorCostCenter, 'distinct');
+    expect(await buildListFilter({})).toEqual({});
+    expect(distinct).not.toHaveBeenCalled();
+  });
+  test('manual product search can find a product by active variant SKU', async () => {
+    mockVendorFind(['660000000000000000000501']);
+    jest.spyOn(VendorCostCenter, 'distinct').mockResolvedValue(['660000000000000000000601']);
+    const filter = await buildListFilter({ activeVendorsOnly: true, status: 'ACTIVE', q: 'NAP-S' });
+    expect(filter.$and[0].$or).toContainEqual({ _id: { $in: ['660000000000000000000601'] } });
+    expect(VendorCostCenter.distinct).toHaveBeenCalledWith('vendorProductId', expect.objectContaining({ status: 'ACTIVE' }));
+  });
+  test('manual search restricts products to active vendors before pagination', async () => {
+    mockVendorFind(['660000000000000000000501']);
+    const filter = await buildListFilter({ activeVendorsOnly: true, status: 'ACTIVE' });
+    expect(filter.vendorId).toEqual({ $in: ['660000000000000000000501'] });
+    expect(Vendor.find).toHaveBeenCalledWith({ status: 'ACTIVE' });
+  });
   beforeEach(() => {
     jest.clearAllMocks();
   });

@@ -50,6 +50,13 @@ function buildFilter({
 
 async function buildListFilter(filters = {}) {
   const filter = buildFilter(filters);
+  if (filters.hasActiveCostCenters) {
+    filter._id = { $in: await VendorCostCenter.distinct('vendorProductId', { status: recordStatuses.ACTIVE }) };
+  }
+  if (filters.activeVendorsOnly) {
+    const vendors = await Vendor.find({ status: recordStatuses.ACTIVE }).select('_id').lean();
+    filter.vendorId = { $in: vendors.map((vendor) => vendor._id).filter((id) => !filters.vendorId || String(id) === String(filters.vendorId)) };
+  }
   const tokens = searchTokens(filters.q);
   if (!tokens.length) return filter;
 
@@ -57,6 +64,13 @@ async function buildListFilter(filters = {}) {
     const regex = buildCaseInsensitiveContainsRegex(token);
     const vendorIds = await findVendorIdsByToken(token);
     const clauses = [{ code: regex }, { name: regex }, { externalProductId: regex }];
+    if (filters.activeVendorsOnly) {
+      const productIds = await VendorCostCenter.distinct('vendorProductId', {
+        status: recordStatuses.ACTIVE,
+        $or: [{ sku: regex }, { lngCode: regex }],
+      });
+      if (productIds.length) clauses.push({ _id: { $in: productIds } });
+    }
 
     if (vendorIds.length) clauses.push({ vendorId: { $in: vendorIds } });
 

@@ -264,6 +264,13 @@ router.get(
   asyncHandler(controller.getManualVendorProductOptions),
 );
 
+router.get(
+  '/vendor-products',
+  authPublic.authenticate,
+  requireMappingRead,
+  asyncHandler(controller.searchManualVendorProducts),
+);
+
 router.post(
   '/order-items/:orderItemId/vendor-candidates/search',
   authPublic.authenticate,

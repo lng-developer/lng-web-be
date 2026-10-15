@@ -1851,6 +1851,13 @@ async function searchManualVendors(query = {}) {
   return vendorPublic.searchActiveVendors(query);
 }
 
+async function searchManualVendorProducts(query = {}) {
+  return vendorPublic.listVendorProducts({
+    q: query.q, page: query.page || 1, limit: query.limit || 20,
+    status: 'ACTIVE', activeVendorsOnly: true, hasActiveCostCenters: true,
+  });
+}
+
 async function listManualVendorProducts(vendorId, { productTypeGroupId } = {}) {
   assertValidObjectId(vendorId, 'vendorId');
   if (productTypeGroupId) assertValidObjectId(productTypeGroupId, 'productTypeGroupId');
@@ -1876,6 +1883,7 @@ async function listFulfillmentPlansByOrderItemIds(orderItemIds = [], authContext
 const listFulfillmentPlansForOrderItems = listFulfillmentPlansByOrderItemIds;
 
 module.exports = {
+  searchManualVendorProducts,
   allocateOrderCostEstimates,
   buildCostEstimate,
   listUnmatchedOrderItems,

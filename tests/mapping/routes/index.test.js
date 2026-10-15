@@ -71,6 +71,21 @@ function request(server, { method, path, headers = {}, body }) {
 }
 
 describe('mapping routes', () => {
+  test('product-first manual search requires mapping read permission', async () => {
+    const response = await request(createServer(), { method: 'GET', path: '/vendor-products?q=napkin' });
+    expect(response.statusCode).toBe(403);
+  });
+  test('manual product search validates pagination and returns vendor identity', async () => {
+    const data = { items: [{ id: 'product', vendor: { id: 'vendor', name: 'LNG' } }], pagination: { total: 1 } };
+    service.searchManualVendorProducts.mockResolvedValue(data);
+    const headers = { 'X-Auth-Context': JSON.stringify({ permissions: ['MAPPING:READ'] }) };
+    const response = await request(createServer(), { method: 'GET', path: '/vendor-products?q=napkin&page=2&limit=20', headers });
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data).toEqual(data);
+    expect(service.searchManualVendorProducts).toHaveBeenCalledWith({ q: 'napkin', page: 2, limit: 20 });
+    const invalid = await request(createServer(), { method: 'GET', path: '/vendor-products?limit=1000', headers });
+    expect(invalid.statusCode).toBe(400);
+  });
   const orderItemId = '660000000000000000001001';
 
   beforeEach(() => {
