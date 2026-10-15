@@ -21,6 +21,7 @@ async function listOrderItemCustomizationViews(orderItemIds = [], authContext, o
 }
 
 module.exports = {
+  attachEtsyImportAssets: payloadService.attachEtsyImportAssets,
   createPendingPayload: payloadService.createPendingPayload,
   cloneLatestPayloadForReplacement: payloadService.cloneLatestPayloadForReplacement,
   getByOrderItem: payloadService.getByOrderItem,

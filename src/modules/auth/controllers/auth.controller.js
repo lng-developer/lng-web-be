@@ -131,6 +131,11 @@ async function logout(req, res) {
 }
 
 async function me(req, res) {
+  if (req.auth.tokenType === 'EXTENSION') {
+    const data = await require('../services/extensionToken.service').getIdentity(req.auth);
+    res.status(httpStatus.OK).json({ success: true, data });
+    return;
+  }
   const authModel = await authManager.getCurrentAccount(req.auth.accountId);
 
   res.status(httpStatus.OK).json({

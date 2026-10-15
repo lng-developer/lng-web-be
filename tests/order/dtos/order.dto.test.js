@@ -8,6 +8,14 @@ const {
 } = require('../../../src/modules/order/dtos/order.dto');
 
 describe('order.dto', () => {
+  test('old projections can use the order channel and catalog Etsy identity', () => {
+    const result = toOrderWorkbenchDto({ items: [{ order: { salesChannelCode: 'ETSY' }, items: [{ item: { externalItemId: 'tx' }, listing: { etsyListingId: '123' } }] }] });
+    expect(result.items[0].items[0].item).toMatchObject({ salesChannelCode: 'ETSY', externalListingId: '123' });
+  });
+  test('Workbench retains Etsy identity and variations from compact projection', () => {
+    const result = toOrderWorkbenchDto({ items: [{ order: {}, items: [{ item: { salesChannelCode: 'ETSY', externalItemId: 'tx', externalListingId: '123', variantRaw: 'Size: L', listingImageUrl: 'https://i.etsystatic.com/123/a.jpg' } }] }] });
+    expect(result.items[0].items[0].item).toMatchObject({ salesChannelCode: 'ETSY', externalItemId: 'tx', externalListingId: '123', variations: 'Size: L', listingImageUrl: 'https://i.etsystatic.com/123/a.jpg' });
+  });
   test('standard order DTO excludes raw external data', () => {
     const dto = toOrderDto({
       _id: '660000000000000000000301',

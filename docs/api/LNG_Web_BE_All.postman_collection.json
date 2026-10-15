@@ -10220,6 +10220,109 @@
               }
             },
             {
+              "name": "POST /api/integration/external-order-imports/:jobId/etsy-assets",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/integration/external-order-imports/{{jobId}}/etsy-assets",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "integration",
+                    "external-order-imports",
+                    "{{jobId}}",
+                    "etsy-assets"
+                  ],
+                  "variable": [
+                    {
+                      "key": "jobId",
+                      "value": "{{jobId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "file",
+                      "type": "file",
+                      "src": []
+                    },
+                    {
+                      "key": "sha256",
+                      "type": "text",
+                      "value": "{{sha256}}"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "POST /api/integration/external-order-imports/:jobId/etsy-customization-manifest",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/integration/external-order-imports/{{jobId}}/etsy-customization-manifest",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "integration",
+                    "external-order-imports",
+                    "{{jobId}}",
+                    "etsy-customization-manifest"
+                  ],
+                  "variable": [
+                    {
+                      "key": "jobId",
+                      "value": "{{jobId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"entries\": [\n    {\n      \"externalOrderId\": \"123\",\n      \"externalItemId\": \"456\",\n      \"assets\": [\n        {\n          \"mediaAssetId\": \"64d000000000000000000011\"\n        }\n      ]\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
               "name": "GET /api/integration/external-order-imports/:jobId/issues",
               "request": {
                 "auth": {
@@ -12811,7 +12914,7 @@
             {
               "name": "PATCH /api/orders/:orderId/assigned-staff",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): ORDERS:ASSIGN.",
                 "method": "PATCH",
                 "header": [
                   {
@@ -13008,7 +13111,7 @@
             {
               "name": "POST /api/orders/:orderId/replacement",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): ORDERS:CASE_MANAGE.",
                 "method": "POST",
                 "header": [
                   {
@@ -13207,7 +13310,7 @@
             {
               "name": "POST /api/orders/:orderId/workbench-projection/rebuild",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): ORDERS:FULFILL.",
                 "method": "POST",
                 "header": [],
                 "url": {
@@ -13366,7 +13469,7 @@
             {
               "name": "PATCH /api/orders/cases/:caseId",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): ORDERS:CASE_MANAGE.",
                 "method": "PATCH",
                 "header": [
                   {
@@ -13667,7 +13770,7 @@
             {
               "name": "POST /api/orders/items/:orderItemId/cancel",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): ORDERS:CASE_MANAGE.",
                 "method": "POST",
                 "header": [
                   {
@@ -13829,7 +13932,7 @@
             {
               "name": "POST /api/orders/items/:orderItemId/recheck",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): ORDERS:FULFILL.",
                 "method": "POST",
                 "header": [
                   {
@@ -13880,7 +13983,7 @@
             {
               "name": "POST /api/orders/items/:orderItemId/replacement",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): ORDERS:CASE_MANAGE.",
                 "method": "POST",
                 "header": [
                   {

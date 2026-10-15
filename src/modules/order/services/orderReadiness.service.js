@@ -110,7 +110,7 @@ async function getOrderItemReadiness(orderItemId, authContext) {
     status: order.addressValidationStatus,
   };
   const itemStatus = {
-    ok: !BAD_ITEM_STATUSES.has(item.status),
+    ok: !BAD_ITEM_STATUSES.has(item.status) && !require('./etsyOrderStatus.service').isBlocked(order),
     status: item.status,
   };
 

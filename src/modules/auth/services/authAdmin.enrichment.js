@@ -1,10 +1,9 @@
 const permissionRepository = require('../repositories/permission.repository');
 const roleRepository = require('../repositories/role.repository');
-const accessAssignmentRepository = require('../repositories/accessAssignment.repository');
 const scopeRegistryRepository = require('../repositories/scopeRegistry.repository');
-const scopedRolePermissionRepository = require('../repositories/scopedRolePermission.repository');
 const { accessScopeTypes } = require('../constants/auth.constants');
 const { uniqueIds } = require('./authAdmin.helpers');
+const adminReadRepository = require('../repositories/authAdminRead.repository');
 
 function getOrganizationPublic() {
   return require('../../organization/public');
@@ -78,17 +77,42 @@ async function resolveScopeResource(scopeType, scopeId) {
 }
 
 async function enrichScopesWithMetadata(scopes = []) {
-  return Promise.all(scopes.map(async (scope) => {
-    const [assignmentCount, resourceInfo] = await Promise.all([
-      accessAssignmentRepository.countActiveByScope(scope.scopeType, scope.scopeId),
-      resolveScopeResource(scope.scopeType, scope.scopeId),
-    ]);
+  const [counts, resources] = await Promise.all([
+    adminReadRepository.scopeUsage(scopes), resolveScopeResources(scopes),
+  ]);
+  return scopes.map((scope) => ({
+    ...scope,
+    assignmentCount: counts.get(adminReadRepository.scopeKey(scope)) || 0,
+    ...resources.get(adminReadRepository.scopeKey(scope)),
+  }));
+}
 
-    return {
-      ...scope,
-      assignmentCount,
-      ...resourceInfo,
-    };
+async function resolveScopeResources(scopes) {
+  const idsFor = (type) => uniqueIds(scopes.filter((scope) => scope.scopeType === type).map((scope) => scope.scopeId));
+  // Resource enrichment is best effort, matching the single-resource resolver.
+  const optional = (operation) => Promise.resolve().then(operation).catch(() => []);
+  const shopIds = idsFor(accessScopeTypes.SHOP);
+  const teamIds = idsFor(accessScopeTypes.TEAM);
+  const [shops, teams] = await Promise.all([
+    shopIds.length ? optional(() => getShopPublic().findByIds(shopIds)) : [],
+    teamIds.length ? optional(() => getOrganizationPublic().listTeamsByIds(teamIds)) : [],
+  ]);
+  const departmentIds = uniqueIds([...idsFor(accessScopeTypes.DEPARTMENT), ...teams.map((team) => team.departmentId)]);
+  const departments = departmentIds.length
+    ? await optional(() => getOrganizationPublic().listDepartmentsByIds(departmentIds)) : [];
+  const shopById = buildById(shops);
+  const teamById = buildById(teams);
+  const departmentById = buildById(departments);
+  return new Map(scopes.map((scope) => {
+    const team = teamById.get(String(scope.scopeId));
+    const resource = scope.scopeType === accessScopeTypes.SHOP ? shopById.get(String(scope.scopeId))
+      : scope.scopeType === accessScopeTypes.TEAM ? team
+        : scope.scopeType === accessScopeTypes.DEPARTMENT ? departmentById.get(String(scope.scopeId)) : null;
+    return [adminReadRepository.scopeKey(scope), {
+      resource: compactResource(resource),
+      parentDepartment: scope.scopeType === accessScopeTypes.TEAM
+        ? compactResource(departmentById.get(String(team?.departmentId))) : null,
+    }];
   }));
 }
 
@@ -137,8 +161,9 @@ async function enrichRolesWithPermissionDetails(roles = [], { includePermissionD
   const permissionDetails = await getPermissionDetails(allPermissionIds);
   const permissionById = buildById(permissionDetails);
 
-  return Promise.all(roles.map(async (role) => {
-    const userCount = await accessAssignmentRepository.countByRole(role._id || role.id);
+  const counts = await adminReadRepository.roleUsage(roles.map((role) => role._id || role.id));
+  return roles.map((role) => {
+    const userCount = counts.get(String(role._id || role.id)) || 0;
 
     return {
       ...role,
@@ -148,17 +173,16 @@ async function enrichRolesWithPermissionDetails(roles = [], { includePermissionD
         .map((permissionId) => permissionById.get(String(permissionId)))
         .filter(Boolean) : undefined,
     };
-  }));
+  });
 }
 
 async function enrichPermissionsWithUsage(permissions = []) {
-  return Promise.all(permissions.map(async (permission) => {
-    const permissionId = permission._id || permission.id;
-    const [roleCount, scopedRoleCount, directAssignmentCount] = await Promise.all([
-      roleRepository.countByPermission(permissionId),
-      scopedRolePermissionRepository.countByPermission(permissionId),
-      accessAssignmentRepository.countByCustomPermission(permissionId),
-    ]);
+  const counts = await adminReadRepository.permissionUsage(permissions.map((permission) => permission._id || permission.id));
+  return permissions.map((permission) => {
+    const permissionId = String(permission._id || permission.id);
+    const roleCount = counts.roles.get(permissionId) || 0;
+    const scopedRoleCount = counts.scopedRoles.get(permissionId) || 0;
+    const directAssignmentCount = counts.assignments.get(permissionId) || 0;
     const usageCount = Number(roleCount || 0) + Number(scopedRoleCount || 0) + Number(directAssignmentCount || 0);
 
     return {
@@ -169,7 +193,7 @@ async function enrichPermissionsWithUsage(permissions = []) {
       usageCount,
       deletable: usageCount === 0,
     };
-  }));
+  });
 }
 
 async function enrichAccessAssignments(assignments = []) {
@@ -222,10 +246,14 @@ async function enrichScopedRolePermissions(rules = []) {
   );
   const defaultPermissionById = buildById(defaultPermissionDetails);
 
-  return Promise.all(rules.map(async (rule) => {
+  const [scopes, resources] = await Promise.all([
+    adminReadRepository.findScopes(rules), resolveScopeResources(rules),
+  ]);
+  const scopeByKey = new Map(scopes.map((scope) => [adminReadRepository.scopeKey(scope), scope]));
+  return rules.map((rule) => {
     const role = roleById.get(String(rule.roleId)) || null;
-    const registryEntry = await findScopeRegistryByScope(rule.scopeType, rule.scopeId);
-    const resourceInfo = await resolveScopeResource(rule.scopeType, rule.scopeId);
+    const registryEntry = scopeByKey.get(adminReadRepository.scopeKey(rule));
+    const resourceInfo = resources.get(adminReadRepository.scopeKey(rule));
 
     return {
       ...rule,
@@ -239,7 +267,7 @@ async function enrichScopedRolePermissions(rules = []) {
         .map((permissionId) => defaultPermissionById.get(String(permissionId)))
         .filter(Boolean),
     };
-  }));
+  });
 }
 
 async function enrichAccountsWithOrganization(items = []) {

@@ -345,6 +345,7 @@ async function importExternalOrder(externalOrderDto = {}) {
   }, { source: 'ORDER_IMPORT' });
   await syncWorkbenchSellers(orderId, persistedItems, sellerProfiles);
   await projectCustomerSnapshot(externalOrderDto, identity, order, itemResults);
+  const terminal = await require('./etsyOrderStatus.service').reconcile(order);
   const financePublic = require('../../finance/public');
   await Promise.all(itemResults.map((itemResult) => financePublic.relinkFinanceRowsForOrderItem({
     shopId: externalOrderDto.shopId,
@@ -367,6 +368,7 @@ async function importExternalOrder(externalOrderDto = {}) {
     created,
     updated,
     itemResults,
+    terminal,
     warnings: [],
   };
 }

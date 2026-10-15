@@ -7,8 +7,11 @@ jest.mock('../../../src/modules/catalog/repositories/productTypeGroup.repository
 }));
 
 jest.mock('../../../src/modules/catalog/repositories/listing.repository', () => ({
+  fillEtsyListingImage: jest.fn(),
   create: jest.fn(),
   findByAsin: jest.fn(),
+  findByEtsyListingId: jest.fn(),
+  findUniqueEtsySku: jest.fn(),
   findById: jest.fn(),
   findByIds: jest.fn(),
   findSummariesByIds: jest.fn(),
@@ -1202,6 +1205,34 @@ describe('catalog.service', () => {
     expect(listingRepository.update).toHaveBeenCalledWith(listingId, {});
   });
 
+  test('Etsy identity wins over duplicate SKU and never falls through an unapproved exact listing', async () => {
+    const listing = { _id: 'etsy-listing', shopId: 'shop-1', status: 'ACTIVE', qcStatus: 'APPROVED', etsyListingId: '123' };
+    listingRepository.findByEtsyListingId.mockResolvedValue(listing);
+    expect(await service.findListingForOrderItem({ shopId: 'shop-1', salesChannelCode: 'ETSY', marketplaceCode: 'ETSY_US', etsyListingId: '123', sku: 'DUP' })).toEqual(listing);
+    listingRepository.findByEtsyListingId.mockResolvedValue({ ...listing, qcStatus: 'DRAFT' });
+    listingRepository.findUniqueEtsySku.mockResolvedValue(listing);
+    expect(await service.findListingForOrderItem({ shopId: 'shop-1', salesChannelCode: 'ETSY', marketplaceCode: 'ETSY_US', etsyListingId: '123', sku: 'DUP' })).toBeNull();
+  });
+
+  test('Etsy identity belonging to another shop is not resolved', async () => {
+    listingRepository.findByEtsyListingId.mockResolvedValue({ _id: 'foreign', shopId: 'other', status: 'ACTIVE', qcStatus: 'APPROVED' });
+    await expect(service.findListingForOrderItem({ shopId: 'shop-1', salesChannelCode: 'ETSY', marketplaceCode: 'ETSY_US', etsyListingId: '123' })).rejects.toThrow('another shop');
+  });
+
+  test('known Etsy ID never falls back to a legacy listing with only the same SKU', async () => {
+    listingRepository.findByEtsyListingId.mockResolvedValue(null);
+    listingRepository.findUniqueEtsySku.mockResolvedValue({ _id: 'legacy', shopId: 'shop-1', status: 'ACTIVE', qcStatus: 'APPROVED' });
+    expect(await service.findListingForOrderItem({ shopId: 'shop-1', salesChannelCode: 'ETSY', marketplaceCode: 'ETSY_US', etsyListingId: '123', sku: 'DUP' })).toBeNull();
+    expect(listingRepository.findUniqueEtsySku).not.toHaveBeenCalled();
+  });
+
+  test('Etsy image enrichment rejects foreign hosts and requires exact identity', async () => {
+    await service.fillEtsyListingImage({ shopId: 'shop', marketplaceCode: 'ETSY_US', etsyListingId: '123', productImageUrl: 'https://evil.test/a.jpg' });
+    expect(listingRepository.fillEtsyListingImage).not.toHaveBeenCalled();
+    await service.fillEtsyListingImage({ shopId: 'shop', marketplaceCode: 'ETSY_US', etsyListingId: '123', productImageUrl: 'https://i.etsystatic.com/123/a.jpg' });
+    expect(listingRepository.fillEtsyListingImage).toHaveBeenCalledWith({ shopId: 'shop', marketplaceCode: 'ETSY_US', etsyListingId: '123', productImageUrl: 'https://i.etsystatic.com/123/a.jpg' });
+  });
+
   test('findListingForOrderItem resolves global marketplace ASIN before shop SKU', async () => {
     listingRepository.findByAsin.mockResolvedValue({
       _id: listingId,
@@ -1319,23 +1350,17 @@ describe('catalog.service', () => {
     expect(listingRepository.create).toHaveBeenCalled();
   });
 
-  test('findOrCreateDraftListingForOrderItem creates an unconfigured draft from Amazon identity', async () => {
+  test.each(['AMAZON', 'ETSY'])('order import creates an approved but unconfigured %s listing', async (salesChannelCode) => {
     listingRepository.findByAsin.mockResolvedValue(null);
     listingRepository.findBySku.mockResolvedValue(null);
-    listingRepository.create.mockResolvedValue({
-      _id: listingId,
-      shopId,
-      asin: 'B0TESTASIN',
-      sku: 'SKU-1',
-      title: 'Test Listing',
-      status: 'ACTIVE',
-      qcStatus: 'DRAFT',
-    });
+    listingRepository.findByEtsyListingId.mockResolvedValue(null);
+    listingRepository.create.mockImplementation(async payload => ({ _id: listingId, ...payload }));
 
     const result = await service.findOrCreateDraftListingForOrderItem({
       shopId,
-      salesChannelCode: 'AMAZON',
-      marketplaceCode: 'AMAZON_US',
+      salesChannelCode,
+      marketplaceCode: `${salesChannelCode}_US`,
+      etsyListingId: salesChannelCode === 'ETSY' ? '123' : null,
       asin: 'B0TESTASIN',
       sku: 'SKU-1',
       title: 'Test Listing',
@@ -1346,9 +1371,10 @@ describe('catalog.service', () => {
       asin: 'B0TESTASIN',
       sku: 'SKU-1',
       status: 'ACTIVE',
-      qcStatus: 'DRAFT',
+      qcStatus: 'APPROVED',
+      approvedAt: expect.any(Date),
     }));
-    expect(result).toMatchObject({ _id: listingId, qcStatus: 'DRAFT' });
+    expect(result).toMatchObject({ _id: listingId, qcStatus: 'APPROVED' });
   });
 
   test('findOrCreateDraftListingForOrderItem backfills a missing ASIN on an existing draft', async () => {

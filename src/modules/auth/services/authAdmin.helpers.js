@@ -27,9 +27,17 @@ const SCOPES_REQUIRING_NULL_ID = new Set([
 
 async function ensureRolesExist(roleIds, { session, touch = false } = {}) {
   roleIds.forEach((roleId) => assertValidObjectId(roleId, 'roleId'));
-  const roles = touch
-    ? (await Promise.all(roleIds.map((roleId) => roleRepository.touchById(roleId, { session })))).filter(Boolean)
-    : await roleRepository.findByIds(roleIds, { session });
+  let roles;
+  if (touch) {
+    roles = [];
+    // MongoDB does not support concurrent operations on one transaction session.
+    for (const roleId of roleIds) {
+      const role = await roleRepository.touchById(roleId, { session });
+      if (role) roles.push(role);
+    }
+  } else {
+    roles = await roleRepository.findByIds(roleIds, { session });
+  }
 
   if (roles.length !== roleIds.length) {
     throw new AppError('One or more roles were not found', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);

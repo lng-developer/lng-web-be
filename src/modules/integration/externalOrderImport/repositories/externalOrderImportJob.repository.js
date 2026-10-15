@@ -33,6 +33,10 @@ async function findById(jobId) {
   return ExternalOrderImportJob.findById(jobId).lean();
 }
 
+async function findByIdempotency({ shopId, source, idempotencyKey }) {
+  return ExternalOrderImportJob.findOne({ shopId, source, idempotencyKey }).lean();
+}
+
 async function findIds(filters = {}) {
   return ExternalOrderImportJob.distinct('_id', buildFilter(filters));
 }
@@ -90,8 +94,13 @@ async function listStaleActive({ cutoff, limit = 50 } = {}) {
 }
 
 module.exports = {
+  async attachSourceIfMissing(jobId, sourceFileId) {
+    const updated = await ExternalOrderImportJob.findOneAndUpdate({ _id: jobId, sourceFileId: null }, { $set: { sourceFileId } }, { returnDocument: 'after', runValidators: true }).lean();
+    return updated || findById(jobId);
+  },
   create,
   findById,
+  findByIdempotency,
   findIds,
   findShopIdsByIds,
   updateStatus,

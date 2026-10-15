@@ -8,6 +8,8 @@ function toImportJobDto(job) {
     id: toId(job),
     source: job.source,
     sourceType: job.sourceType,
+    importOrigin: job.importOrigin || null,
+    resultSummary: job.resultSummary || null,
     shopId: toId(job.shopId),
     shopConnectionId: toId(job.shopConnectionId),
     salesChannelCode: job.salesChannelCode,

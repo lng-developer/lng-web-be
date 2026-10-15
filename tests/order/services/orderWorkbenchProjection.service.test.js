@@ -25,6 +25,12 @@ describe('orderWorkbenchProjection.service', () => {
     jest.clearAllMocks();
     shopPublic.findById.mockResolvedValue({ _id: '660000000000000000000002', name: 'US Store' });
   });
+  test('preserves Etsy display fields without projecting raw provider data', async () => {
+    await service.upsertOrderWorkbenchBase({ _id: 'o', shopId: 's' }, [{ _id: 'i', salesChannelCode: 'ETSY', externalListingId: '123', variantRaw: 'Size: L', externalData: { etsy: { listingImageUrl: 'https://i.etsystatic.com/123/a.jpg', secret: 'hidden' } } }]);
+    const item = repository.createBase.mock.calls[0][0].items[0].item;
+    expect(item).toMatchObject({ salesChannelCode: 'ETSY', externalListingId: '123', variations: 'Size: L', listingImageUrl: 'https://i.etsystatic.com/123/a.jpg' });
+    expect(item).not.toHaveProperty('externalData');
+  });
 
   test('creates a compact base without order external data', async () => {
     await service.upsertOrderWorkbenchBase({
@@ -40,6 +46,7 @@ describe('orderWorkbenchProjection.service', () => {
       externalOrderId: '114-1',
       order: expect.not.objectContaining({ externalData: expect.anything() }),
       items: [expect.objectContaining({ orderItemId: '660000000000000000000003' })],
+      shop: expect.objectContaining({ name: 'US Store' }),
     }), {});
   });
 

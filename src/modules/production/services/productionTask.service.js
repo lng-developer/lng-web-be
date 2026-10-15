@@ -1248,6 +1248,7 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
   const item = await orderPublic.findItemById(orderItemId);
   if (!item) throw notFound('Order item not found');
   assertCanAccessShop(item.shopId, productionPermissions.WRITE, authContext);
+  await orderPublic.assertMarketplaceAllowsFulfillment(item.orderId, orderItemId);
   const order = item.orderId ? await orderPublic.findById(item.orderId) : null;
 
   const plan = await loadReadyPlan(orderItemId, authContext);
@@ -2368,6 +2369,7 @@ async function listWorkScoreCandidates({ limit = 100 } = {}) {
 async function markSentToVendor(taskId, vendorSubmissionId, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+  await orderPublic.assertMarketplaceAllowsFulfillment(task.orderId, task.orderItemId);
   if (
     task.status === productionTaskStatuses.SENT_TO_VENDOR
     && vendorSubmissionId

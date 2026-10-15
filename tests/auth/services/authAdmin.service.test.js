@@ -10,6 +10,11 @@ const organizationPublic = require('../../../src/modules/organization/public');
 const auditPublic = require('../../../src/modules/audit/public');
 accessAssignmentRepository.findActiveByAccountRoleScope = jest.fn();
 const authAdmin = require('../../../src/modules/auth/services/authAdmin.service');
+const adminReadRepository = require('../../../src/modules/auth/repositories/authAdminRead.repository');
+jest.mock('../../../src/modules/auth/repositories/authAdminRead.repository', () => ({
+  ...jest.requireActual('../../../src/modules/auth/repositories/authAdminRead.repository'),
+  roleUsage: jest.fn(), permissionUsage: jest.fn(), scopeUsage: jest.fn(), findScopes: jest.fn(),
+}));
 
 jest.mock('../../../src/modules/auth/repositories/account.repository');
 jest.mock('../../../src/modules/auth/repositories/role.repository');
@@ -24,6 +29,8 @@ jest.mock('../../../src/modules/organization/public', () => ({
   listAccountOrganizationSummaries: jest.fn(),
   getDepartmentById: jest.fn(),
   getTeamById: jest.fn(),
+  listTeamsByIds: jest.fn(),
+  listDepartmentsByIds: jest.fn(),
 }));
 jest.mock('../../../src/modules/audit/public', () => ({ record: jest.fn() }));
 
@@ -35,6 +42,12 @@ describe('authAdmin', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    adminReadRepository.roleUsage.mockResolvedValue(new Map());
+    adminReadRepository.permissionUsage.mockResolvedValue({ roles: new Map(), scopedRoles: new Map(), assignments: new Map() });
+    adminReadRepository.scopeUsage.mockResolvedValue(new Map());
+    adminReadRepository.findScopes.mockResolvedValue([]);
+    organizationPublic.listTeamsByIds.mockResolvedValue([]);
+    organizationPublic.listDepartmentsByIds.mockResolvedValue([]);
     jest.spyOn(mongoose, 'startSession').mockResolvedValue({
       withTransaction: jest.fn(async (callback) => callback()),
       endSession: jest.fn(),
@@ -303,7 +316,7 @@ describe('authAdmin', () => {
       limit: 20,
       total: 1,
     });
-    accessAssignmentRepository.countByRole.mockResolvedValue(3);
+    adminReadRepository.roleUsage.mockResolvedValue(new Map([[roleId, 3]]));
     permissionRepository.findByIds.mockResolvedValue([{
       _id: permissionId,
       code: 'TEAMS:READ',
@@ -312,7 +325,7 @@ describe('authAdmin', () => {
 
     const result = await authAdmin.listRoles({ page: 1, limit: 20 });
 
-    expect(accessAssignmentRepository.countByRole).toHaveBeenCalledWith(roleId);
+    expect(adminReadRepository.roleUsage).toHaveBeenCalledWith([roleId]);
     expect(result.items[0]).toMatchObject({
       description: 'Team leader',
       userCount: 3,
@@ -347,9 +360,9 @@ describe('authAdmin', () => {
       limit: 20,
       total: 1,
     });
-    roleRepository.countByPermission.mockResolvedValue(2);
-    scopedRolePermissionRepository.countByPermission.mockResolvedValue(1);
-    accessAssignmentRepository.countByCustomPermission.mockResolvedValue(1);
+    adminReadRepository.permissionUsage.mockResolvedValue({
+      roles: new Map([[permissionId, 2]]), scopedRoles: new Map([[permissionId, 1]]), assignments: new Map([[permissionId, 1]]),
+    });
 
     const result = await authAdmin.listPermissions({ page: 1, limit: 20 });
 
@@ -540,7 +553,7 @@ describe('authAdmin', () => {
     const accountIds = ['507f1f77bcf86cd799439011'];
     const session = {
       withTransaction: jest.fn().mockRejectedValue(Object.assign(
-        new Error('Only servers in a sharded cluster can start a new transaction at the active transaction number'),
+        new Error('Transaction numbers are only allowed on a replica set member or mongos'),
         { code: 20 },
       )),
       endSession: jest.fn(),
@@ -559,6 +572,36 @@ describe('authAdmin', () => {
       { session: undefined },
     );
     expect(authManager.invalidatePermissionCache).toHaveBeenCalledWith(accountIds[0]);
+  });
+
+  test.each(['bulkUpdateAccountAccess', 'bulkRevokeAccountAccess'])('%s serializes account operations on a shared session', async (method) => {
+    const ids = [accountId, '507f1f77bcf86cd799439022'];
+    let active = 0;
+    let peak = 0;
+    const operation = async (id, { session }) => {
+      expect(session).toBeDefined();
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setImmediate(resolve));
+      active -= 1;
+      return { _id: id, status: 'active' };
+    };
+    accountRepository.findById.mockImplementation(operation);
+    accessAssignmentRepository.deactivateActiveGlobalByAccount.mockImplementation(operation);
+    await expect(authAdmin[method]({ accountIds: ids, roleIds: [], customPermissions: [] }))
+      .resolves.toEqual({ affectedCount: 2, accountIds: ids });
+    expect(peak).toBe(1);
+  });
+
+  test('transaction ordering errors never trigger a non-transactional revoke fallback', async () => {
+    accountRepository.findById.mockResolvedValue({ _id: accountId, status: 'active' });
+    accessAssignmentRepository.deactivateActiveGlobalByAccount.mockResolvedValue();
+    const failure = Object.assign(new Error('Only servers in a sharded cluster can start a new transaction at the active transaction number'), { code: 20 });
+    jest.spyOn(mongoose, 'startSession').mockResolvedValue({
+      withTransaction: jest.fn().mockRejectedValue(failure), endSession: jest.fn(),
+    });
+    await expect(authAdmin.bulkRevokeAccountAccess({ accountIds: [accountId] })).rejects.toBe(failure);
+    expect(accessAssignmentRepository.deactivateActiveGlobalByAccount).not.toHaveBeenCalled();
   });
 
   test('bulkUpdateAccountAccess blocks assigning non-super roles when it would remove the last SUPER_ADMIN', async () => {

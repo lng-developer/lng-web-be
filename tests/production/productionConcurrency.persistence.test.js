@@ -17,6 +17,7 @@ jest.mock('../../src/modules/hr/public', () => ({
 jest.mock('../../src/modules/organization/public', () => ({ listAccountOrganizationSummaries: jest.fn() }));
 jest.mock('../../src/modules/vendorSubmission/public', () => ({ listLatestByProductionTaskIds: jest.fn() }));
 jest.mock('../../src/modules/order/public', () => ({
+  assertMarketplaceAllowsFulfillment: jest.fn(),
   addressValidationStatuses: { VALID: 'VALID', OVERRIDDEN: 'OVERRIDDEN' },
   appendTimeline: jest.fn(),
   deriveOrderItemWorkflow: jest.requireActual('../../src/modules/order/services/orderWorkflow.service').deriveOrderItemWorkflow,

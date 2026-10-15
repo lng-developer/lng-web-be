@@ -48,6 +48,7 @@ function buildFilter({
   if (searchRegex) {
     filter.$or = [
       { asin: searchRegex },
+      { etsyListingId: searchRegex },
       { sku: searchRegex },
       { title: searchRegex },
     ];
@@ -111,6 +112,17 @@ async function findByAsin({ salesChannelCode, marketplaceCode, asin, includeInac
   }
 
   return Listing.findOne(filter).lean();
+}
+
+async function findByEtsyListingId({ salesChannelCode, marketplaceCode, etsyListingId } = {}) {
+  return Listing.findOne({ salesChannelCode, marketplaceCode, etsyListingId }).lean();
+}
+
+async function findUniqueEtsySku({ shopId, salesChannelCode, marketplaceCode, sku, etsyListingId } = {}) {
+  const candidates = await Listing.find({ shopId, salesChannelCode, marketplaceCode, sku }).limit(2).lean();
+  if (candidates.length !== 1) return null;
+  const listing = candidates[0];
+  return !listing.etsyListingId || listing.etsyListingId === etsyListingId ? listing : null;
 }
 
 async function list({ page = 1, limit = 20, ...filters } = {}) {
@@ -204,6 +216,7 @@ function compareAndSetImage(listing, patch) {
 module.exports = {
   findImageSyncCandidates,
   compareAndSetImage,
+  fillEtsyListingImage,
   create,
   findById,
   findByIds,
@@ -211,9 +224,18 @@ module.exports = {
   findByAsin,
   findByAsins,
   findBySku,
+  findByEtsyListingId,
+  findUniqueEtsySku,
   list,
   listAll,
   summarize,
   update,
   buildFilter,
 };
+
+async function fillEtsyListingImage({ shopId, marketplaceCode, etsyListingId, productImageUrl }) {
+  return Listing.findOneAndUpdate({
+    shopId, salesChannelCode: 'ETSY', marketplaceCode, etsyListingId,
+    productImageUrl: { $in: [null, ''] },
+  }, { $set: { productImageUrl } }, { returnDocument: 'after', runValidators: true }).lean();
+}

@@ -167,6 +167,26 @@ function withSession(options = {}) {
 }
 
 async function upsertBase(projection, options = {}) {
+  if (options.preserveEnrichment) {
+    const { items, ...base } = projection;
+    delete base.case;
+    delete base.hasCurrentPsd;
+    // Merge on the server so concurrent enrichment patches are not overwritten by an import.
+    const fields = Object.fromEntries(Object.entries(base).map(([key, value]) => [key, { $literal: value }]));
+    fields.orderId = { $literal: toObjectId(projection.orderId) };
+    fields.shopId = { $literal: toObjectId(projection.shopId) };
+    fields.hasCurrentPsd = { $ifNull: ['$hasCurrentPsd', false] };
+    fields.items = { $map: {
+      input: { $literal: items.map(entry => ({ ...entry, orderItemId: toObjectId(entry.orderItemId) })) }, as: 'incoming',
+      in: { $mergeObjects: ['$$incoming', { $ifNull: [{ $arrayElemAt: [{ $filter: {
+        input: { $ifNull: ['$items', []] }, as: 'existing', cond: { $eq: ['$$existing.orderItemId', '$$incoming.orderItemId'] },
+      } }, 0] }, {}] }, { item: '$$incoming.item' }] },
+    } };
+    return OrderWorkbenchProjection.findOneAndUpdate(
+      { orderId: projection.orderId }, [{ $set: fields }],
+      { upsert: true, returnDocument: 'after', updatePipeline: true, ...withSession(options) },
+    ).lean();
+  }
   return OrderWorkbenchProjection.findOneAndUpdate(
     { orderId: projection.orderId },
     { $set: projection },
@@ -191,7 +211,7 @@ async function setItemFields(orderId, orderItemId, patch, options = {}) {
     { orderId },
     { $set: fields },
     {
-      arrayFilters: [{ 'item.orderItemId': orderItemId }],
+      arrayFilters: [{ 'item.orderItemId': orderItemId, ...(options.expectedListingImageUrl ? { 'item.item.listingImageUrl': options.expectedListingImageUrl } : {}) }],
       returnDocument: 'after',
       runValidators: true,
       ...withSession(options),

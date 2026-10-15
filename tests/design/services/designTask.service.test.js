@@ -1,4 +1,5 @@
 jest.mock('../../../src/modules/catalog/public', () => ({
+  getListingsByIds: jest.fn().mockResolvedValue([]),
   getInternalTemplateById: jest.fn(),
   getListingById: jest.fn(),
   getListingVariantById: jest.fn(),
@@ -151,6 +152,7 @@ describe('designTask.service', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    catalogPublic.getListingsByIds.mockResolvedValue([]);
     authPublic.canAccessScope.mockReturnValue(true);
     authPublic.listAccountIdsByScopes.mockResolvedValue([accountId]);
     authPublic.listTeamScopedAccountIds.mockResolvedValue([accountId]);
@@ -1317,6 +1319,21 @@ describe('designTask.service', () => {
     expect(JSON.stringify(result)).not.toContain('localPath');
     expect(JSON.stringify(result)).not.toContain('relativeStoragePath');
     expect(JSON.stringify(result)).not.toContain('providerAssetId');
+  });
+
+  test('PSD task without a snapshot image uses the current Catalog image', async () => {
+    repository.list.mockResolvedValue({ items: [{ ...openTask, listingId, listingSnapshot: { id: listingId, productImageUrl: null } }], total: 1, page: 1, limit: 20 });
+    catalogPublic.getListingsByIds.mockResolvedValue([{ _id: listingId, productImageUrl: 'https://i.etsystatic.com/123/main.jpg' }]);
+    productionPublic.listPsdBlockedTasksByListing.mockResolvedValue([]);
+    const result = await service.listTasks({}, { permissions: ['DESIGN:READ'], accountId });
+    expect(result.items[0].listing.productImageUrl).toBe('https://i.etsystatic.com/123/main.jpg');
+  });
+
+  test('current Catalog image never replaces the task snapshot image', async () => {
+    repository.list.mockResolvedValue({ items: [{ ...openTask, listingId, listingSnapshot: { id: listingId, productImageUrl: 'https://example.test/original.jpg' } }], total: 1, page: 1, limit: 20 });
+    catalogPublic.getListingsByIds.mockResolvedValue([{ _id: listingId, productImageUrl: 'https://i.etsystatic.com/123/main.jpg' }]);
+    const result = await service.listTasks({}, { permissions: ['DESIGN:READ'], accountId });
+    expect(result.items[0].listing.productImageUrl).toBe('https://example.test/original.jpg');
   });
 
   test('lists PSD score records with Auth-resolved scorer and automated fallback', async () => {

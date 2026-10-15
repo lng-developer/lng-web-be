@@ -1,8 +1,11 @@
+jest.mock('../../../../src/modules/integration/externalOrderImport/services/etsyListingImageQueue.service', () => ({ enqueueListingImages: jest.fn() }));
 jest.mock('../../../../src/modules/integration/externalOrderImport/repositories/externalOrderImportJob.repository', () => ({
   create: jest.fn(),
   updateStatus: jest.fn(),
   updateCounters: jest.fn(),
   findById: jest.fn(),
+  findByIdempotency: jest.fn(),
+  attachSourceIfMissing: jest.fn(),
 }));
 
 jest.mock('../../../../src/modules/integration/externalOrderImport/repositories/externalOrderImportSourceFile.repository', () => ({
@@ -85,6 +88,8 @@ describe('manualExcelImport.service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jobRepository.create.mockResolvedValue(job);
+    jobRepository.attachSourceIfMissing.mockResolvedValue(job);
+    jobRepository.findByIdempotency.mockResolvedValue(null);
     jobRepository.updateStatus.mockImplementation(async (jobId, status, patch = {}) => ({ _id: jobId, status, ...patch }));
     jobRepository.updateCounters.mockImplementation(async (jobId, patch) => ({ _id: jobId, ...patch }));
     sourceFileRepository.create.mockResolvedValue(sourceFile);
@@ -151,6 +156,42 @@ describe('manualExcelImport.service', () => {
     customizationPublic.markNeedsReview.mockResolvedValue({});
   });
 
+  test('returns the original queued Etsy job for a repeated idempotency key', async () => {
+    jobRepository.findByIdempotency.mockResolvedValue({
+      _id: job._id,
+      status: 'PENDING',
+      totalRecords: 2,
+      sourceFileId: sourceFile._id,
+      requestHash: require('../../../../src/modules/integration/externalOrderImport/helpers/stableHash').calculateRecordHash({ fileHash: require('crypto').createHash('sha256').update('Order ID,Transaction ID\n1,2').digest('hex'), salesChannelCode: 'ETSY', marketplaceCode: 'ETSY_US', shopConnectionId: null, externalAccountId: null }),
+    });
+
+    const result = await service.prepareQueuedEtsySoldOrderItems({
+      buffer: Buffer.from('Order ID,Transaction ID\n1,2'),
+      originalFilename: 'etsy.csv',
+      mimeType: 'text/csv',
+      shopId,
+      marketplaceCode: 'ETSY_US',
+      idempotencyKey: '507f1f77bcf86cd799439012',
+    });
+
+    expect(result).toMatchObject({ jobId: job._id, status: 'PENDING', totalRecords: 2 });
+    expect(jobRepository.create).not.toHaveBeenCalled();
+    expect(sourceFileRepository.create).not.toHaveBeenCalled();
+  });
+
+  test('rejects reusing an idempotency key for different input', async () => {
+    jobRepository.findByIdempotency.mockResolvedValue({ _id: job._id, requestHash: 'other', sourceFileId: sourceFile._id });
+    await expect(service.prepareQueuedEtsySoldOrderItems({ buffer: Buffer.from('changed'), originalFilename: 'etsy.csv', shopId, marketplaceCode: 'ETSY_US', idempotencyKey: 'same' })).rejects.toMatchObject({ statusCode: 409 });
+    expect(sourceFileRepository.create).not.toHaveBeenCalled();
+  });
+
+  test('source attachment does not reset a concurrently completed job to pending', async () => {
+    jobRepository.attachSourceIfMissing.mockResolvedValue({ ...job, status: 'COMPLETED', importedCount: 2 });
+    const result = await service.prepareQueuedEtsySoldOrderItems({ buffer: Buffer.from('Order ID,Transaction ID\n1,2'), originalFilename: 'etsy.csv', shopId, marketplaceCode: 'ETSY_US' });
+    expect(result.status).toBe('COMPLETED');
+    expect(jobRepository.updateStatus).not.toHaveBeenCalled();
+  });
+
   test('prepares an import job without importing orders in the upload request', async () => {
     const result = await service.prepareManualExcelOrderReport({
       buffer: Buffer.from('order-id\torder-item-id\tsku\n113-1\tITEM-1\tSKU-1'),
@@ -209,6 +250,18 @@ describe('manualExcelImport.service', () => {
     expect(customizationPublic.createPendingPayload).not.toHaveBeenCalled();
     expect(postImportMappingQueue.enqueuePostImportMappingJob).not.toHaveBeenCalled();
     expect(result).toMatchObject({ status: 'COMPLETED', importedCount: 0, skippedCount: 1, failedCount: 0 });
+  });
+
+  test('terminal imports do not restart customization, address validation or mapping', async () => {
+    orderPublic.importExternalOrder.mockResolvedValue({ orderId, terminal: true, itemResults: [] });
+    await service.importManualExcelOrderReport({
+      buffer: Buffer.from('order-id\torder-item-id\tsku\n113-1\tITEM-1\tSKU-1'),
+      originalFilename: 'orders.txt', mimeType: 'text/plain', shopId,
+      marketplaceCode: 'AMAZON_US', source: 'AMAZON_EXTENSION_REPORT',
+    });
+    expect(orderPublic.validateAddress).not.toHaveBeenCalled();
+    expect(customizationPublic.createPendingPayload).not.toHaveBeenCalled();
+    expect(postImportMappingQueue.enqueuePostImportMappingJob).not.toHaveBeenCalled();
   });
 
   test('creates job, raw records, imports grouped order, and creates customization payload', async () => {
@@ -336,7 +389,9 @@ describe('manualExcelImport.service', () => {
     expect(result.status).toBe('COMPLETED');
   });
 
-  test('imports Etsy sold order items CSV as Etsy orders', async () => {
+  test.each([['created', 'CREATED'], ['updated', 'UPDATED']])('imports Etsy CSV and records the %s order outcome', async (flag, expectedOutcome) => {
+    const originalImport = orderPublic.importExternalOrder.getMockImplementation();
+    orderPublic.importExternalOrder.mockImplementation(async dto => ({ ...await originalImport(dto), [flag]: true }));
     const buffer = Buffer.from([
       'Sale Date,Item Name,Quantity,Price,Order Shipping,Order Sales Tax,Item Total,Currency,Transaction ID,Listing ID,Date Paid,Ship Name,Ship Address1,Ship City,Ship State,Ship Zipcode,Ship Country,Order ID,Variations,SKU',
       '06/29/26,Custom Napkins,1,50.95,0,0,50.95,USD,5121748428,4527775590,06/29/2026,Buyer Name,46 Sunnyside Drive,Yonkers,NY,10705,United States,4101302696,"Custom:Dilenia & Milton 20 Years",J2614-NK-250626-07',
@@ -361,6 +416,7 @@ describe('manualExcelImport.service', () => {
       externalItemId: '5121748428',
       sku: 'J2614-NK-250626-07',
     })]);
+    expect(rawRecordRepository.updateImportResult).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ orderImportOutcome: expectedOutcome }));
     expect(orderPublic.importExternalOrder).toHaveBeenCalledWith(expect.objectContaining({
       source: 'MANUAL_EXCEL',
       salesChannelCode: 'ETSY',

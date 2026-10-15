@@ -31,6 +31,15 @@ const jobIdParamSchema = Joi.object({
   jobId: objectIdSchema.required(),
 });
 
+const etsyAssetSchema = Joi.object({ sha256: Joi.string().hex().length(64).lowercase().required() });
+const etsyManifestSchema = Joi.object({
+  entries: Joi.array().min(1).max(100).items(Joi.object({
+    externalOrderId: Joi.string().trim().max(160).required(),
+    externalItemId: Joi.string().trim().max(160).required(),
+    assets: Joi.array().max(20).items(Joi.object({ mediaAssetId: objectIdSchema.required() })).required(),
+  })).required(),
+});
+
 const issueIdParamSchema = Joi.object({
   issueId: objectIdSchema.required(),
 });
@@ -99,6 +108,8 @@ function validate(schema, payload) {
 }
 
 module.exports = {
+  etsyAssetSchema,
+  etsyManifestSchema,
   manualExcelImportSchema,
   jobIdParamSchema,
   issueIdParamSchema,

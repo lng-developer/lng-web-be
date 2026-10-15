@@ -57,6 +57,37 @@ describe('auth administration audit transactions', () => {
     await expect(AuditEvent.countDocuments({})).resolves.toBe(0);
   });
 
+  test.each([
+    ['single', false], ['bulk', false], ['single', true], ['bulk', true],
+  ])('multi-role %s access update preserves atomicity (audit failure: %s)', async (mode, failAudit) => {
+    const accounts = await Account.create([0, 1].map((index) => ({
+      email: `multi-role-${index}@example.test`, passwordHash: 'hash', passwordSalt: 'salt', status: 'active',
+    })));
+    const roles = await Role.create([0, 1, 2].map((index) => ({
+      code: `MULTI_ROLE_${index}`, name: `Role ${index}`, permissions: [],
+    })));
+    const targets = mode === 'single' ? accounts.slice(0, 1) : accounts;
+    await AccessAssignment.insertMany(targets.map((account) => ({
+      accountId: account._id, roleId: roles[0]._id, scopeType: 'global', scopeId: null, status: 'active',
+    })));
+    if (failAudit) jest.spyOn(auditPublic, 'record').mockRejectedValue(new Error('audit unavailable'));
+    const roleIds = roles.slice(1).map((role) => String(role._id));
+    const invoke = () => mode === 'single'
+      ? authAdmin.updateAccountAccess(targets[0]._id, { roles: roleIds, customPermissions: [] })
+      : authAdmin.bulkUpdateAccountAccess({ accountIds: targets.map((account) => String(account._id)), roleIds, customPermissions: [] });
+    if (failAudit) await expect(invoke()).rejects.toThrow('audit unavailable');
+    else await invoke();
+    for (const account of targets) {
+      const active = await AccessAssignment.find({ accountId: account._id, status: 'active' }).lean();
+      expect(active.map((assignment) => String(assignment.roleId)).sort())
+        .toEqual((failAudit ? [String(roles[0]._id)] : roleIds).sort());
+    }
+    expect(await AuditEvent.countDocuments({ action: 'ACCOUNT_ACCESS_UPDATED' }))
+      .toBe(failAudit ? 0 : targets.length);
+    const touchedRoles = await Role.find({ _id: { $in: roleIds } }).select('+mutationVersion').lean();
+    expect(touchedRoles.map((role) => role.mutationVersion)).toEqual(failAudit ? [0, 0] : [1, 1]);
+  });
+
   test('rolls back an RBAC mutation when its audit write fails', async () => {
     jest.spyOn(auditPublic, 'record').mockRejectedValue(new Error('audit unavailable'));
 

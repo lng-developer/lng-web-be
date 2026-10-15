@@ -119,6 +119,8 @@ const mediaAssetSchema = new mongoose.Schema(
 );
 
 mediaAssetSchema.index({ sha256: 1, size: 1 });
+mediaAssetSchema.index({ shopId: 1, ownerType: 1, sourceUrlHash: 1 }, { unique: true, partialFilterExpression: { ownerType: 'ETSY_LISTING_IMAGE', uploadStatus: 'READY', discardedAt: null } });
+mediaAssetSchema.index({ shopId: 1, ownerType: 1, ownerId: 1, sha256: 1 }, { unique: true, partialFilterExpression: { ownerType: 'ETSY_IMPORT', uploadStatus: 'READY', discardedAt: null } });
 mediaAssetSchema.index({ provider: 1, uploadStatus: 1, 'metadata.expiresAt': 1 });
 
 module.exports = mongoose.model('MediaAsset', mediaAssetSchema);

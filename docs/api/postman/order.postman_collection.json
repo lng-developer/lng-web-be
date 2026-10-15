@@ -181,7 +181,7 @@
         {
           "name": "PATCH /api/orders/:orderId/assigned-staff",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+            "description": "Bearer token required. Permissions (ANY): ORDERS:ASSIGN.",
             "method": "PATCH",
             "header": [
               {
@@ -378,7 +378,7 @@
         {
           "name": "POST /api/orders/:orderId/replacement",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+            "description": "Bearer token required. Permissions (ANY): ORDERS:CASE_MANAGE.",
             "method": "POST",
             "header": [
               {
@@ -577,7 +577,7 @@
         {
           "name": "POST /api/orders/:orderId/workbench-projection/rebuild",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+            "description": "Bearer token required. Permissions (ANY): ORDERS:FULFILL.",
             "method": "POST",
             "header": [],
             "url": {
@@ -736,7 +736,7 @@
         {
           "name": "PATCH /api/orders/cases/:caseId",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+            "description": "Bearer token required. Permissions (ANY): ORDERS:CASE_MANAGE.",
             "method": "PATCH",
             "header": [
               {
@@ -1037,7 +1037,7 @@
         {
           "name": "POST /api/orders/items/:orderItemId/cancel",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+            "description": "Bearer token required. Permissions (ANY): ORDERS:CASE_MANAGE.",
             "method": "POST",
             "header": [
               {
@@ -1199,7 +1199,7 @@
         {
           "name": "POST /api/orders/items/:orderItemId/recheck",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+            "description": "Bearer token required. Permissions (ANY): ORDERS:FULFILL.",
             "method": "POST",
             "header": [
               {
@@ -1250,7 +1250,7 @@
         {
           "name": "POST /api/orders/items/:orderItemId/replacement",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): ORDERS:WRITE.",
+            "description": "Bearer token required. Permissions (ANY): ORDERS:CASE_MANAGE.",
             "method": "POST",
             "header": [
               {

@@ -185,7 +185,7 @@ describe('mediaAsset.service', () => {
     expect(repository.create).toHaveBeenCalledTimes(1);
   });
 
-  test('storeAsset uploads stream to Cloudinary when configured', async () => {
+  test.each([false, true])('Cloudinary upload persists or cleans up a failed import write (failure=%s)', async (failWrite) => {
     process.env.MEDIA_STORAGE_PROVIDER = 'cloudinary';
     process.env.CLOUDINARY_CLOUD_NAME = 'cloud-name';
     process.env.CLOUDINARY_API_KEY = 'api-key';
@@ -210,7 +210,8 @@ describe('mediaAsset.service', () => {
       });
     });
 
-    const result = await service.storeAsset({
+    if (failWrite) repository.create.mockRejectedValueOnce(Object.assign(new Error('duplicate'), { code: 11000 }));
+    const operation = service.storeAsset({
       stream: Readable.from([Buffer.from('cloud image')]),
       filename: 'image.png',
       mimeType: 'image/png',
@@ -218,10 +219,17 @@ describe('mediaAsset.service', () => {
       sourceUrlHash: 'hash',
       metadata: { extractedFromZip: true },
       shopId: '660000000000000000000111',
-      ownerType: 'CUSTOMIZATION_PAYLOAD',
+      ownerType: failWrite ? 'ETSY_IMPORT' : 'CUSTOMIZATION_PAYLOAD',
       ownerId: '660000000000000000000333',
       maxBytes: 1024,
     });
+
+    if (failWrite) {
+      await expect(operation).rejects.toThrow('duplicate');
+      expect(cloudinary.uploader.destroy).toHaveBeenCalledWith('lng/custom/file', { resource_type: 'image' });
+      return;
+    }
+    const result = await operation;
 
     expect(cloudinary.config).toHaveBeenCalledWith({
       cloud_name: 'cloud-name',
