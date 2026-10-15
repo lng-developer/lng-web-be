@@ -48,6 +48,10 @@ const manualVendorSearchSchema = Joi.object({
   limit: Joi.number().integer().min(1).max(50).default(20),
 });
 
+const manualProductSearchSchema = manualVendorSearchSchema.keys({
+  page: Joi.number().integer().min(1).default(1),
+});
+
 const manualVendorProductsSchema = Joi.object({
   productTypeGroupId: optionalObjectId,
 });
@@ -99,6 +103,7 @@ const summaryQuerySchema = Joi.object({
 });
 
 module.exports = {
+  manualProductSearchSchema,
   objectId,
   optionalObjectId,
   recheckUnmatchedSchema,

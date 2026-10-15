@@ -2,6 +2,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const { performance } = require('node:perf_hooks');
 const service = require('../services/fulfillmentPlan.service');
 const {
+  manualProductSearchSchema,
   recheckUnmatchedSchema,
   manualVendorProductOptionsSchema,
   manualVendorProductsSchema,
@@ -86,6 +87,11 @@ async function searchManualVendors(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: await service.searchManualVendors(query) });
 }
 
+async function searchManualVendorProducts(req, res) {
+  const query = assertValid(manualProductSearchSchema, req.query || {});
+  res.status(httpStatus.OK).json({ success: true, data: await service.searchManualVendorProducts(query) });
+}
+
 async function listManualVendorProducts(req, res) {
   const query = assertValid(manualVendorProductsSchema, req.query || {});
   res.status(httpStatus.OK).json({
@@ -110,6 +116,7 @@ async function getFulfillmentPlanForOrderItem(req, res) {
 }
 
 module.exports = {
+  searchManualVendorProducts,
   getFulfillmentPlanForOrderItem,
   listUnmatchedOrderItems,
   searchManualVendors,

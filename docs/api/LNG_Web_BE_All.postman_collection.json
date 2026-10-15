@@ -11992,6 +11992,49 @@
           "name": "Vendor Products",
           "item": [
             {
+              "name": "GET /api/mapping/vendor-products",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/mapping/vendor-products?q=napkin&page=1&limit=20",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "mapping",
+                    "vendor-products"
+                  ],
+                  "query": [
+                    {
+                      "key": "q",
+                      "value": "napkin"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
               "name": "GET /api/mapping/vendor-products/:vendorProductId/options",
               "request": {
                 "description": "Bearer token required. Permissions (ANY): MAPPING:READ.",

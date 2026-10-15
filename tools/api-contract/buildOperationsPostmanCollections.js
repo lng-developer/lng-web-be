@@ -37,6 +37,7 @@ const queryByRoute = {
   'GET /api/mapping/order-items/unmatched': { page: '1', limit: '20', includePreview: 'true' },
   'GET /api/mapping/summary': { limit: '50' },
   'GET /api/mapping/vendors': { q: 'vendor', limit: '20' },
+  'GET /api/mapping/vendor-products': { q: 'napkin', page: '1', limit: '20' },
   'GET /api/mapping/vendors/:vendorId/products': { q: 'hoodie', limit: '20' },
   'GET /api/mapping/vendor-products/:vendorProductId/options': { size: 'L', color: 'Black' },
   'GET /api/media/assets': { page: '1', limit: '20', status: 'ACTIVE' },
