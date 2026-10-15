@@ -7,7 +7,9 @@ Make Teams chat synchronization require one explicit Microsoft consent per Porta
 ## Decisions
 
 - Portal chat is never blocked by Teams setup, token refresh, Graph failures, or outbox retries.
-- A Microsoft-authenticated Portal account without a usable Teams refresh grant is prompted to complete Teams setup after login.
+- Microsoft SSO and Portal-password login are authentication methods for one canonical Portal `Account`; they must never create or link a second account by display name or unverified email.
+- Microsoft SSO identifies the existing canonical account by normalized, verified work email and the stored Entra subject. Portal-password login remains valid without proving or changing Microsoft identity.
+- Any authenticated account that already has a Microsoft identity but lacks a usable Teams refresh grant is offered Teams setup. The offer is non-blocking for both login methods.
 - The prompt is contextual and durable: it appears again only when the server reports `NOT_CONNECTED` or `REAUTH_REQUIRED`.
 - The server owns Graph refresh tokens. They remain encrypted at rest and never return to the browser.
 - Existing valid grants are preserved. There is no bulk logout or grant revocation as part of this rollout.
@@ -29,13 +31,14 @@ The authenticated user-facing endpoint returns only the caller's state:
 
 ## Login and setup flow
 
-1. Portal Microsoft login completes as it does today.
-2. The frontend reads the user-scoped Teams OAuth status once authenticated.
-3. If Teams is enabled and the current account has a Microsoft identity but no usable grant, the frontend shows a non-blocking setup prompt.
-4. The user chooses **Connect Teams**. The existing server-generated OAuth authorization URL opens in a popup.
-5. The callback validates state and PKCE, verifies that the Microsoft account matches the Portal account, encrypts and stores the refresh token, then closes the popup.
-6. The frontend refreshes status when focus returns. `CONNECTED` removes the prompt.
-7. Later Graph refresh or send failures that make the grant unusable mark the account `REAUTH_REQUIRED`; the setup prompt returns on a future authenticated page load.
+1. The user signs in through either Microsoft SSO or Portal password. Both return the same canonical account, Portal access token, and refresh session.
+2. Existing account-setup/password requirements run before chat access; Teams setup never bypasses them.
+3. The frontend reads the user-scoped Teams OAuth status once authenticated.
+4. If Teams is enabled and the current account has a Microsoft identity but no usable grant, the frontend shows a non-blocking setup prompt. Password-login users are never redirected or popuped automatically.
+5. The user chooses **Connect Teams**. The existing server-generated OAuth authorization URL opens in a popup.
+6. The callback validates state and PKCE, and accepts consent only when the Microsoft account matches the canonical Portal account by normalized verified email and Entra subject. It encrypts and stores the refresh token, then closes the popup.
+7. The frontend refreshes status when focus returns. `CONNECTED` removes the prompt.
+8. Later Graph refresh or send failures that make the grant unusable mark the account `REAUTH_REQUIRED`; the setup prompt returns on a future authenticated page load.
 
 ## Delivery and failure handling
 
@@ -50,6 +53,8 @@ The authenticated user-facing endpoint returns only the caller's state:
 Use one reusable Teams setup prompt mounted in the authenticated Portal shell, not in an individual chat header. It must:
 
 - appear for eligible users on any Portal route;
+- show after either login method only when the canonical account has a Microsoft identity and needs consent;
+- never auto-open Microsoft login or consent for a password-login session;
 - have a clear primary action to connect;
 - allow dismissal for the current session without disabling Portal chat;
 - show a concise reconnect message for `REAUTH_REQUIRED`;
