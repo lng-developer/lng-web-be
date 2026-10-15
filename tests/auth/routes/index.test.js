@@ -608,6 +608,26 @@ describe('auth routes', () => {
     );
   });
 
+  test('initial password is authenticated, validates length and strips credentials from its response', async () => {
+    const actor = { accountId: '507f1f77bcf86cd799439021', passwordSetupRequired: true, roles: [], permissions: [], scopes: [] };
+    authManager.verifyAccessToken.mockReturnValue({ sub: actor.accountId, tokenVersion: 0 });
+    authManager.getCurrentAccount.mockResolvedValue({ account: { _id: actor.accountId, status: 'active' }, roles: [], permissions: [], scopes: [] });
+    authManager.buildAuthContext.mockReturnValue(actor);
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ isProfileUpdated: true });
+    authManager.setInitialPassword.mockResolvedValue({ _id: actor.accountId, passwordSetupRequired: false, passwordHash: 'secret', passwordSalt: 'secret' });
+    const path = '/api/auth/me/initial-password';
+    const anonymous = await request(createSetupTestServer(), { method: 'POST', path, body: { newPassword: 'LNG-password-123' } });
+    expect(anonymous.statusCode).toBe(401);
+    const invalid = await request(createSetupTestServer(), { method: 'POST', path, headers: { Authorization: 'Bearer token' }, body: { newPassword: 'short' } });
+    expect(invalid.statusCode).toBe(400);
+    const result = await request(createSetupTestServer(), { method: 'POST', path, headers: { Authorization: 'Bearer token' }, body: { newPassword: 'LNG-password-123', accountId: 'other-account' } });
+    expect(result.statusCode).toBe(200);
+    expect(result.body.data.passwordSetupRequired).toBe(false);
+    expect(result.body.data.passwordHash).toBeUndefined();
+    expect(result.body.data.passwordSalt).toBeUndefined();
+    expect(authManager.setInitialPassword).toHaveBeenCalledWith(actor.accountId, { newPassword: 'LNG-password-123' }, expect.any(Object));
+  });
+
   test('PUT /scoped-role-permissions rejects missing bearer token', async () => {
     const response = await request(createTestServer(), {
       method: 'PUT',

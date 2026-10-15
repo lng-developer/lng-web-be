@@ -5,6 +5,7 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const allowedSetupActions = new Set([
   'GET /api/auth/me',
   'POST /api/auth/me/change-password',
+  'POST /api/auth/me/initial-password',
   'GET /api/hr/employee-profiles/me',
   'PATCH /api/hr/employee-profiles/me/personal',
   'POST /api/hr/employee-profiles/me/avatar',
@@ -17,7 +18,7 @@ function requestAction(req) {
 
 function requireAccountSetupComplete(req, _res, next) {
   if (
-    req.auth?.mustChangePassword
+    (req.auth?.mustChangePassword || req.auth?.passwordSetupRequired)
     && !allowedSetupActions.has(requestAction(req))
   ) {
     return next(new AppError(

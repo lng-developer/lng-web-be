@@ -101,6 +101,14 @@ describe('chat socket', () => {
     ]);
   });
 
+  test.each(['passwordSetupRequired', 'mustChangePassword'])('rejects a socket while %s is required', async (flag) => {
+    authPublic.buildAuthContext.mockReturnValue({ accountId: 'account-1', [flag]: true });
+    attachChatSocket({});
+    const next = jest.fn();
+    await mockServerEvents.middleware(fakeSocket(), next);
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ message: 'Account setup required' }));
+  });
+
   test('broadcasts account presence on connect and disconnect', async () => {
     attachChatSocket({});
     const socket = fakeSocket();

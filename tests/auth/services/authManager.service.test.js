@@ -30,6 +30,7 @@ jest.mock('../../../src/shared/utils/crypto', () => {
 });
 jest.mock('../../../src/modules/hr/public', () => ({
   getEmployeeProfileByEmployeeCode: jest.fn(),
+  getEmployeeProfileByAccountId: jest.fn(),
 }));
 
 describe('authManager', () => {
@@ -210,6 +211,66 @@ describe('authManager', () => {
       outcome: 'SUCCEEDED',
       requestId: 'change-password-request',
     }), expect.anything());
+  });
+
+  test.each(['staff@lngwork.co', 'J2501'])('initial LNG password supports subsequent login with %s', async (identifier) => {
+    accountRepository.findByIdWithPassword.mockResolvedValue({ _id: 'account-1', status: 'active', microsoftId: 'ms-1' });
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ isProfileUpdated: true });
+    accountRepository.updatePassword.mockImplementation(async (_id, credentials) => {
+      expect(await cryptoUtils.verifyPassword('LNG-password-123', credentials.passwordHash, credentials.passwordSalt)).toBe(true);
+      const model = { account: { _id: 'account-1', email: 'staff@lngwork.co', status: 'active', microsoftId: 'ms-1', ...credentials }, roles: ['USER'], permissions: [], scopes: [] };
+      accountRepository.findAuthAccountByEmail.mockResolvedValue(model);
+      accountRepository.findAuthAccountById.mockResolvedValue(model);
+      hrPublic.getEmployeeProfileByEmployeeCode.mockResolvedValue({ accountId: 'account-1', employeeCode: 'J2501' });
+      return { _id: 'account-1', email: 'staff@lngwork.co', microsoftId: 'ms-1' };
+    });
+    const result = await authManager.setInitialPassword('account-1', { newPassword: 'LNG-password-123' });
+    expect(result.email).toBe('staff@lngwork.co');
+    expect(result.passwordSetupRequired).toBe(false);
+    expect(accountRepository.updatePassword).toHaveBeenCalledWith('account-1', expect.any(Object), expect.objectContaining({
+      session, expectedPassword: { passwordHash: null, passwordSalt: null },
+    }));
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'ACCOUNT_PASSWORD_CREATED' }), { session });
+    const login = await authManager.login(identifier, 'LNG-password-123');
+    expect(login.account).toMatchObject({ id: 'account-1', email: 'staff@lngwork.co', passwordSetupRequired: false });
+    expect(login.roles).toEqual(['USER']);
+  });
+
+  test.each([
+    null,
+    { status: 'inactive', microsoftId: 'ms-1' },
+    { status: 'active' },
+    { status: 'active', microsoftId: 'ms-1', passwordHash: 'existing', passwordSalt: 'salt' },
+  ])('does not initialize credentials for an ineligible account: %j', async (account) => {
+    accountRepository.findByIdWithPassword.mockResolvedValue(account);
+    await expect(authManager.setInitialPassword('account-1', { newPassword: 'LNG-password-123' })).rejects.toMatchObject({ statusCode: 403 });
+    expect(accountRepository.updatePassword).not.toHaveBeenCalled();
+  });
+
+  test('requires profile completion before setting an initial password', async () => {
+    accountRepository.findByIdWithPassword.mockResolvedValue({ status: 'active', microsoftId: 'ms-1' });
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ isProfileUpdated: false });
+    await expect(authManager.setInitialPassword('account-1', { newPassword: 'LNG-password-123' })).rejects.toMatchObject({ code: 'ACCOUNT_SETUP_REQUIRED' });
+    expect(accountRepository.updatePassword).not.toHaveBeenCalled();
+  });
+
+  test('rejects a competing initial password update without recording success', async () => {
+    accountRepository.findByIdWithPassword.mockResolvedValue({ status: 'active', microsoftId: 'ms-1' });
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ isProfileUpdated: true });
+    accountRepository.updatePassword.mockResolvedValue(null);
+    await expect(authManager.setInitialPassword('account-1', { newPassword: 'LNG-password-123' })).rejects.toMatchObject({ statusCode: 409 });
+    expect(auditPublic.record).not.toHaveBeenCalled();
+  });
+
+  test('passwordless Microsoft accounts fail local login as invalid credentials, not a crypto error', async () => {
+    accountRepository.findAuthAccountByEmail.mockResolvedValue({ account: { _id: 'account-1', status: 'active', microsoftId: 'ms-1' }, roles: [], permissions: [] });
+    await expect(authManager.login('staff@lngwork.co', 'incorrect')).rejects.toMatchObject({ statusCode: 401 });
+  });
+
+  test('passwordless Microsoft accounts cannot use the existing-password change endpoint', async () => {
+    accountRepository.findByIdWithPassword.mockResolvedValue({ status: 'active', microsoftId: 'ms-1' });
+    await expect(authManager.changeOwnPassword('account-1', { currentPassword: 'anything', newPassword: 'LNG-password-123' })).rejects.toMatchObject({ statusCode: 401 });
+    expect(accountRepository.updatePassword).not.toHaveBeenCalled();
   });
 
   test('changeOwnPassword rejects when the account disappears before its password update', async () => {

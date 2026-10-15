@@ -13,6 +13,21 @@ function createRequest({ profileSetupRequired = false, mustChangePassword = fals
 }
 
 describe('requireAccountSetupComplete', () => {
+  test('blocks workspace APIs until a Microsoft account has an LNG password', () => {
+    const req = createRequest();
+    req.auth.passwordSetupRequired = true;
+    const next = jest.fn();
+    requireAccountSetupComplete(req, {}, next);
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ code: 'ACCOUNT_SETUP_REQUIRED' }));
+  });
+
+  test('permits the initial-password endpoint during onboarding', () => {
+    const req = createRequest({ mustChangePassword: true });
+    req.baseUrl = '/api/auth'; req.path = '/me/initial-password';
+    const next = jest.fn();
+    requireAccountSetupComplete(req, {}, next);
+    expect(next).toHaveBeenCalledWith();
+  });
   test('does not block business APIs solely because the profile is incomplete', () => {
     const next = jest.fn();
 
