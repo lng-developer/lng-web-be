@@ -15,6 +15,11 @@ async function findById(id) {
   return Message.findById(id).lean();
 }
 
+async function findReplyTargets(conversationId, ids) {
+  return Message.find({ _id: { $in: ids }, conversationId, deletedAt: null })
+    .select('_id senderAccountId body assetIds').lean();
+}
+
 async function listByConversation(conversationId, query = {}) {
   const { page, limit } = normalizePagination(query);
   const filter = { conversationId, deletedAt: null };
@@ -117,6 +122,7 @@ async function summarizeConversationStates(conversationIds = [], accountId) {
 module.exports = {
   create,
   findById,
+  findReplyTargets,
   listByConversation,
   markRead,
   summarizeConversationStates,

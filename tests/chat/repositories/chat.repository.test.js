@@ -11,6 +11,13 @@ const otherAccountId = '660000000000000000000102';
 const shopId = '660000000000000000000201';
 
 describe('chat repositories', () => {
+  test('reply lookup excludes other conversations and deleted messages', async () => {
+    const target = await messageRepository.create({ conversationId: shopId, senderAccountId: accountId, body: 'Allowed' });
+    const other = await messageRepository.create({ conversationId: accountId, senderAccountId: accountId, body: 'Private' });
+    const deleted = await messageRepository.create({ conversationId: shopId, senderAccountId: accountId, body: 'Deleted', deletedAt: new Date() });
+    const result = await messageRepository.findReplyTargets(shopId, [target._id, other._id, deleted._id]);
+    expect(result.map((item) => item.body)).toEqual(['Allowed']);
+  });
   let mongo;
 
   beforeAll(async () => {

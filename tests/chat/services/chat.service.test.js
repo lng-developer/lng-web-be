@@ -30,6 +30,8 @@ jest.mock('../../../src/modules/chat/repositories/conversation.repository', () =
 jest.mock('../../../src/modules/chat/repositories/message.repository', () => ({
   create: jest.fn(),
   listByConversation: jest.fn(),
+  findById: jest.fn(),
+  findReplyTargets: jest.fn(),
   markRead: jest.fn(),
   summarizeConversationStates: jest.fn(),
 }));
@@ -50,6 +52,24 @@ const assetId = '660000000000000000000004';
 const shopId = '660000000000000000000005';
 
 describe('chat service', () => {
+  test.each([null, { conversationId: 'other' }, { conversationId, deletedAt: new Date() }])('rejects unavailable reply targets before creating or attaching anything: %p', async (target) => {
+    messageRepository.findById.mockResolvedValue(target);
+    await expect(service.sendMessage(conversationId, { body: 'reply', assetIds: [assetId], replyToMessageId: assetId }, { accountId })).rejects.toMatchObject({ statusCode: 404 });
+    expect(messageRepository.create).not.toHaveBeenCalled();
+    expect(mediaPublic.attachAssetsToChat).not.toHaveBeenCalled();
+  });
+  test('returns a bounded reply quote on send and on history even outside the page', async () => {
+    const target = { _id: assetId, conversationId, senderAccountId: mentionId, body: 'Original', assetIds: [] };
+    messageRepository.findById.mockResolvedValue(target);
+    messageRepository.create.mockImplementationOnce(async (payload) => ({ ...payload, _id: shopId }));
+    const sent = await service.sendMessage(conversationId, { body: 'reply', replyToMessageId: assetId }, { accountId });
+    expect(sent.replyToMessage).toEqual({ id: assetId, senderAccountId: mentionId, body: 'Original', attachmentCount: 0 });
+    messageRepository.listByConversation.mockResolvedValue({ items: [{ _id: shopId, conversationId, replyToMessageId: assetId }], pagination: { total: 1 } });
+    messageRepository.findReplyTargets.mockResolvedValue([target]);
+    const history = await service.listMessages(conversationId, {}, { accountId });
+    expect(history.items[0].replyToMessage).toEqual(sent.replyToMessage);
+    expect(messageRepository.findReplyTargets).toHaveBeenCalledWith(conversationId, [assetId]);
+  });
   test('counts unread messages beyond the eight preview conversations', async () => {
     const ids = Array.from({ length: 12 }, (_, index) => ({ _id: String(index) }));
     conversationRepository.listIdsForAccount.mockResolvedValue(ids);

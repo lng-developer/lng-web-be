@@ -35,7 +35,7 @@ function toAssetDto(asset) {
   };
 }
 
-function toMessageDto(message, assetsById = new Map()) {
+function toMessageDto(message, assetsById = new Map(), replyTargets = new Map()) {
   if (!message) return null;
   const assetIds = message.deletedAt ? [] : (message.assetIds || []).map(toId);
   return {
@@ -47,10 +47,21 @@ function toMessageDto(message, assetsById = new Map()) {
     assets: assetIds.map((assetId) => assetsById.get(String(assetId))).filter(Boolean).map(toAssetDto),
     mentions: message.deletedAt ? [] : (message.mentions || []).map(toId),
     replyToMessageId: toId(message.replyToMessageId),
+    replyToMessage: message.deletedAt ? null : toReplyDto(replyTargets.get(toId(message.replyToMessageId))),
     editedAt: message.editedAt || null,
     deletedAt: message.deletedAt || null,
     createdAt: message.createdAt,
     updatedAt: message.updatedAt,
+  };
+}
+
+function toReplyDto(message) {
+  if (!message || message.deletedAt) return null;
+  return {
+    id: toId(message),
+    senderAccountId: toId(message.senderAccountId),
+    body: (message.body || '').slice(0, 500),
+    attachmentCount: (message.assetIds || []).length,
   };
 }
 
@@ -66,8 +77,8 @@ module.exports = {
   toConversationListDto: (result) => toListDto(result, toConversationDto),
   toAssetDto,
   toMessageDto,
-  toMessageListDto: (result, assetsById) => ({
-    items: (result.items || []).map((message) => toMessageDto(message, assetsById)),
+  toMessageListDto: (result, assetsById, replyTargets) => ({
+    items: (result.items || []).map((message) => toMessageDto(message, assetsById, replyTargets)),
     pagination: result.pagination,
   }),
 };
