@@ -64,10 +64,12 @@ async function listAssignableProfiles(query = {}) {
   return profiles.filter((profile) => allowedIds.has(String(profile.accountId))).map(toPublicProfileDto);
 }
 
-async function syncEmployeeProfileTeam(accountId, teamId, { session } = {}) {
+async function syncEmployeeProfileTeam(accountId, teamId, { departmentId, session } = {}) {
   const profile = await employeeProfileRepository.findByAccountId(accountId, { session });
   if (!profile) return null;
-  return toPublicProfileDto(await employeeProfileRepository.updateById(profile._id, { teamId: teamId || null }, { session }));
+  const patch = { teamId: teamId || null };
+  if (teamId && departmentId) patch.departmentId = departmentId;
+  return toPublicProfileDto(await employeeProfileRepository.updateById(profile._id, patch, { session }));
 }
 
 function inDateRange(dateKey, { dateFrom, dateTo } = {}) {

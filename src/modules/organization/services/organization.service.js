@@ -201,12 +201,15 @@ async function upsertTeamMembership({ accountId, teamId, memberType = teamMember
     teamId: team._id,
     memberType,
   }, { session });
-  return { membership, moved, previousTeamId };
+  return { membership, moved, previousTeamId, team };
 }
 
 async function syncTeamMembership(payload, options = {}) {
-  const { membership, moved } = await upsertTeamMembership(payload, options);
-  await getHrPublic().syncEmployeeProfileTeam(payload.accountId, membership.teamId, { session: options.session });
+  const { membership, moved, team } = await upsertTeamMembership(payload, options);
+  await getHrPublic().syncEmployeeProfileTeam(payload.accountId, membership.teamId, {
+    departmentId: team.departmentId,
+    session: options.session,
+  });
   return { ...toTeamMemberDto(membership), moved };
 }
 
@@ -477,7 +480,10 @@ async function addTeamMember(teamId, payload, { actorAuth, httpContext } = {}) {
         teamId: team._id,
         memberType: payload.memberType,
       }, { session }));
-      await getHrPublic().syncEmployeeProfileTeam(accountId, membership.teamId, { session });
+      await getHrPublic().syncEmployeeProfileTeam(accountId, membership.teamId, {
+        departmentId: team.departmentId,
+        session,
+      });
 
       if (moved) {
         await authPublic.deactivateTeamRoleAssignments(accountId, previousTeamId, {
