@@ -141,7 +141,12 @@ async function listMessages(conversationId, query = {}, authContext = {}) {
   await loadConversation(conversationId, authContext, chatReadablePermissions);
   const result = await messageRepository.listByConversation(conversationId, query);
   const ids = (result.items || []).flatMap((message) => message.assetIds || []);
-  return toMessageListDto(result, await assetsById(ids));
+  const replyIds = uniqueIds((result.items || []).map((message) => message.replyToMessageId));
+  const [assets, targets] = await Promise.all([
+    assetsById(ids),
+    replyIds.length ? messageRepository.findReplyTargets(conversationId, replyIds) : [],
+  ]);
+  return toMessageListDto(result, assets, new Map(targets.map((target) => [toId(target), target])));
 }
 
 async function assertAssetsReady(assetIds = []) {
@@ -159,6 +164,15 @@ async function assetsById(assetIds = []) {
 
 async function sendMessage(conversationId, payload = {}, authContext = {}, options = {}) {
   const conversation = await loadConversation(conversationId, authContext, chatWritablePermissions);
+  const replyTargets = new Map();
+  if (payload.replyToMessageId) {
+    assertValidObjectId(payload.replyToMessageId, 'replyToMessageId');
+    const target = await messageRepository.findById(payload.replyToMessageId);
+    if (!target || target.deletedAt || toId(target.conversationId) !== String(conversationId)) {
+      throw notFound('Reply message');
+    }
+    replyTargets.set(toId(target), target);
+  }
   const assetIds = await assertAssetsReady(payload.assetIds);
   if (assetIds.length) await mediaPublic.attachAssetsToChat(assetIds, conversationId);
   const mentions = uniqueIds(payload.mentions);
@@ -173,7 +187,7 @@ async function sendMessage(conversationId, payload = {}, authContext = {}, optio
   });
   const updatedConversation = await conversationRepository.updateLastMessage(conversationId, message);
 
-  const messageDto = toMessageDto(message, await assetsById(assetIds));
+  const messageDto = toMessageDto(message, await assetsById(assetIds), replyTargets);
   chatEvents.emit('message.created', {
     conversation: toConversationDto(updatedConversation || conversation),
     message: messageDto,
