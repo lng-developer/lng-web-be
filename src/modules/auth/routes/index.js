@@ -24,6 +24,7 @@ router.post('/microsoft', limitLogin, asyncHandler(authController.microsoftLogin
 router.post('/refresh', asyncHandler(authController.refresh)); // Re-enable limitRefresh before production.
 router.post('/logout', asyncHandler(authController.logout));
 router.get('/me', authenticate, asyncHandler(authController.me));
+router.post('/me/initial-password', limitLogin, authenticate, asyncHandler(authController.setInitialPassword));
 router.post('/me/change-password', authenticate, asyncHandler(authController.changeOwnPassword));
 router.get('/extension-tokens', authenticate, requireAuthWrite, asyncHandler(extensionTokenController.list));
 router.post('/extension-tokens', authenticate, requireAuthWrite, asyncHandler(extensionTokenController.create));

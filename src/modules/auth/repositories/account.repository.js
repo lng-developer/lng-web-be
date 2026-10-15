@@ -90,6 +90,12 @@ function buildAccountProjection({ includePassword = true } = {}) {
     tokenVersion: '$tokenVersion',
     status: '$status',
     mustChangePassword: '$mustChangePassword',
+    passwordSetupRequired: {
+      $and: [
+        { $ne: [{ $ifNull: ['$microsoftId', null] }, null] },
+        { $eq: [{ $ifNull: ['$passwordHash', null] }, null] },
+      ],
+    },
     googleId: '$googleId',
     microsoftId: '$microsoftId',
     authProvider: '$authProvider',
@@ -718,7 +724,7 @@ async function updatePassword(
   };
 
   const query = expectedPassword
-    ? { _id: accountId, passwordHash: expectedPassword.passwordHash, passwordSalt: expectedPassword.passwordSalt }
+    ? { _id: accountId, status: accountStatuses.ACTIVE, passwordHash: expectedPassword.passwordHash, passwordSalt: expectedPassword.passwordSalt }
     : accountId;
   const operation = expectedPassword
     ? Account.findOneAndUpdate(query, update, options)

@@ -12,6 +12,7 @@ const {
   refreshSchema,
   logoutSchema,
   changeOwnPasswordSchema,
+  initialPasswordSchema,
   validate,
 } = require('../validators/auth.validator');
 
@@ -160,6 +161,12 @@ async function changeOwnPassword(req, res) {
   });
 }
 
+async function setInitialPassword(req, res) {
+  const payload = assertValid(initialPasswordSchema, req.body);
+  const account = await authManager.setInitialPassword(req.auth.accountId, payload, requestContext(req));
+  res.status(httpStatus.OK).json({ success: true, data: toAccountDto(account) });
+}
+
 module.exports = {
   register,
   login,
@@ -169,4 +176,5 @@ module.exports = {
   logout,
   me,
   changeOwnPassword,
+  setInitialPassword,
 };

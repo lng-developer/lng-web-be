@@ -238,7 +238,8 @@ async function login(identifier, password, httpContext = {}) {
     await findAuthModelByIdentifier(identifier),
   );
 
-  if (!authModel || authModel.account.status !== accountStatuses.ACTIVE) {
+  if (!authModel || authModel.account.status !== accountStatuses.ACTIVE
+    || !authModel.account.passwordHash || !authModel.account.passwordSalt) {
     await verifyPassword(password, DUMMY_PASSWORD_HASH, DUMMY_PASSWORD_SALT);
     await rejectAuthentication('Invalid email or password', 'login', {
       actorType: 'ANONYMOUS',
@@ -931,7 +932,7 @@ async function getCurrentAccount(accountId, expectedTokenVersion = undefined) {
 
 async function changeOwnPassword(accountId, { currentPassword, newPassword }, httpContext = {}) {
   const account = await accountRepository.findByIdWithPassword(accountId);
-  const passwordMatches = account && await verifyPassword(
+  const passwordMatches = account?.passwordHash && account?.passwordSalt && await verifyPassword(
     currentPassword,
     account.passwordHash,
     account.passwordSalt,
@@ -969,6 +970,33 @@ async function changeOwnPassword(accountId, { currentPassword, newPassword }, ht
     }, httpContext, String(accountId), { session });
 
     return updated;
+  });
+}
+
+async function setInitialPassword(accountId, { newPassword }, httpContext = {}) {
+  const account = await accountRepository.findByIdWithPassword(accountId);
+  if (!account || account.status !== accountStatuses.ACTIVE || !account.microsoftId
+    || account.passwordHash || account.passwordSalt) {
+    throw new AppError('Initial password setup is not available', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
+  }
+  const profile = await require('../../hr/public').getEmployeeProfileByAccountId(accountId);
+  if (!profile?.isProfileUpdated) {
+    throw new AppError('Complete your profile first', httpStatus.FORBIDDEN, true, errorCodes.ACCOUNT_SETUP_REQUIRED);
+  }
+  const credentials = await hashPassword(newPassword);
+  return withAuthTransaction(async (session) => {
+    // Null matches absent credentials and prevents two requests from replacing each other's password.
+    const updated = await accountRepository.updatePassword(accountId, {
+      ...credentials, mustChangePassword: false,
+    }, { session, expectedPassword: { passwordHash: null, passwordSalt: null } });
+    if (!updated) {
+      throw new AppError('Password setup has already changed', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
+    }
+    await recordAuthEvent('initial-password', {
+      actorType: 'ACCOUNT', actorAccountId: String(accountId), action: 'ACCOUNT_PASSWORD_CREATED',
+      entityType: 'AUTH_ACCOUNT', entityId: String(accountId), outcome: 'SUCCEEDED',
+    }, httpContext, String(accountId), { session });
+    return { ...updated, passwordSetupRequired: false };
   });
 }
 
@@ -1146,6 +1174,7 @@ module.exports = {
   logout,
   getCurrentAccount,
   changeOwnPassword,
+  setInitialPassword,
   verifyAccessToken,
   buildAuthContext,
   invalidatePermissionCache,

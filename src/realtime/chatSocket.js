@@ -22,6 +22,9 @@ async function authenticateSocket(socket, next) {
     const payload = authPublic.verifyAccessToken(token);
     const authModel = await authPublic.getCurrentAccount(payload.sub, payload.tokenVersion ?? 0);
     socket.authContext = authPublic.buildAuthContext(authModel);
+    if (socket.authContext.mustChangePassword || socket.authContext.passwordSetupRequired) {
+      throw new Error('Account setup required');
+    }
     next();
   } catch (error) {
     socketMetrics.recordAuthFailure(error);
