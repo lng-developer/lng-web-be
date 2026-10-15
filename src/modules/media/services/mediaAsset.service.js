@@ -449,9 +449,6 @@ async function getAuthorizedAsset(assetId, authContext) {
 
 async function getAuthorizedDownloadUrl(assetId, authContext, options = {}) {
   const asset = await getAuthorizedAsset(assetId, authContext);
-  if (asset.provider === 'cloudinary') {
-    return asset.secureUrl || null;
-  }
   if (asset.provider !== 'wasabi') return null;
   if (asset.uploadStatus !== 'READY') {
     throw new AppError('Media asset is not ready', httpStatus.CONFLICT, true, 'MEDIA_ASSET_NOT_READY');
