@@ -5,6 +5,12 @@ const teamsWebhookController = require('../controllers/teamsWebhook.controller')
 const teamsAdminController = require('../controllers/teamsAdmin.controller');
 
 const router = express.Router();
+const requireConfigRead = authPublic.authorizeAnyPermission(
+  'SYSTEM:CONFIG:READ',
+  'SYSTEM:CONFIG:WRITE',
+  'USERS:READ',
+  'USERS:WRITE',
+);
 const requireConfigWrite = authPublic.authorizeAnyPermission(
   'SYSTEM:CONFIG:WRITE',
   'USERS:WRITE',
