@@ -110,6 +110,25 @@ async function refreshUserToken(refreshToken) {
   return response.json();
 }
 
+async function exchangeAuthorizationCode({ code, codeVerifier, redirectUri }) {
+  if (!code || !codeVerifier || !redirectUri) throw new Error('OAuth authorization response is incomplete');
+  const tenant = config.teams.tenantId || 'common';
+  const response = await fetch(`https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`, {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: config.teams.clientId || '', client_secret: config.teams.clientSecret || '', grant_type: 'authorization_code',
+      code, redirect_uri: redirectUri, code_verifier: codeVerifier,
+      scope: 'openid profile offline_access User.Read Chat.ReadWrite ChatMessage.Send',
+    }).toString(),
+  });
+  if (!response.ok) throw new Error(`Failed to exchange Microsoft authorization code: ${response.status}`);
+  return response.json();
+}
+
+async function getMe({ token } = {}) {
+  return request('/me?$select=id,mail,userPrincipalName,displayName,tenantId', { headers: { Authorization: `Bearer ${token}` } });
+}
+
 async function getOrCreateOneOnOneChat(user1EntraId, user2EntraId, { token } = {}) {
   const authToken = token || (await getAppToken());
   return request('/chats', {
@@ -235,6 +254,8 @@ async function deleteSubscription(subscriptionId, { token } = {}) {
 module.exports = {
   getAppToken,
   refreshUserToken,
+  exchangeAuthorizationCode,
+  getMe,
   getOrCreateOneOnOneChat,
   createGroupChat,
   addMemberToChat,

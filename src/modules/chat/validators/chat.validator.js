@@ -23,7 +23,6 @@ const sendMessageSchema = Joi.object({
   assetIds: Joi.array().items(objectId).max(20).default([]),
   mentions: Joi.array().items(objectId).max(50).default([]),
   replyToMessageId: objectId.allow(null),
-  msGraphToken: Joi.string().allow('', null).optional(),
 }).custom((value, helpers) => {
   if (!value.body && value.assetIds.length === 0) return helpers.error('any.required');
   return value;

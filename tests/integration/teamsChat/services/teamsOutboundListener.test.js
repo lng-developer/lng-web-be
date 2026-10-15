@@ -5,12 +5,12 @@ jest.mock('../../../../src/modules/chat/public', () => {
   };
 });
 
-jest.mock('../../../../src/modules/integration/teamsChat/services/teamsSync.service', () => ({
-  dispatchMessageToTeams: jest.fn(),
+jest.mock('../../../../src/modules/integration/teamsChat/services/teamsOutboundOutbox.service', () => ({
+  enqueue: jest.fn(),
 }));
 
 const chatPublic = require('../../../../src/modules/chat/public');
-const teamsSyncService = require('../../../../src/modules/integration/teamsChat/services/teamsSync.service');
+const outboxService = require('../../../../src/modules/integration/teamsChat/services/teamsOutboundOutbox.service');
 const teamsOutboundListener = require('../../../../src/modules/integration/teamsChat/services/teamsOutboundListener');
 
 describe('Teams outbound listener', () => {
@@ -23,7 +23,7 @@ describe('Teams outbound listener', () => {
     teamsOutboundListener.detachTeamsOutboundListener();
   });
 
-  test('calls dispatchMessageToTeams when message.created event is emitted for DIRECT conversation', async () => {
+  test('enqueues a direct Portal message without waiting for Teams Graph', async () => {
     teamsOutboundListener.attachTeamsOutboundListener();
 
     const conversation = { id: 'conv-1', type: 'DIRECT' };
@@ -33,7 +33,7 @@ describe('Teams outbound listener', () => {
 
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(teamsSyncService.dispatchMessageToTeams).toHaveBeenCalledWith({ conversation, message });
+    expect(outboxService.enqueue).toHaveBeenCalledWith({ conversation, message });
   });
 
   test('ignores message.created event for non-DIRECT conversation', async () => {
@@ -46,7 +46,7 @@ describe('Teams outbound listener', () => {
 
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(teamsSyncService.dispatchMessageToTeams).not.toHaveBeenCalled();
+    expect(outboxService.enqueue).not.toHaveBeenCalled();
   });
 
   test('ignores message.created event when source is TEAMS_INBOUND', async () => {
@@ -59,12 +59,12 @@ describe('Teams outbound listener', () => {
 
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(teamsSyncService.dispatchMessageToTeams).not.toHaveBeenCalled();
+    expect(outboxService.enqueue).not.toHaveBeenCalled();
   });
 
-  test('does not throw when dispatchMessageToTeams rejects', async () => {
+  test('does not throw when outbox enqueue rejects', async () => {
     teamsOutboundListener.attachTeamsOutboundListener();
-    teamsSyncService.dispatchMessageToTeams.mockRejectedValue(new Error('Network error'));
+    outboxService.enqueue.mockRejectedValue(new Error('Database error'));
 
     const conversation = { id: 'conv-1', type: 'DIRECT' };
     const message = { id: 'msg-3', body: 'Test' };
@@ -74,6 +74,6 @@ describe('Teams outbound listener', () => {
     }).not.toThrow();
 
     await new Promise((resolve) => setImmediate(resolve));
-    expect(teamsSyncService.dispatchMessageToTeams).toHaveBeenCalled();
+    expect(outboxService.enqueue).toHaveBeenCalled();
   });
 });

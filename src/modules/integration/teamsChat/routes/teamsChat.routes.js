@@ -18,9 +18,11 @@ const requireConfigWrite = authPublic.authorizeAnyPermission(
 
 // Microsoft Graph change notifications webhook (unauthenticated so Graph can POST, validated by clientState/validationToken)
 router.post('/webhook', asyncHandler(teamsWebhookController.handleWebhook));
+router.get('/oauth/callback', asyncHandler(teamsAdminController.completeOAuth));
 
 // Management & Diagnostics endpoints
 router.get('/status', authPublic.authenticate, requireConfigRead, asyncHandler(teamsAdminController.getStatus));
+router.get('/oauth/start', authPublic.authenticate, asyncHandler(teamsAdminController.startOAuth));
 router.post('/link', authPublic.authenticate, requireConfigWrite, asyncHandler(teamsAdminController.linkAccount));
 router.post('/subscription', authPublic.authenticate, requireConfigWrite, asyncHandler(teamsAdminController.ensureSubscription));
 router.post('/sync/:conversationId', authPublic.authenticate, asyncHandler(teamsAdminController.syncConversation));

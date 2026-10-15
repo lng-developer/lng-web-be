@@ -67,11 +67,13 @@ async function bootstrap() {
   const integrationPublic = require('./modules/integration/public');
   integrationPublic.teamsChat.attachTeamsOutboundListener();
   integrationPublic.teamsChat.startTeamsSubscriptionScheduler();
+  integrationPublic.teamsChat.startTeamsOutboundOutboxScheduler();
 
   async function shutdown(signal) {
     logger.info('server_shutdown_started', { signal });
     integrationPublic.teamsChat.detachTeamsOutboundListener();
     integrationPublic.teamsChat.stopTeamsSubscriptionScheduler();
+    integrationPublic.teamsChat.stopTeamsOutboundOutboxScheduler();
     chatSocket.close();
     server.close(async () => {
       const shutdownTasks = [disconnectDatabase()];
