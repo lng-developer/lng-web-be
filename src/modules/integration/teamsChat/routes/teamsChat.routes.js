@@ -15,7 +15,8 @@ router.post('/webhook', asyncHandler(teamsWebhookController.handleWebhook));
 router.get('/oauth/callback', asyncHandler(teamsAdminController.completeOAuth));
 
 // Management & Diagnostics endpoints
-router.get('/status', authPublic.authenticate, asyncHandler(teamsAdminController.getStatus));
+router.get('/status', authPublic.authenticate, requireConfigRead, asyncHandler(teamsAdminController.getStatus));
+router.get('/oauth/status', authPublic.authenticate, asyncHandler(teamsAdminController.getOAuthStatus));
 router.get('/oauth/start', authPublic.authenticate, asyncHandler(teamsAdminController.startOAuth));
 router.post('/link', authPublic.authenticate, requireConfigWrite, asyncHandler(teamsAdminController.linkAccount));
 router.post('/subscription', authPublic.authenticate, requireConfigWrite, asyncHandler(teamsAdminController.ensureSubscription));

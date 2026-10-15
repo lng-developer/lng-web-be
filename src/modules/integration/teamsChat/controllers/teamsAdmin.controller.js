@@ -24,6 +24,23 @@ async function getStatus(req, res) {
   });
 }
 
+async function getOAuthStatus(req, res) {
+  const accountId = req.auth?.accountId || req.authContext?.accountId;
+  const userMapping = accountId ? await teamsUserMappingRepository.findByAccountId(accountId) : null;
+  const grantRecord = userMapping?.entraUserId
+    ? await teamsUserMappingRepository.getWithRefreshToken(userMapping.entraUserId)
+    : null;
+
+  return res.status(httpStatus.OK).json({
+    success: true,
+    data: {
+      enabled: config.teams.enabled,
+      userLinked: Boolean(userMapping?.entraUserId),
+      grantStatus: grantRecord?.encryptedRefreshToken ? 'CONNECTED' : (userMapping?.entraUserId ? 'REAUTH_REQUIRED' : 'NOT_CONNECTED'),
+    },
+  });
+}
+
 async function startOAuth(req, res) {
   const authorizationUrl = await teamsOAuthService.startAuthorization(req.auth || req.authContext);
   return res.status(httpStatus.OK).json({ success: true, data: { authorizationUrl } });
@@ -74,6 +91,7 @@ async function syncConversation(req, res) {
 
 module.exports = {
   getStatus,
+  getOAuthStatus,
   linkAccount,
   ensureSubscription,
   syncConversation,
