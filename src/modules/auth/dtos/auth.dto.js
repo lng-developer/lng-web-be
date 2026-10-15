@@ -58,7 +58,12 @@ function toAuthContextDto(authModel) {
   };
 }
 
+function toExtensionIdentityDto(shop) {
+  return { tokenType: 'EXTENSION', shop: { id: String(shop._id), name: shop.name } };
+}
+
 module.exports = {
+  toExtensionIdentityDto,
   toAccountDto,
   toAuthSessionDto,
   toScopedAccessDto,

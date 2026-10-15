@@ -3,8 +3,21 @@ const authManager = require('../../../src/modules/auth/services/authManager.serv
 const authController = require('../../../src/modules/auth/controllers/auth.controller');
 
 jest.mock('../../../src/modules/auth/services/authManager.service');
+jest.mock('../../../src/modules/shop/public', () => ({ assertShopIsActive: jest.fn() }));
 
 describe('authController', () => {
+  test('extension me returns only its token-scoped active shop, not an account or raw shop', async () => {
+    const shopPort = require('../../../src/modules/shop/public');
+    shopPort.assertShopIsActive.mockResolvedValue({ _id: '507f1f77bcf86cd799439011', name: 'Etsy test', code: 'ET01', privateField: 'hidden' });
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    await authController.me({ auth: { tokenType: 'EXTENSION', scopes: [{ scopeType: 'shop', scopeId: '507f1f77bcf86cd799439011' }] } }, res);
+    expect(res.json).toHaveBeenCalledWith({ success: true, data: { tokenType: 'EXTENSION', shop: { id: '507f1f77bcf86cd799439011', name: 'Etsy test' } } });
+    expect(authManager.getCurrentAccount).not.toHaveBeenCalled();
+  });
+
+  test('extension me rejects a missing shop scope', async () => {
+    await expect(authController.me({ auth: { tokenType: 'EXTENSION', scopes: [] } }, { status: jest.fn().mockReturnThis(), json: jest.fn() })).rejects.toMatchObject({ statusCode: 403 });
+  });
   beforeEach(() => {
     jest.clearAllMocks();
   });

@@ -99,4 +99,13 @@ async function revoke(id, auth) {
   return record ? toDto(record) : null;
 }
 
-module.exports = { create, authenticate, list, getMetadataByIds, revoke };
+async function getIdentity(auth) {
+  const scopes = (auth.scopes || []).filter(scope => scope.scopeType === 'shop');
+  if (auth.tokenType !== 'EXTENSION' || scopes.length !== 1 || !scopes[0].scopeId) {
+    throw new AppError('Extension shop scope required', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
+  }
+  const shop = await shopPort.assertShopIsActive(scopes[0].scopeId);
+  return require('../dtos/auth.dto').toExtensionIdentityDto(shop);
+}
+
+module.exports = { create, authenticate, list, getMetadataByIds, revoke, getIdentity };
