@@ -5,21 +5,11 @@ const { customizationAssetTypes } = require('../constants/customizationAssetType
 const textLabels = new Set([
   'custom',
   'personalization',
+  'enter your custom',
   'custom name',
   'names',
   'event date',
   'initials',
-]);
-
-const optionLabels = new Set([
-  'quantity',
-  'sizes',
-  'select size',
-  'select pack',
-  'ink color',
-  'choose your design',
-  'choose your print side',
-  'type printing option',
 ]);
 
 function normalizeString(value) {
@@ -74,7 +64,7 @@ function bucketInputs(pairs, customizedUrl) {
       customerInputs.images.push(pair);
     } else if (textLabels.has(label)) {
       customerInputs.texts.push(pair);
-    } else if (optionLabels.has(label)) {
+    } else {
       customerInputs.options.push(pair);
     }
   });
@@ -101,7 +91,11 @@ function normalizeEtsyCustomization(rawCustomization = {}) {
   const customizedUrl = normalizeString(rawCustomization.customizedUrl);
   const pairs = parseVariationPairs(variations);
 
-  if (personalization) {
+  const normalizeWhitespace = (text) => cleanValue(text).replace(/\s+/g, ' ');
+  const combined = pairs.map(pair => `${pair.label}: ${pair.value}`).join('\n');
+  const isCombinedCopy = pairs.length > 0 && normalizeWhitespace(personalization) === normalizeWhitespace(combined);
+  const isTextCopy = pairs.some(pair => textLabels.has(pair.label.toLowerCase()) && normalizeWhitespace(pair.value) === normalizeWhitespace(personalization));
+  if (personalization && !isCombinedCopy && !isTextCopy) {
     pairs.push({ label: 'Personalization', name: 'Personalization', value: personalization });
   }
 
@@ -133,16 +127,24 @@ function normalizeEtsyCustomization(rawCustomization = {}) {
     metadata: {},
   }] : [];
 
-  const hasPhotoWithoutUrl = customerInputs.images.some((image) => (
+  const mediaAssets = rawCustomization.mediaAssets || [];
+  for (const media of mediaAssets) {
+    assets.push({ assetId: media.mediaAssetId, type: 'CUSTOMER_IMAGE', status: customizationStatuses.DOWNLOADED, metadata: { filename: media.filename, mimeType: media.contentType, sha256: media.sha256 } });
+    customerInputs.images.push({ assetId: media.mediaAssetId, label: 'Customer image', name: media.filename });
+  }
+  const incomplete = rawCustomization.needsReview || mediaAssets.length < (rawCustomization.expectedFileCount || 0);
+
+  const hasPhotoWithoutUrl = !mediaAssets.length && customerInputs.images.some((image) => (
     image.label.toLowerCase() === 'photo' && !isAllowedUrl(image.value)
   ));
+  if (mediaAssets.length) customerInputs.images = customerInputs.images.filter((image) => image.assetId || image.label?.toLowerCase() !== 'photo');
 
   return {
-    outcome: hasPhotoWithoutUrl ? customizationStatuses.NEEDS_REVIEW : customizationStatuses.PARSED,
+    outcome: hasPhotoWithoutUrl || incomplete ? customizationStatuses.NEEDS_REVIEW : customizationStatuses.PARSED,
     assets,
     parsedData,
-    errorCode: hasPhotoWithoutUrl ? customizationErrorCodes.MANUAL_REVIEW_REQUIRED : null,
-    errorMessage: hasPhotoWithoutUrl ? 'Photo customization requires manual review' : null,
+    errorCode: hasPhotoWithoutUrl || incomplete ? customizationErrorCodes.MANUAL_REVIEW_REQUIRED : null,
+    errorMessage: hasPhotoWithoutUrl || incomplete ? 'Photo customization requires manual review' : null,
   };
 }
 

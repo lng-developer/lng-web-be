@@ -159,7 +159,7 @@ describe('externalOrderImport.controller', () => {
         scopes: [{ scopeType: 'shop', scopeId: tokenShopId, permissions: ['ORDERS:WRITE'] }],
       },
       body: {
-        shopId: '660000000000000000000202',
+        shopId: tokenShopId,
         marketplaceCode: 'ETSY_US',
       },
       file: {
@@ -194,6 +194,18 @@ describe('externalOrderImport.controller', () => {
       expect.objectContaining({ idempotencyKey: '507f1f77bcf86cd799439012' }),
       req.auth,
     );
+  });
+
+  test('does not manufacture an idempotency key when the header is absent', async () => {
+    service.importFromEtsySoldOrderItems.mockResolvedValue({ jobId: '660000000000000000000601', status: 'PENDING' });
+    const req = {
+      auth: { tokenType: 'EXTENSION', scopes: [{ scopeType: 'shop', scopeId: '660000000000000000000201', permissions: ['ORDERS:WRITE'] }] },
+      get: jest.fn(() => undefined),
+      body: { marketplaceCode: 'ETSY_US' },
+      file: { originalname: 'etsy-orders.csv', mimetype: 'text/csv', buffer: Buffer.from('Order ID,Transaction ID\n1,2') },
+    };
+    await controller.importEtsySoldOrderItems(req, { status: jest.fn().mockReturnThis(), json: jest.fn() });
+    expect(service.importFromEtsySoldOrderItems).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: null }), req.auth);
   });
 
   test('lists issues with filters', async () => {

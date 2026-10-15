@@ -63,6 +63,14 @@ describe('orderItemCancel.service', () => {
     vendorSubmissionPublic.getByOrderItemId.mockResolvedValue(null);
   });
 
+  test('system import records IMPORT rather than user cancellation', async () => {
+    await service.cancelOrderItem(orderItemId, { reason: 'Etsy confirmed full cancellation' }, {
+      system: true, source: 'IMPORT', permissions: ['ORDERS:WRITE'],
+    });
+    expect(transitionService.transitionItemStatus).toHaveBeenCalledWith(orderItemId, 'CANCELLED', expect.objectContaining({ source: 'IMPORT' }));
+    expect(orderTimelineService.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({ source: 'IMPORT' }), expect.any(Object));
+  });
+
   test('cancels through order-owned transition service and appends CS audit timeline', async () => {
     const result = await service.cancelOrderItem(
       orderItemId,
@@ -119,12 +127,12 @@ describe('orderItemCancel.service', () => {
     expect(auditPublic.record).not.toHaveBeenCalled();
   });
 
-  test('rejects cancellation without state or timeline writes after vendor submission', async () => {
+  test.each(['SUBMITTED', 'SUBMITTING', 'NEEDS_REVIEW'])('rejects cancellation without state or timeline writes for %s vendor submission', async (status) => {
     const vendorSubmissionId = '660000000000000000000501';
     vendorSubmissionPublic.getByOrderItemId.mockResolvedValue({
       id: vendorSubmissionId,
       orderItemId,
-      status: 'SUBMITTED',
+      status,
     });
 
     await expect(service.cancelOrderItem(

@@ -74,6 +74,14 @@ async function countByJobStatus(importJobId) {
 }
 
 module.exports = {
+  async summarizeOpenIssues(jobIds) {
+    return ExternalOrderImportIssue.aggregate([
+      { $match: { importJobId: { $in: jobIds.map(id => new mongoose.Types.ObjectId(id)) }, status: 'OPEN' } },
+      { $group: { _id: '$importJobId', openIssues: { $sum: 1 },
+        addressIssues: { $sum: { $cond: [{ $eq: ['$issueType', 'ADDRESS_VALIDATION_FAILED'] }, 1, 0] } },
+      } },
+    ]);
+  },
   countByJobStatus,
   create,
   findById,

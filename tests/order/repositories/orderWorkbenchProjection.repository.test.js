@@ -9,6 +9,14 @@ const OrderWorkbenchProjection = require('../../../src/modules/order/models/orde
 const repository = require('../../../src/modules/order/repositories/orderWorkbenchProjection.repository');
 
 describe('orderWorkbenchProjection.repository', () => {
+  test('base refresh atomically merges existing item enrichments instead of resetting them', async () => {
+    await repository.upsertBase({ orderId: 'o', shop: null, case: null, hasCurrentPsd: false, items: [{ orderItemId: 'i', item: { sku: 'NEW' } }] }, { preserveEnrichment: true });
+    const update = OrderWorkbenchProjection.findOneAndUpdate.mock.calls[0][1];
+    expect(Array.isArray(update)).toBe(true);
+    expect(update[0].$set).not.toHaveProperty('case');
+    expect(update[0].$set.hasCurrentPsd).toEqual({ $ifNull: ['$hasCurrentPsd', false] });
+    expect(update[0].$set.items.$map.in.$mergeObjects).toHaveLength(3);
+  });
   beforeEach(() => {
     jest.clearAllMocks();
     OrderWorkbenchProjection.findOneAndUpdate.mockReturnValue({ lean: jest.fn().mockResolvedValue({ orderId: 'order-1' }) });
@@ -23,6 +31,15 @@ describe('orderWorkbenchProjection.repository', () => {
       expect.objectContaining({
         arrayFilters: [{ 'item.orderItemId': 'item-1' }],
         returnDocument: 'after',
+      }),
+    );
+  });
+
+  test('image patch cannot attach to a projection refreshed with another source', async () => {
+    await repository.setItemFields('order-1', 'item-1', { 'item.listingImageAssetId': 'asset' }, { expectedListingImageUrl: 'https://i.etsystatic.com/old.jpg' });
+    expect(OrderWorkbenchProjection.findOneAndUpdate).toHaveBeenCalledWith(
+      { orderId: 'order-1' }, expect.anything(), expect.objectContaining({
+        arrayFilters: [{ 'item.orderItemId': 'item-1', 'item.item.listingImageUrl': 'https://i.etsystatic.com/old.jpg' }],
       }),
     );
   });

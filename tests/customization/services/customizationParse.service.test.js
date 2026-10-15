@@ -1,6 +1,8 @@
+jest.mock('../../../src/modules/order/public', () => ({ updateOrderWorkbenchItem: jest.fn() }));
 jest.mock('../../../src/modules/customization/repositories/customizationPayload.repository', () => ({
   findByOrderItem: jest.fn(),
   updateParsedData: jest.fn(),
+  updateEtsyRevision: jest.fn(),
 }));
 
 const fs = require('fs');
@@ -12,6 +14,15 @@ const { customizationErrorCodes } = require('../../../src/modules/customization/
 const { customizationAssetTypes } = require('../../../src/modules/customization/constants/customizationAssetTypes');
 
 describe('customizationParse.service', () => {
+  test('publishes the persisted Etsy parse result to the workbench', async () => {
+    const payload = { _id: 'p', orderId: 'o', orderItemId: 'i', rawCustomization: { provider: 'ETSY', personalization: 'Alice' } };
+    repository.findByOrderItem.mockResolvedValue(payload);
+    repository.updateEtsyRevision.mockImplementation(async (id, version, patch) => ({ ...payload, ...patch }));
+    await service.parseForOrderItem('i');
+    expect(require('../../../src/modules/order/public').updateOrderWorkbenchItem).toHaveBeenCalledWith('o', 'i', {
+      customization: expect.objectContaining({ status: 'PARSED', customerInputs: expect.objectContaining({ texts: [expect.objectContaining({ value: 'Alice' })] }) }),
+    }, { source: 'CUSTOMIZATION' });
+  });
   const payloadId = '660000000000000000000601';
   const orderItemId = '660000000000000000000401';
   const shopId = '660000000000000000000201';

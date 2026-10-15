@@ -934,6 +934,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
       marketplaceCode: item.marketplaceCode,
       asin: item.asin,
       sku: preview.skuNormalization.canonicalSku,
+      etsyListingId: item.salesChannelCode === 'ETSY' ? item.externalListingId : null,
       fallbackSku: preview.skuNormalization.originalSku,
     });
     if (primary || preview.skuNormalization.canonicalSku === preview.skuNormalization.originalSku) return primary;
@@ -943,6 +944,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
       marketplaceCode: item.marketplaceCode,
       asin: item.asin,
       sku: preview.skuNormalization.originalSku,
+      etsyListingId: item.salesChannelCode === 'ETSY' ? item.externalListingId : null,
     });
   })();
   const skuRulesPromise = parsedSku.configCode
@@ -965,7 +967,8 @@ async function buildPreview(orderItemId, authContext, options = {}) {
   let normalizedTemplateId = listingTemplate ? toId(listingTemplate) : null;
   const customerInputs = customizationView && customizationView.customerInputs ? customizationView.customerInputs : {};
   preview.customerInputs = customerInputs;
-  preview.listingPreviewImageUrl = customizationView?.listingPreviewImageUrl || customerInputs.listingPreviewImageUrl || null;
+  preview.listingPreviewImageUrl = customizationView?.listingPreviewImageUrl || customerInputs.listingPreviewImageUrl
+    || (item.salesChannelCode === 'ETSY' ? item.externalData?.etsy?.listingImageUrl : null) || null;
   const normalized = await mappingRuleService.buildNormalizedInputs({
     context: {
       shopId: toId(item.shopId),
@@ -1043,6 +1046,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
         marketplaceCode: item.marketplaceCode,
         asin: item.asin,
         sku: preview.skuNormalization.canonicalSku,
+        etsyListingId: item.salesChannelCode === 'ETSY' ? item.externalListingId : null,
         fallbackSku: preview.skuNormalization.originalSku,
         title: item.title,
         productImageUrl: preview.listingPreviewImageUrl || preview.customerInputs?.listingPreviewImageUrl,
@@ -1070,6 +1074,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
       marketplaceCode: item.marketplaceCode,
       asin: item.asin,
       sku: preview.skuNormalization.canonicalSku,
+      etsyListingId: item.salesChannelCode === 'ETSY' ? item.externalListingId : null,
       fallbackSku: preview.skuNormalization.originalSku,
       title: item.title,
       productImageUrl: preview.listingPreviewImageUrl || preview.customerInputs?.listingPreviewImageUrl,

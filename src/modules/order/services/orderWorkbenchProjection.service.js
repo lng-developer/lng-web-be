@@ -2,8 +2,10 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const repository = require('../repositories/orderWorkbenchProjection.repository');
+const { toMarketplaceItemFields } = require('../dtos/orderItem.dto');
 
 const ITEM_PATCH_FIELDS = new Set([
+  'item.listingImageAssetId',
   'item.status', 'item.asin', 'seller', 'listing', 'customization', 'fulfillmentPlan', 'listingVariant', 'production', 'tracking',
 ]);
 const ORDER_PATCH_FIELDS = new Set([
@@ -77,7 +79,7 @@ function buildBaseProjection(order, items = []) {
     case: null,
     items: (items || []).map((item) => ({
       orderItemId: item._id || item.id,
-      item: pick(item, ITEM_FIELDS),
+      item: { ...pick(item, ITEM_FIELDS), ...toMarketplaceItemFields(item) },
       seller: null,
       listing: null,
       customization: null,
@@ -90,7 +92,10 @@ function buildBaseProjection(order, items = []) {
 }
 
 async function upsertOrderWorkbenchBase(order, items = [], options = {}) {
-  return repository.upsertBase(buildBaseProjection(order, items), options);
+  const projection = buildBaseProjection(order, items);
+  const shop = await require('../../shop/public').findById(order.shopId);
+  projection.shop = shop ? { id: String(shop._id || shop.id), name: shop.name, code: shop.code } : null;
+  return repository.upsertBase(projection, { ...options, preserveEnrichment: true });
 }
 
 async function upsertOrderWorkbenchRow(row = {}, options = {}) {

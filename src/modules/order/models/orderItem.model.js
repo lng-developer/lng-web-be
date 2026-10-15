@@ -207,6 +207,13 @@ const orderItemSchema = new mongoose.Schema(
       }],
       default: [],
     },
+    listingImage: {
+      type: new mongoose.Schema({
+        sourceUrl: { type: String, required: true },
+        mediaAssetId: { type: mongoose.Schema.Types.ObjectId, ref: 'MediaAsset', required: true },
+      }, { _id: false }),
+      default: null,
+    },
     // externalData is for small platform-specific snapshots only. Business logic must not depend on fields inside externalData. Raw source payloads belong to integration/externalOrderImport.
     externalData: {
       type: mongoose.Schema.Types.Mixed,

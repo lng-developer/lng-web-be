@@ -184,6 +184,18 @@ async function createPendingPayload(payload = {}, authContext) {
   await assertOrderItemMatchesPayload(normalizedPayload);
   assertCanAccessShop(normalizedPayload.shopId, ORDER_WRITE_PERMISSION, authContext);
 
+  if (normalizedPayload.rawCustomization.provider === 'ETSY') {
+    const latest = await repository.findByOrderItem(normalizedPayload.orderItemId);
+    if (latest?.rawCustomization?.mediaAssets?.length && !normalizedPayload.rawCustomization.mediaAssets?.length) {
+      normalizedPayload.rawCustomization = {
+        ...latest.rawCustomization, ...normalizedPayload.rawCustomization,
+        expectedFileCount: Math.max(latest.rawCustomization.expectedFileCount || 0, normalizedPayload.rawCustomization.expectedFileCount || 0),
+        mediaAssets: latest.rawCustomization.mediaAssets,
+      };
+      normalizedPayload.rawCustomizationHash = buildRawCustomizationHash(normalizedPayload.rawCustomization);
+    }
+  }
+
   const existing = await repository.findByOrderItemAndHash(
     normalizedPayload.orderItemId,
     normalizedPayload.rawCustomizationHash,
@@ -223,6 +235,29 @@ async function createPendingPayload(payload = {}, authContext) {
     await syncWorkbenchCustomization(recovered);
     return { payload: recovered, created: false };
   }
+}
+
+async function attachEtsyImportAssets(orderItemId, assets, authContext) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const payload = await getByOrderItem(orderItemId);
+    assertCanAccessShop(payload.shopId, ORDER_WRITE_PERMISSION, authContext);
+    if (payload.rawCustomization?.provider !== 'ETSY') throw validationError('Etsy customization expectations required');
+    const merged = new Map((payload.rawCustomization.mediaAssets || []).map((asset) => [String(asset.mediaAssetId), asset]));
+    assets.forEach((asset) => merged.set(String(asset.mediaAssetId), asset));
+    if (merged.size > 20) throw validationError('Too many customization assets');
+    const rawCustomization = { ...payload.rawCustomization, mediaAssets: [...merged.values()].sort((a, b) => String(a.mediaAssetId).localeCompare(String(b.mediaAssetId))) };
+    const result = require('../parsers/etsyCustomization.parser').normalizeEtsyCustomization(rawCustomization);
+    const updated = await repository.updateEtsyRevision(payload._id, payload.__v || 0, {
+      rawCustomization, rawCustomizationHash: buildRawCustomizationHash(rawCustomization),
+      assets: result.assets, parsedData: result.parsedData, status: result.outcome,
+      errorCode: result.errorCode, errorMessage: result.errorMessage,
+    });
+    if (updated) {
+      await syncWorkbenchCustomization(updated);
+      return updated;
+    }
+  }
+  throw appError('Customization changed concurrently; retry', httpStatus.CONFLICT, errorCodes.CONFLICT_ERROR);
 }
 
 async function getByOrderItem(orderItemId) {
@@ -431,6 +466,8 @@ async function assertCustomizationReady(orderItemId) {
 }
 
 module.exports = {
+  syncWorkbenchCustomization,
+  attachEtsyImportAssets,
   createPendingPayload,
   getByOrderItem: getByOrderItemWithAuth,
   listLatestByOrderItems,

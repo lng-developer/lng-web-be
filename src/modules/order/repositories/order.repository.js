@@ -188,6 +188,10 @@ function applyTabFilter(filter, tab = orderListTabs.ALL) {
 
 function itemProjection() {
   return {
+    salesChannelCode: 1,
+    listingImage: 1,
+    'externalData.etsy.listingImageUrl': 1,
+    'externalData.etsy.listingImageThumbnailUrl': 1,
     _id: 1,
     orderId: 1,
     externalItemId: 1,

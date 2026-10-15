@@ -9,6 +9,7 @@ jest.mock('../../../src/modules/auth/public', () => ({
 }));
 
 jest.mock('../../../src/modules/order/public', () => ({
+  assertMarketplaceAllowsFulfillment: jest.fn(),
   findById: jest.fn(),
 }));
 
@@ -166,6 +167,17 @@ describe('vendorSubmission.service', () => {
         response: { success: true, data: { _id: 'MZ-ORDER-1' } },
       })),
     });
+  });
+
+  test.each(['markSubmitted', 'retry', 'submitToVendor'])('%s blocks marketplace cancellation before vendor writes', async (method) => {
+    orderPublic.assertMarketplaceAllowsFulfillment.mockRejectedValue(new Error('Etsy cancellation requires review'));
+    const operation = method === 'markSubmitted'
+      ? service[method](submissionId, { permissions: ['VENDOR_SUBMISSIONS:WRITE'] })
+      : service[method](submissionId, {}, { permissions: ['VENDOR_SUBMISSIONS:WRITE'] });
+    await expect(operation).rejects.toThrow('Etsy cancellation requires review');
+    expect(repository.updateById).not.toHaveBeenCalled();
+    expect(repository.claimReadyForSubmit).not.toHaveBeenCalled();
+    expect(submitRegistry.getAdapter).not.toHaveBeenCalled();
   });
 
   test('creates a ready submission from a ready production task and stores safe snapshot', async () => {

@@ -488,6 +488,7 @@ async function getPayloadPreview(submissionId, authContext) {
 async function markSubmitted(submissionId, authContext) {
   const submission = await loadSubmission(submissionId);
   assertCanAccessShop(submission.shopId, vendorSubmissionPermissions.WRITE, authContext);
+  await orderPublic.assertMarketplaceAllowsFulfillment(submission.orderId, submission.orderItemId);
   if (submission.status === vendorSubmissionStatuses.SUBMITTED) {
     await repairProductionHandoff(submission, authContext);
     return toVendorSubmissionDto(submission, { detail: true });
@@ -604,6 +605,7 @@ async function cancel(submissionId, payload = {}, authContext) {
 async function retry(submissionId, payload = {}, authContext) {
   const submission = await loadSubmission(submissionId);
   assertCanAccessShop(submission.shopId, vendorSubmissionPermissions.WRITE, authContext);
+  await orderPublic.assertMarketplaceAllowsFulfillment(submission.orderId, submission.orderItemId);
   if (submission.status !== vendorSubmissionStatuses.FAILED) {
     throw conflict('Only failed vendor submissions can be retried', { status: submission.status });
   }
@@ -628,6 +630,7 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
   const dryRun = payload.dryRun !== false;
   const submission = await loadSubmission(submissionId);
   assertCanAccessShop(submission.shopId, vendorSubmissionPermissions.WRITE, authContext);
+  await orderPublic.assertMarketplaceAllowsFulfillment(submission.orderId, submission.orderItemId);
 
   if (submission.status === vendorSubmissionStatuses.SUBMITTED) {
     await repairProductionHandoff(submission, authContext);
@@ -680,6 +683,7 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
     adapter.validatePayload(submitPayload);
     const credential = await vendorPublic.getVendorIntegrationCredential(vendorId, provider);
     if (!credential) throw validationError('Vendor credentials are not configured');
+    await orderPublic.assertMarketplaceAllowsFulfillment(claimed.orderId, claimed.orderItemId);
     submitResult = await adapter.submitPayload(submitPayload, { credential, idempotencyKey: operationKey });
   } catch (error) {
     if (error?.details?.response || error?.statusCode === 400) {

@@ -11,6 +11,7 @@ jest.mock('../../../src/modules/media/public', () => ({
 }));
 
 jest.mock('../../../src/modules/order/public', () => ({
+  updateOrderWorkbenchItem: jest.fn(),
   findItemById: jest.fn(),
   updateItemAsin: jest.fn(),
 }));
@@ -56,6 +57,7 @@ describe('customizationZipInspect.service', () => {
     }));
     repository.updateParsedData.mockImplementation(async (id, parsedData, patch = {}) => ({
       _id: id,
+      orderId: '660000000000000000000301',
       orderItemId,
       shopId,
       status: customizationStatuses.PARSED,
@@ -432,6 +434,11 @@ describe('customizationZipInspect.service', () => {
     expect(orderPublic.updateItemAsin).toHaveBeenCalledWith(orderItemId, 'B0TESTASIN');
 
     expect(result.extractedCount).toBe(1);
+    expect(orderPublic.updateOrderWorkbenchItem).toHaveBeenCalledWith(
+      '660000000000000000000301', orderItemId,
+      { customization: expect.objectContaining({ customerInputs: expect.objectContaining({ texts: expect.any(Array), options: expect.any(Array) }) }) },
+      { source: 'CUSTOMIZATION' },
+    );
     expect(repository.updateParsedData).toHaveBeenCalledWith(
       payloadId,
       expect.objectContaining({

@@ -1,3 +1,4 @@
+jest.mock('../../../src/modules/shop/public', () => ({ findById: jest.fn(async () => ({ _id: 's', name: 'Etsy shop' })) }));
 jest.mock('../../../src/modules/order/repositories/orderWorkbenchProjection.repository', () => ({
   upsertBase: jest.fn(),
   setOrderFields: jest.fn(),
@@ -8,6 +9,12 @@ const repository = require('../../../src/modules/order/repositories/orderWorkben
 const service = require('../../../src/modules/order/services/orderWorkbenchProjection.service');
 
 describe('orderWorkbenchProjection.service', () => {
+  test('preserves Etsy display fields without projecting raw provider data', async () => {
+    await service.upsertOrderWorkbenchBase({ _id: 'o', shopId: 's' }, [{ _id: 'i', salesChannelCode: 'ETSY', externalListingId: '123', variantRaw: 'Size: L', externalData: { etsy: { listingImageUrl: 'https://i.etsystatic.com/123/a.jpg', secret: 'hidden' } } }]);
+    const item = repository.upsertBase.mock.calls[0][0].items[0].item;
+    expect(item).toMatchObject({ salesChannelCode: 'ETSY', externalListingId: '123', variations: 'Size: L', listingImageUrl: 'https://i.etsystatic.com/123/a.jpg' });
+    expect(item).not.toHaveProperty('externalData');
+  });
   beforeEach(() => jest.clearAllMocks());
 
   test('creates a compact base without order external data', async () => {
@@ -24,7 +31,8 @@ describe('orderWorkbenchProjection.service', () => {
       externalOrderId: '114-1',
       order: expect.not.objectContaining({ externalData: expect.anything() }),
       items: [expect.objectContaining({ orderItemId: '660000000000000000000003' })],
-    }), {});
+      shop: expect.objectContaining({ name: 'Etsy shop' }),
+    }), { preserveEnrichment: true });
   });
 
   test('rejects item patch fields outside the workbench contract', async () => {

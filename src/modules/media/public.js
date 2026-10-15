@@ -39,6 +39,8 @@ async function storeUploadedFile(file, metadata = {}, ownership = {}) {
 }
 
 const publicPort = {
+  storeEtsyListingImage: require('./services/etsyListingImage.service').storeEtsyListingImage,
+  storeImportAsset: require('./services/etsyImportAsset.service').storeImportAsset,
   discardUnattachedAsset: mediaAssetService.discardUnattachedAsset,
   findAssetIdsByOriginalFilename: mediaAssetService.findAssetIdsByOriginalFilename,
   getAsset: mediaAssetService.getAsset,

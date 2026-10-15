@@ -82,7 +82,9 @@ async function importFromManualExcel(payload, authContext) {
 
 async function importFromEtsySoldOrderItems(payload, authContext) {
   assertShopAccess(payload.shopId, ORDER_WRITE_PERMISSION, authContext);
-  const result = await manualExcelImportService.prepareQueuedEtsySoldOrderItems(payload);
+  const result = await manualExcelImportService.prepareQueuedEtsySoldOrderItems({
+    ...payload, importOrigin: authContext?.tokenType === 'EXTENSION' ? 'EXTENSION' : 'UPLOAD',
+  });
   if (result.status === externalOrderImportJobStatuses.PENDING) {
     await externalOrderImportQueue.enqueueImportJob({ jobId: result.jobId });
   }
@@ -110,6 +112,7 @@ async function getImportJob(jobId, authContext) {
 
   return {
     ...job,
+    ...(await require('./importJobPresentation.service').enrichJobs([job]))[0],
     summary: await buildImportJobSummary(jobId),
   };
 }
@@ -139,7 +142,7 @@ async function getImportJobProgress(jobId, authContext) {
   const mappingDone = (rawCounts.postImportCompleted || 0) + (rawCounts.postImportFailed || 0) + (rawCounts.postImportSkipped || 0);
 
   return {
-    job,
+    job: (await require('./importJobPresentation.service').enrichJobs([job]))[0],
     phases: {
       parse: {
         total,
@@ -279,16 +282,20 @@ async function enrichIssuePageWithShopIds(result) {
 }
 
 async function listImportJobs(params = {}, authContext = {}) {
+  async function list(filters) {
+    const page = await jobRepository.list(filters);
+    return { ...page, items: await require('./importJobPresentation.service').enrichJobs(page.items) };
+  }
   const shopIds = getReadableShopIds(authContext);
-  if (shopIds === null) return jobRepository.list(params);
+  if (shopIds === null) return list(params);
   if (shopIds.length === 0) return emptyPage(params);
 
   if (params.shopId) {
     if (!shopIds.includes(String(params.shopId))) return emptyPage(params);
-    return jobRepository.list(params);
+    return list(params);
   }
 
-  return jobRepository.list({ ...params, shopIds });
+  return list({ ...params, shopIds });
 }
 
 async function listIssues(params = {}, authContext = {}) {
@@ -408,6 +415,7 @@ async function processImportJob(jobId, authContext = {}) {
   const job = authContext.system === true
     ? await loadImportJob(jobId)
     : await loadAuthorizedImportJob(jobId, ORDER_WRITE_PERMISSION, authContext);
+  if (job.salesChannelCode === 'ETSY' && isTerminalJobStatus(job.status)) return { jobId: toId(job), status: job.status, replayedRawRecords: 0 };
   await jobRepository.updateStatus(jobId, externalOrderImportJobStatuses.IMPORTING, {
     startedAt: new Date(),
     finishedAt: null,
@@ -577,6 +585,7 @@ async function recoverStaleImportJobs({ staleMinutes = 30, limit = 50 } = {}) {
 }
 
 module.exports = {
+  loadAuthorizedImportJob,
   importFromEtsySoldOrderItems,
   importFromManualExcel,
   getImportJob,

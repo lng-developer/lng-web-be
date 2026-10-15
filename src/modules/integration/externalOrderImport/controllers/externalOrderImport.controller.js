@@ -2,6 +2,8 @@ const AppError = require('../../../../shared/errors/appError');
 const errorCodes = require('../../../../shared/constants/errorCodes');
 const httpStatus = require('../../../../shared/constants/httpStatus');
 const service = require('../services/externalOrderImport.service');
+const etsyManifest = require('../services/etsyCustomizationManifest.service');
+const { etsyAssetSchema, etsyManifestSchema } = require('../validators/externalOrderImport.validator');
 const {
   toImportJobDto,
   toImportJobProgressDto,
@@ -82,6 +84,10 @@ async function importManualExcel(req, res) {
 
 async function importEtsySoldOrderItems(req, res) {
   const requestBody = Buffer.isBuffer(req.body) ? (req.query || {}) : (req.body || {});
+  const scopedShop = extensionShopId(req.auth);
+  if (scopedShop && requestBody.shopId && String(requestBody.shopId) !== String(scopedShop)) {
+    throw new AppError('Selected shop does not match Extension Token', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
+  }
   const bodySource = {
     ...requestBody,
     originalFilename: (req.file && req.file.originalname) || requestBody.originalFilename,
@@ -93,7 +99,7 @@ async function importEtsySoldOrderItems(req, res) {
   });
   const result = await service.importFromEtsySoldOrderItems({
     ...body,
-    idempotencyKey: String(typeof req.get === 'function' ? req.get('Idempotency-Key') : req.headers?.['idempotency-key'] || '').trim() || null,
+    idempotencyKey: String((typeof req.get === 'function' ? req.get('Idempotency-Key') : req.headers?.['idempotency-key']) || '').trim() || null,
     buffer: getUploadBuffer(req, body),
     triggeredBy: req.auth && req.auth.accountId,
   }, req.auth);
@@ -169,6 +175,18 @@ async function updateIssueStatus(req, res) {
 }
 
 module.exports = {
+  async uploadEtsyAsset(req, res) {
+    const { jobId } = assertValid(jobIdParamSchema, req.params);
+    const { sha256 } = assertValid(etsyAssetSchema, req.body);
+    const data = await etsyManifest.uploadAsset(jobId, req.file, sha256, req.auth);
+    res.status(httpStatus.OK).json({ success: true, data });
+  },
+  async attachEtsyManifest(req, res) {
+    const { jobId } = assertValid(jobIdParamSchema, req.params);
+    const { entries } = assertValid(etsyManifestSchema, req.body);
+    const data = await etsyManifest.attachManifest(jobId, entries, req.auth);
+    res.status(httpStatus.OK).json({ success: true, data });
+  },
   importEtsySoldOrderItems,
   importManualExcel,
   getImportJob,

@@ -17,21 +17,26 @@ async function parseForOrderItem(orderItemId) {
   }
 
   const rawCustomization = payload.rawCustomization || {};
-  const result = rawCustomization.variations || rawCustomization.personalization
+  const result = rawCustomization.provider === 'ETSY' || rawCustomization.variations || rawCustomization.personalization
     ? normalizeEtsyCustomization(rawCustomization)
     : normalizeAmazonCustomization(rawCustomization);
-  const updatedPayload = await repository.updateParsedData(payload._id, result.parsedData, {
+  const patch = {
+    parsedData: result.parsedData,
     assets: result.assets,
     status: result.outcome,
     errorCode: result.errorCode,
     errorMessage: result.errorMessage,
     lastTriedAt: new Date(),
-  });
+  };
+  const updatedPayload = rawCustomization.provider === 'ETSY'
+    ? await repository.updateEtsyRevision(payload._id, payload.__v || 0, patch)
+    : await repository.updateParsedData(payload._id, result.parsedData, patch);
 
   if (!updatedPayload) {
-    throw notFound('Customization payload not found');
+    throw new AppError('Customization changed; retry parsing', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
   }
 
+  await require('./customizationPayload.service').syncWorkbenchCustomization(updatedPayload);
   return updatedPayload;
 }
 

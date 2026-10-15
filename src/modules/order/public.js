@@ -12,6 +12,8 @@ const orderWorkbenchProjectionService = require('./services/orderWorkbenchProjec
 const { addressValidationStatuses } = require('./constants/orderStatuses');
 
 const publicPort = {
+  assertMarketplaceAllowsFulfillment: require('./services/etsyOrderStatus.service').assertCanFulfill,
+  processListingImage: require('./services/etsyListingImage.service').processListingImage,
   importExternalOrder: orderImportService.importExternalOrder,
   findById: orderRepository.findById,
   findOrdersByIds: orderRepository.findByIds,

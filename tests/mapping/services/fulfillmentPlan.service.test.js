@@ -877,7 +877,9 @@ describe('fulfillmentPlan.service', () => {
     }));
   });
 
-  test('post-import recheck creates a draft listing when its SKU has no configuration rule', async () => {
+  test.each(['AMAZON', 'ETSY'])('post-import %s recheck creates a draft with its source image when SKU has no configuration', async (salesChannelCode) => {
+    const imageUrl = salesChannelCode === 'ETSY' ? 'https://i.etsystatic.com/123/a.jpg' : 'https://m.media-amazon.com/images/S/preview.png';
+    orderPublic.findItemById.mockResolvedValue({ ...item, salesChannelCode, externalListingId: '123', externalData: { etsy: { listingImageUrl: imageUrl } } });
     const draftListing = {
       ...listing,
       _id: '660000000000000000002097',
@@ -889,13 +891,14 @@ describe('fulfillmentPlan.service', () => {
     catalogPublic.findOrCreateDraftListingForOrderItem.mockResolvedValue(draftListing);
     mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValue([]);
     customizationPublic.getOrderItemCustomizationView.mockResolvedValue({
-      listingPreviewImageUrl: 'https://m.media-amazon.com/images/S/preview.png',
+      listingPreviewImageUrl: salesChannelCode === 'ETSY' ? null : imageUrl,
       customerInputs: { texts: [], options: [], images: [] },
     });
 
     const result = await service.recheckFulfillmentPlan(orderItemId, { createDraftListing: true }, { permissions: ['MAPPING:WRITE'] });
 
     expect(catalogPublic.findOrCreateDraftListingForOrderItem).toHaveBeenCalledWith(expect.objectContaining({
+      productImageUrl: imageUrl,
       shopId,
       asin: item.asin,
       sku: item.sku,

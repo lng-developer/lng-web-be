@@ -14,6 +14,17 @@ function parseQuantity(row) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
 }
 
+// Intl supplies English region names without another country-list dependency.
+const countryCodesByName = new Map();
+const regionNames = new Intl.DisplayNames(['en'], { type: 'region', fallback: 'none' });
+for (let a = 65; a <= 90; a += 1) {
+  for (let b = 65; b <= 90; b += 1) {
+    const code = String.fromCharCode(a, b);
+    const name = regionNames.of(code);
+    if (name) countryCodesByName.set(name.toUpperCase(), code);
+  }
+}
+
 function normalizeCountryCode(rawCountry) {
   const country = String(rawCountry || '').trim();
   const upper = country.toUpperCase();
@@ -29,10 +40,39 @@ function normalizeCountryCode(rawCountry) {
   };
 
   if (/^[A-Z]{2}$/.test(upper)) return upper;
-  return aliases[upper] || null;
+  return aliases[upper] || countryCodesByName.get(upper) || null;
 }
 
-const customizationVariationKeyPattern = /(^|[,;\n])\s*(custom|personalization|custom name|names|event date|initials|ink color|photo|choose your design|type printing option)\s*:/i;
+function optionalDate(row, key) {
+  const input = value(row, key);
+  if (!input) return undefined;
+  if (!/^\d{4}-\d{2}-\d{2}(T.*)?$/.test(input) || !Number.isFinite(Date.parse(input))) throw new Error(`Invalid ${key}`);
+  const calendarDate = input.slice(0, 10);
+  if (new Date(calendarDate).toISOString().slice(0, 10) !== calendarDate) throw new Error(`Invalid ${key}`);
+  return new Date(input).toISOString();
+}
+
+function optionalPaymentStatus(row) {
+  const status = value(row, 'LNG Payment Status').toUpperCase();
+  if (!status) return undefined;
+  if (!['PAID', 'PENDING', 'REFUNDED', 'UNKNOWN'].includes(status)) throw new Error('Invalid LNG Payment Status');
+  return status;
+}
+
+function orderFinancialSnapshot(row) {
+  const fields = { orderDiscountAmount: 'LNG Order Discount', shippingDiscountAmount: 'LNG Shipping Discount', orderTotalAmount: 'LNG Order Total' };
+  if (!Object.values(fields).some(key => value(row, key))) return undefined;
+  return Object.fromEntries([
+    ['currency', value(row, 'Currency') || 'USD'],
+    ...Object.entries(fields).map(([key, header]) => {
+      const amount = value(row, header);
+      if (amount && !/^\d+(\.\d{1,2})?$/.test(amount)) throw new Error(`Invalid ${header}`);
+      return [key, amount ? parseMoneyToMinorUnit(amount) : null];
+    }),
+  ]);
+}
+
+const customizationVariationKeyPattern = /(^|[,;\n])\s*(custom|personalization|enter your custom|custom name|names|event date|initials|ink color|photo|choose your design|type printing option)\s*:/i;
 
 function hasCustomization(row) {
   return Boolean(
@@ -43,8 +83,14 @@ function hasCustomization(row) {
 }
 
 function buildCustomizationRawSummary(row) {
+  const expectedFileCount = Number(value(row, 'LNG Expected Files') || 0);
+  if (!Number.isInteger(expectedFileCount) || expectedFileCount < 0 || expectedFileCount > 20) throw new Error('Invalid expected file count');
+  const needsReview = value(row, 'LNG Needs Review') === 'true';
   return {
-    hasCustomization: hasCustomization(row),
+    hasCustomization: hasCustomization(row) || expectedFileCount > 0 || needsReview,
+    provider: 'ETSY',
+    expectedFileCount,
+    needsReview,
     variations: nullable(value(row, 'Variations')),
     personalization: nullable(value(row, 'Personalization')),
     customizedUrl: nullable(value(row, 'customization_url')),
@@ -59,6 +105,8 @@ function buildItem(row) {
   return {
     externalItemId: transactionId,
     externalListingId: nullable(listingId),
+    externalStatus: value(row, 'LNG Etsy Status') || undefined,
+    shipByDate: optionalDate(row, 'LNG Ship By'),
     sku: nullable(value(row, 'SKU')),
     title: nullable(value(row, 'Item Name')),
     quantity: parseQuantity(row),
@@ -75,6 +123,8 @@ function buildItem(row) {
         receiptId: value(row, 'Order ID'),
         transactionId,
         listingId: nullable(listingId),
+        listingImageUrl: nullable(value(row, 'LNG Listing Image')),
+        listingImageThumbnailUrl: nullable(value(row, 'LNG Listing Thumbnail')),
         orderType: nullable(value(row, 'Order Type')),
         listingsType: nullable(value(row, 'Listings Type')),
         paymentType: nullable(value(row, 'Payment Type')),
@@ -124,6 +174,10 @@ function buildOrder(row, context, items) {
     shopConnectionId: context.shopConnectionId,
     externalAccountId: context.externalAccountId,
     externalOrderId: value(row, 'Order ID'),
+    externalStatus: value(row, 'LNG Etsy Status') || undefined,
+    paymentStatus: optionalPaymentStatus(row),
+    shipByDate: optionalDate(row, 'LNG Ship By'),
+    shippingService: value(row, 'LNG Shipping Service') ? { name: value(row, 'LNG Shipping Service') } : undefined,
     orderedAt: nullable(value(row, 'Date Paid') || value(row, 'Sale Date')),
     buyer: {
       name: nullable(value(row, 'Ship Name') || value(row, 'Buyer')),
@@ -136,10 +190,13 @@ function buildOrder(row, context, items) {
       stateOrProvince: nullable(value(row, 'Ship State')),
       postalCode: nullable(value(row, 'Ship Zipcode')),
       countryCode: normalizeCountryCode(value(row, 'Ship Country')),
+      country: nullable(value(row, 'Ship Country')),
     },
     externalData: {
       etsy: {
         receiptId: value(row, 'Order ID'),
+        // Keep source order totals as evidence; item prices may already include discounts.
+        financial: orderFinancialSnapshot(row),
       },
     },
     items,

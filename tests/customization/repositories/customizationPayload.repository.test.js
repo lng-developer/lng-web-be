@@ -84,11 +84,7 @@ describe('customizationPayload.repository', () => {
       'errorCode',
       'errorMessage',
       'parsedData.amazonCustomization.customerInputs',
-      'assets.type',
-      'assets.status',
-      'assets.sourceUrl',
-      'assets.metadata.extractedImages',
-      'assets.metadata.failedImages',
+      'assets',
       'createdAt',
     ].join(' '));
   });

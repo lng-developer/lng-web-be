@@ -1,6 +1,7 @@
 jest.mock('../../src/modules/shop/public', () => ({
   assertShopIsActive: jest.fn(),
 }));
+jest.mock('../../src/modules/order/services/etsyOrderStatus.service', () => ({ reconcile: jest.fn().mockResolvedValue(false) }));
 
 jest.mock('../../src/modules/hr/public', () => ({
   listEmployeeProfilesByEmployeeCodes: jest.fn(),
@@ -73,6 +74,24 @@ describe('orderImportService', () => {
     hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValue([]);
     orderRepository.updateAssignedStaffIds.mockResolvedValue({});
     orderItemRepository.listAllByOrder.mockResolvedValue([]);
+    require('../../src/modules/order/services/etsyOrderStatus.service').reconcile.mockResolvedValue(false);
+  });
+
+  test('reconciles Etsy state after base projection and returns terminal result to import pipeline', async () => {
+    const etsyOrder = { _id: 'order-1', shopId: 'shop-1', salesChannelCode: 'ETSY', externalStatus: 'CANCELLED' };
+    orderRepository.findByExternalIdentity.mockResolvedValue(null);
+    orderRepository.create.mockResolvedValue(etsyOrder);
+    orderItemRepository.findByExternalIdentity.mockResolvedValue(null);
+    orderItemRepository.create.mockResolvedValue({ _id: 'item-1', orderId: 'order-1', status: 'CUSTOMIZATION_PENDING' });
+    const statusService = require('../../src/modules/order/services/etsyOrderStatus.service');
+    statusService.reconcile.mockResolvedValue(true);
+    const result = await orderImportService.importExternalOrder({
+      ...oneItemDto, source: 'MANUAL_EXCEL', salesChannelCode: 'ETSY', marketplaceCode: 'ETSY_US', externalStatus: 'CANCELLED', paymentStatus: 'REFUNDED',
+    });
+    expect(result.terminal).toBe(true);
+    expect(statusService.reconcile).toHaveBeenCalledWith(etsyOrder);
+    expect(orderWorkbenchProjectionService.upsertOrderWorkbenchBase.mock.invocationCallOrder[0])
+      .toBeLessThan(statusService.reconcile.mock.invocationCallOrder[0]);
   });
 
   test('rechecks order readiness after importing order items', async () => {

@@ -8,6 +8,7 @@ jest.mock('../../../../src/modules/integration/externalOrderImport/repositories/
 }));
 
 jest.mock('../../../../src/modules/integration/externalOrderImport/repositories/externalOrderImportIssue.repository', () => ({
+  summarizeOpenIssues: jest.fn(async () => []),
   countByJobStatus: jest.fn(),
   findById: jest.fn(),
   list: jest.fn(),
@@ -16,6 +17,7 @@ jest.mock('../../../../src/modules/integration/externalOrderImport/repositories/
 }));
 
 jest.mock('../../../../src/modules/integration/externalOrderImport/repositories/externalOrderRawRecord.repository', () => ({
+  summarizeOutcomes: jest.fn(async () => []),
   countStatusesByJob: jest.fn(),
   findByIds: jest.fn(),
   listAllByJob: jest.fn(),
@@ -98,6 +100,19 @@ describe('externalOrderImport.service issue workflow', () => {
 
   afterEach(() => {
     jest.useRealTimers();
+  });
+
+  test.each([['EXTENSION', 'EXTENSION'], ['ACCESS', 'UPLOAD']])('derives Etsy origin from authenticated token type %s', async (tokenType, origin) => {
+    manualExcelImportService.prepareQueuedEtsySoldOrderItems.mockResolvedValue({ status: 'COMPLETED' });
+    await service.importFromEtsySoldOrderItems({ shopId, importOrigin: 'SPOOFED' }, { system: true, tokenType });
+    expect(manualExcelImportService.prepareQueuedEtsySoldOrderItems).toHaveBeenCalledWith(expect.objectContaining({ importOrigin: origin }));
+  });
+
+  test('duplicate delivery does not reopen a terminal Etsy import job', async () => {
+    jobRepository.findById.mockResolvedValue({ _id: 'job', shopId, salesChannelCode: 'ETSY', status: 'COMPLETED' });
+    const result = await service.processImportJob('job', { system: true });
+    expect(result.status).toBe('COMPLETED');
+    expect(jobRepository.updateStatus).not.toHaveBeenCalled();
   });
 
   test('lists issues with external order filters', async () => {

@@ -330,6 +330,7 @@ async function safeRemoteFetchStream(rawUrl, options = {}) {
   const maxBytes = parseNumberOption(options.maxBytes, DEFAULT_MAX_BYTES);
   const maxRedirects = parseNumberOption(options.maxRedirects, DEFAULT_MAX_REDIRECTS);
   const redirects = [];
+  if (options.validateUrl) options.validateUrl(rawUrl);
   let currentUrl = await validateSafeUrl(rawUrl);
 
   for (let attempt = 0; attempt <= maxRedirects; attempt += 1) {
@@ -346,7 +347,13 @@ async function safeRemoteFetchStream(rawUrl, options = {}) {
       }
 
       const nextUrl = new URL(location, currentUrl);
-      await validateSafeUrl(nextUrl.toString());
+      try {
+        if (options.validateUrl) options.validateUrl(nextUrl.toString());
+        await validateSafeUrl(nextUrl.toString());
+      } catch (error) {
+        response.destroy();
+        throw error;
+      }
       redirects.push(redactUrl(nextUrl.toString()));
       response.resume();
       currentUrl = nextUrl;

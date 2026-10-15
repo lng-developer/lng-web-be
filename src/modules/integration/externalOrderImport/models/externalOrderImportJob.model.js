@@ -35,6 +35,7 @@ const externalOrderImportJobSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    importOrigin: { type: String, enum: ['EXTENSION', 'UPLOAD'], default: null },
     shopId: {
       type: mongoose.Schema.Types.ObjectId,
       default: null,
@@ -80,6 +81,7 @@ const externalOrderImportJobSchema = new mongoose.Schema(
       maxlength: 120,
       default: null,
     },
+    requestHash: { type: String, default: null },
     status: {
       type: String,
       enum: Object.values(externalOrderImportJobStatuses),

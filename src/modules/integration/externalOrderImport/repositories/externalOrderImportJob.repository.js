@@ -94,6 +94,10 @@ async function listStaleActive({ cutoff, limit = 50 } = {}) {
 }
 
 module.exports = {
+  async attachSourceIfMissing(jobId, sourceFileId) {
+    const updated = await ExternalOrderImportJob.findOneAndUpdate({ _id: jobId, sourceFileId: null }, { $set: { sourceFileId } }, { returnDocument: 'after', runValidators: true }).lean();
+    return updated || findById(jobId);
+  },
   create,
   findById,
   findByIdempotency,

@@ -3,6 +3,38 @@ const {
 } = require('../../../../../src/modules/integration/externalOrderImport/sources/manualExcel/etsySoldOrderItems.mapper');
 
 describe('etsySoldOrderItems.mapper', () => {
+  test.each([['Switzerland', 'CH'], ['Germany', 'DE'], ['Unknown destination', null]])('preserves country %s', (country, code) => {
+    const [dto] = mapEtsySoldOrderItemRowsToExternalOrderDtos([{ 'Order ID': '1', 'Transaction ID': '2', 'Ship Country': country }]);
+    expect(dto.shippingAddress).toMatchObject({ country, countryCode: code });
+  });
+  test('preserves source lifecycle and financial evidence without applying order discounts twice', () => {
+    const [dto] = mapEtsySoldOrderItemRowsToExternalOrderDtos([{
+      'Order ID': '1', 'Transaction ID': '2', Price: '20', Currency: 'USD',
+      'LNG Etsy Status': 'Completed', 'LNG Payment Status': 'PAID',
+      'LNG Ship By': '2026-10-20T00:00:00.000Z', 'LNG Shipping Service': 'Express',
+      'LNG Order Discount': '5', 'LNG Shipping Discount': '2', 'LNG Order Total': '18',
+    }]);
+    expect(dto).toMatchObject({ externalStatus: 'Completed', paymentStatus: 'PAID', shipByDate: '2026-10-20T00:00:00.000Z', shippingService: { name: 'Express' } });
+    expect(dto.items[0]).toMatchObject({ externalStatus: 'Completed', shipByDate: dto.shipByDate });
+    expect(dto.externalData.etsy.financial).toMatchObject({ orderDiscountAmount: 500, shippingDiscountAmount: 200, orderTotalAmount: 1800, currency: 'USD' });
+    expect(dto.items[0].price.itemPromotionDiscountAmount || 0).toBe(0);
+  });
+  test('old CSV does not clear previously known lifecycle fields or infer payment', () => {
+    const [dto] = mapEtsySoldOrderItemRowsToExternalOrderDtos([{ 'Order ID': '1', 'Transaction ID': '2', 'Date Paid': '10/01/2026' }]);
+    expect(dto.externalStatus).toBeUndefined();
+    expect(dto.shipByDate).toBeUndefined();
+    expect(dto.paymentStatus).toBeUndefined();
+  });
+  test.each([
+    ['LNG Ship By', 'not a date'], ['LNG Ship By', '2026-02-31'],
+    ['LNG Payment Status', 'guess'], ['LNG Order Discount', 'USD 5'],
+  ])('rejects malformed source field %s=%s', (key, input) => {
+    expect(() => mapEtsySoldOrderItemRowsToExternalOrderDtos([{ 'Order ID': '1', 'Transaction ID': '2', [key]: input }])).toThrow();
+  });
+  test('image-only extension rows require customization before post-import mapping', () => {
+    const [dto] = mapEtsySoldOrderItemRowsToExternalOrderDtos([{ 'Order ID': '1', 'Transaction ID': '2', 'LNG Expected Files': '2', 'LNG Needs Review': 'true' }]);
+    expect(dto.items[0].customizationRawSummary).toMatchObject({ hasCustomization: true, provider: 'ETSY', expectedFileCount: 2, needsReview: true });
+  });
   test('groups Etsy sold order item rows into external order dto', () => {
     const [dto] = mapEtsySoldOrderItemRowsToExternalOrderDtos([
       {

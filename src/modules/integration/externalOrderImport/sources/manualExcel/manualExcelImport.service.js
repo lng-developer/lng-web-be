@@ -10,6 +10,7 @@ const rawRecordRepository = require('../../repositories/externalOrderRawRecord.r
 const issueRepository = require('../../repositories/externalOrderImportIssue.repository');
 const postImportMappingQueue = require('../../services/postImportMappingQueue.service');
 const customizationAssetQueue = require('../../services/customizationAssetQueue.service');
+const listingImageQueue = require('../../services/etsyListingImageQueue.service');
 const {
   externalOrderImportSources,
   externalOrderImportSourceTypes,
@@ -295,6 +296,7 @@ async function markImportedItemRows({ dto, itemResult, importResult }) {
       importStatus: externalOrderRawRecordImportStatuses.IMPORTED,
       orderId: importResult.orderId,
       orderItemId: itemResult.orderItemId,
+      orderImportOutcome: importResult.created ? 'CREATED' : importResult.updated ? 'UPDATED' : null,
     })
   )));
 }
@@ -485,6 +487,7 @@ async function processImportDtos({ dtos, validRows, config, shopId, jobId }) {
         });
         continue;
       }
+      await listingImageQueue.enqueueListingImages(importDto, importResult);
       const itemResults = importResult.itemResults || [];
 
       for (const itemResult of itemResults) {
@@ -492,6 +495,7 @@ async function processImportDtos({ dtos, validRows, config, shopId, jobId }) {
       }
 
       importedCount += rowsForOrder.length;
+      if (importResult.terminal) continue;
       const readinessIssueCount = await createCustomizationPayloads({
           dto,
           importResult,
@@ -678,6 +682,7 @@ async function prepareQueuedManualFileReport({
   externalAccountId,
   triggeredBy,
   idempotencyKey = null,
+  importOrigin = null,
   source = externalOrderImportSources.MANUAL_EXCEL,
 }, config) {
   requireValue(buffer, 'buffer');
@@ -685,14 +690,22 @@ async function prepareQueuedManualFileReport({
   requireValue(marketplaceCode, 'marketplaceCode');
   requireValue(shopId, 'shopId');
 
+  const requestHash = calculateRecordHash({ fileHash: calculateFileHash(buffer), salesChannelCode: config.salesChannelCode, marketplaceCode, shopConnectionId: shopConnectionId || null, externalAccountId: externalAccountId || null });
+  function assertSameRequest(existing) {
+    if (existing.requestHash !== requestHash) throw new AppError('Idempotency key belongs to different or unverifiable input', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
+  }
+  let job;
   if (idempotencyKey) {
     const existing = await jobRepository.findByIdempotency({ shopId, source, idempotencyKey });
-    if (existing) return queuedImportResult(existing);
+    if (existing) {
+      assertSameRequest(existing);
+      if (existing.sourceFileId) return queuedImportResult(existing);
+      job = existing;
+    }
   }
 
-  let job;
   try {
-    job = await jobRepository.create({
+    if (!job) job = await jobRepository.create({
       source,
       sourceType: externalOrderImportSourceTypes.FILE,
       shopId,
@@ -701,15 +714,22 @@ async function prepareQueuedManualFileReport({
       marketplaceCode,
       externalAccountId,
       idempotencyKey,
+      importOrigin,
+      requestHash,
       status: externalOrderImportJobStatuses.PENDING,
       triggeredBy,
     });
   } catch (error) {
     if (idempotencyKey && error?.code === 11000) {
       const existing = await jobRepository.findByIdempotency({ shopId, source, idempotencyKey });
-      if (existing) return queuedImportResult(existing);
+      if (existing) {
+        assertSameRequest(existing);
+        if (existing.sourceFileId) return queuedImportResult(existing);
+        job = existing;
+      } else throw error;
+    } else {
+      throw error;
     }
-    throw error;
   }
   const jobId = toId(job);
   const sourceFile = await sourceFileRepository.create({
@@ -723,12 +743,8 @@ async function prepareQueuedManualFileReport({
   });
 
   await sourceFileRepository.linkToJob(toId(sourceFile), jobId);
-  await jobRepository.updateStatus(jobId, externalOrderImportJobStatuses.PENDING, {
-    sourceFileId: toId(sourceFile),
-    finishedAt: null,
-  });
-
-  return queuedImportResult(job);
+  const attached = await jobRepository.attachSourceIfMissing(jobId, toId(sourceFile));
+  return queuedImportResult(attached);
 }
 
 function queuedImportResult(job) {
