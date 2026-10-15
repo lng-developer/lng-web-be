@@ -78,7 +78,8 @@
     "test:architecture": "jest tests/architecture/architecture.contract.test.js",
     "load:smoke": "k6 run tests/load/smoke.js",
     "load:expected": "k6 run tests/load/expected-load.js",
-    "test": "jest"
+    "test": "jest",
+    "test:etsy-flow": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand tests/e2e/etsyOrderFlow.persistence.test.js tests/integration/externalOrderImport/sources/manualExcel/etsySoldOrderItems.mapper.test.js tests/customization/parsers/etsyCustomization.parser.test.js tests/order/services/etsyOrderStatus.service.test.js tests/order/services/etsyListingImage.service.test.js tests/media/services/etsyListingImage.service.test.js tests/customization/services/customizationZipInspect.service.test.js tests/vendorSubmission/services/vendorSubmission.service.test.js"
   },
   "repository": {
     "type": "git",
