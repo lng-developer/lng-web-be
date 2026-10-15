@@ -742,6 +742,7 @@ async function extractImagesForPayload(payload, options = {}, authContext) {
       payload.orderItemId,
       updatedPayload.parsedData?.amazonCustomization?.customerInputs,
     );
+    await require('./customizationPayload.service').syncWorkbenchCustomization(updatedPayload);
 
     return {
       payloadId: String(payload._id),

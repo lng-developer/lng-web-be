@@ -34,7 +34,11 @@ async function listCommands({ page, limit, shopIds, agentId }) {
   return toPaginatedResult({ items, total, page, limit });
 }
 
-async function releaseExpired(agentId, now) {
+async function releaseExpired(agentId, now, provider) {
+  if (provider === 'ETSY') return ExtensionCommand.updateMany(
+    { agentId, status: { $in: [extensionCommandStatuses.CLAIMED, extensionCommandStatuses.RUNNING] }, leaseExpiresAt: { $lte: now } },
+    { $set: { status: extensionCommandStatuses.FAILED, completedAt: now, leaseExpiresAt: null, leaseTokenHash: null, errorMessage: 'Extension lease expired' }, $unset: { activeOrderKey: 1 } },
+  );
   return Promise.all([
     ExtensionCommand.updateMany(
       { agentId, status: extensionCommandStatuses.CLAIMED, leaseExpiresAt: { $lte: now } },
@@ -47,9 +51,11 @@ async function releaseExpired(agentId, now) {
   ]);
 }
 
-function claimNext({ agentId, leaseTokenHash, now, leaseExpiresAt, listingImageSync = false }) {
+function claimNext({ agentId, provider, leaseTokenHash, now, leaseExpiresAt, listingImageSync = false }) {
   return ExtensionCommand.findOneAndUpdate(
-    { agentId, status: extensionCommandStatuses.QUEUED, ...(!listingImageSync ? { type: { $ne: extensionCommandTypes.SYNC_LISTING_IMAGES } } : {}) },
+    { agentId, status: extensionCommandStatuses.QUEUED, ...(provider === 'ETSY'
+      ? { provider: 'ETSY', type: extensionCommandTypes.IMPORT_NEW_ORDERS, origin: 'WEB', maxOrders: { $gte: 1, $lte: 200, $mod: [1, 0] } }
+      : !listingImageSync ? { type: { $ne: extensionCommandTypes.SYNC_LISTING_IMAGES } } : {}) },
     { $set: { status: extensionCommandStatuses.CLAIMED, claimedAt: now, leaseExpiresAt, leaseTokenHash }, $inc: { attemptCount: 1 } },
     { sort: { createdAt: 1, _id: 1 }, returnDocument: 'after', runValidators: true },
   ).select('+leaseTokenHash').lean();
@@ -60,6 +66,10 @@ function updateClaimed({ commandId, agentId, leaseTokenHash, patch, unset, statu
     { _id: commandId, agentId, leaseTokenHash, status: { $in: statuses }, leaseExpiresAt: { $gt: new Date() } },
     { $set: patch, ...(unset ? { $unset: unset } : {}) }, { returnDocument: 'after', runValidators: true },
   ).lean();
+}
+
+function findCompletedForLease({ commandId, agentId, leaseTokenHash }) {
+  return ExtensionCommand.findOne({ _id: commandId, agentId, provider: 'ETSY', leaseTokenHash, status: { $in: [extensionCommandStatuses.SUCCEEDED, extensionCommandStatuses.FAILED] } }).lean();
 }
 
 function listDueOrderSchedules(now) {
@@ -186,4 +196,4 @@ function markFinanceScheduleCompleted({ agentId, source, now, success, errorMess
   );
 }
 
-module.exports = { findCommandById, upsertAgent, listAgents, findAgentById, findAgentForToken, createCommand, listCommands, releaseExpired, claimNext, updateClaimed, listDueOrderSchedules, claimDueOrderSchedule, hasActiveOrderCommand, hasActiveImportCommand, postponeOrderSchedule, markOrderScheduleQueued, listOrderSchedules, findOrderScheduleByAgentId, upsertOrderSchedule, listDueFinanceSchedules, claimDueFinanceSchedule, listFinanceSchedules, findFinanceSchedule, requestFinanceScheduleNow, upsertFinanceSchedule, postponeFinanceSchedule, markFinanceScheduleQueued, markFinanceScheduleCompleted };
+module.exports = { findCompletedForLease, findCommandById, upsertAgent, listAgents, findAgentById, findAgentForToken, createCommand, listCommands, releaseExpired, claimNext, updateClaimed, listDueOrderSchedules, claimDueOrderSchedule, hasActiveOrderCommand, hasActiveImportCommand, postponeOrderSchedule, markOrderScheduleQueued, listOrderSchedules, findOrderScheduleByAgentId, upsertOrderSchedule, listDueFinanceSchedules, claimDueFinanceSchedule, listFinanceSchedules, findFinanceSchedule, requestFinanceScheduleNow, upsertFinanceSchedule, postponeFinanceSchedule, markFinanceScheduleQueued, markFinanceScheduleCompleted };

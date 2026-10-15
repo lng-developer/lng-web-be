@@ -6,6 +6,8 @@ const extensionAgentSchema = new mongoose.Schema({
   clientId: { type: String, required: true, trim: true, maxlength: 120 },
   label: { type: String, required: true, trim: true, maxlength: 120 },
   version: { type: String, trim: true, maxlength: 40, default: null },
+  provider: { type: String, enum: ['ETSY'], default: null },
+  protocolVersion: { type: Number, enum: [1], default: null },
   apiBaseUrl: { type: String, trim: true, maxlength: 300, default: null },
   lastSeenAt: { type: Date, required: true, index: true },
   lastReconnectedAt: { type: Date, default: null },

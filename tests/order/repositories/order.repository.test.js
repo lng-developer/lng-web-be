@@ -238,6 +238,16 @@ describe('order.repository list', () => {
     }]);
   });
 
+  test('source workbench reads retain image reference and source without raw external snapshots', async () => {
+    Order.aggregate.mockResolvedValueOnce([{ items: [], total: [] }]);
+    await repository.listWorkbench({});
+    const facet = Order.aggregate.mock.calls[0][0].find((stage) => stage.$facet).$facet;
+    const lookup = facet.items.find((stage) => stage.$lookup?.from === 'orderitems').$lookup;
+    const projection = lookup.pipeline.find((stage) => stage.$project).$project;
+    expect(projection).toMatchObject({ listingImage: 1, 'externalData.etsy.listingImageUrl': 1, salesChannelCode: 1 });
+    expect(projection.externalData).toBeUndefined();
+  });
+
   test('filters and counts New orders by orderedAt from the last 24 hours', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-09-05T12:00:00.000Z'));
     Order.aggregate.mockResolvedValueOnce([{ items: [], total: [{ count: 0 }] }]).mockResolvedValueOnce([{}]);

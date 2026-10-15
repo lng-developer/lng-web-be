@@ -141,6 +141,12 @@ async function updateFromExternalImport(orderItemId, payload) {
   ).lean();
 }
 
+async function attachListingImage({ orderItemId, shopId, sourceUrl, mediaAssetId }) {
+  return OrderItem.findOneAndUpdate({
+    _id: orderItemId, shopId, salesChannelCode: 'ETSY', 'externalData.etsy.listingImageUrl': sourceUrl,
+  }, { $set: { listingImage: { sourceUrl, mediaAssetId } } }, { returnDocument: 'after', runValidators: true }).lean();
+}
+
 async function updateStatus(orderItemId, status, { session } = {}) {
   return OrderItem.findByIdAndUpdate(
     orderItemId,
@@ -420,6 +426,7 @@ async function summarizeSalesByAsins(asins = []) {
 }
 
 module.exports = {
+  attachListingImage,
   create,
   findById,
   findByIdWithOrder,

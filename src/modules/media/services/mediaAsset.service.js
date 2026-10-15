@@ -21,6 +21,8 @@ function serviceError(message, code) {
 }
 
 const ownerReadPermissions = {
+  ETSY_LISTING_IMAGE: ['ORDERS:READ'],
+  ETSY_IMPORT: ['ORDERS:READ', 'ORDERS:WRITE'],
   CATALOG: ['CATALOG:READ'],
   CATALOG_LISTING: ['CATALOG:READ'],
   CATALOG_LISTING_VARIANT: ['CATALOG:READ'],
@@ -226,6 +228,11 @@ async function storeAsset({
       shopId,
       ownerType,
       ownerId,
+    }).catch(async (error) => {
+      if (['ETSY_IMPORT', 'ETSY_LISTING_IMAGE'].includes(ownerType)) {
+        await cloudinary.uploader.destroy(uploadResult.public_id, { resource_type: uploadResult.resource_type || resourceType });
+      }
+      throw error;
     });
   }
 

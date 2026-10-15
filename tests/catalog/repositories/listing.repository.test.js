@@ -1,4 +1,5 @@
 jest.mock('../../../src/modules/catalog/models/listing.model', () => ({
+  findOneAndUpdate: jest.fn(),
   find: jest.fn(),
   countDocuments: jest.fn(),
   aggregate: jest.fn(),
@@ -19,6 +20,26 @@ function chain() {
 }
 
 describe('listing.repository', () => {
+  test('general search matches Etsy listing IDs while preserving shop and channel scope', async () => {
+    Listing.find.mockReturnValue(chain());
+    Listing.countDocuments.mockResolvedValue(0);
+
+    await repository.list({ shopId: 'shop-1', salesChannelCode: 'ETSY', search: ' 456156 ', page: 1, limit: 10 });
+
+    const filter = Listing.find.mock.calls[0][0];
+    expect(filter).toMatchObject({ shopId: 'shop-1', salesChannelCode: 'ETSY' });
+    const idSearch = filter.$or.find((condition) => condition.etsyListingId)?.etsyListingId;
+    expect(idSearch).toBeInstanceOf(RegExp);
+    expect(idSearch.test('4561569753')).toBe(true);
+    expect(idSearch.test('14561569753')).toBe(false);
+    expect(Listing.countDocuments).toHaveBeenCalledWith(filter);
+  });
+
+  test('image enrichment atomically matches the shop and Etsy ID and never replaces an existing image', async () => {
+    Listing.findOneAndUpdate.mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
+    await repository.fillEtsyListingImage({ shopId: 'shop', marketplaceCode: 'ETSY_US', etsyListingId: '123', productImageUrl: 'https://i.etsystatic.com/a.jpg' });
+    expect(Listing.findOneAndUpdate).toHaveBeenCalledWith({ shopId: 'shop', salesChannelCode: 'ETSY', marketplaceCode: 'ETSY_US', etsyListingId: '123', productImageUrl: { $in: [null, ''] } }, { $set: { productImageUrl: 'https://i.etsystatic.com/a.jpg' } }, expect.objectContaining({ runValidators: true }));
+  });
   beforeEach(() => {
     jest.clearAllMocks();
   });

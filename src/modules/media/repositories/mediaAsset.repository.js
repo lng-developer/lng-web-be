@@ -14,6 +14,14 @@ async function findById(assetId) {
   return MediaAsset.findById(assetId).lean();
 }
 
+async function findImportAsset({ shopId, jobId, sha256 }) {
+  return MediaAsset.findOne({ shopId, ownerType: 'ETSY_IMPORT', ownerId: jobId, sha256, uploadStatus: 'READY', discardedAt: null }).lean();
+}
+
+async function findListingImage({ shopId, sourceUrlHash }) {
+  return MediaAsset.findOne({ shopId, sourceUrlHash, ownerType: 'ETSY_LISTING_IMAGE', uploadStatus: 'READY', discardedAt: null }).lean();
+}
+
 async function updateById(assetId, patch) {
   return MediaAsset.findByIdAndUpdate(assetId, { $set: patch }, {
     returnDocument: 'after', runValidators: true,
@@ -108,8 +116,10 @@ async function markDiscardedIfMetadataMatches(assetId, expectedMetadata, reason)
 module.exports = {
   findListingImage: (identity) => MediaAsset.findOne(identity).lean(),
   upsertListingImage: (identity, payload) => MediaAsset.findOneAndUpdate(identity, { $setOnInsert: payload }, { upsert: true, returnDocument: 'after', runValidators: true }).lean(),
+  findEtsyListingImage: findListingImage,
   create,
   findById,
+  findImportAsset,
   findExpiredUploads,
   updateById,
   transitionUploadStatus,

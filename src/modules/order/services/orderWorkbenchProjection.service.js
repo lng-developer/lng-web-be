@@ -4,8 +4,10 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const shopPublic = require('../../shop/public');
 const orderQueryService = require('./orderQuery.service');
 const repository = require('../repositories/orderWorkbenchProjection.repository');
+const { toMarketplaceItemFields } = require('../dtos/orderItem.dto');
 
 const ITEM_PATCH_FIELDS = new Set([
+  'item.listingImageAssetId',
   'item.status', 'item.asin', 'item.listingId', 'item.csNote', 'seller', 'listing', 'customization', 'fulfillmentPlan', 'listingVariant', 'production', 'tracking',
 ]);
 const ORDER_PATCH_FIELDS = new Set([
@@ -85,7 +87,7 @@ function buildBaseProjection(order, items = []) {
     case: null,
     items: (items || []).map((item) => ({
       orderItemId: item._id || item.id,
-      item: pick(item, ITEM_FIELDS),
+      item: { ...pick(item, ITEM_FIELDS), ...toMarketplaceItemFields(item) },
       seller: null,
       listing: null,
       customization: null,

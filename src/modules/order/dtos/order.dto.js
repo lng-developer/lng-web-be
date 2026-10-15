@@ -202,6 +202,7 @@ function toExpandedOrderSummary(order = {}) {
 
 function toExpandedOrderItem(item = {}) {
   return {
+    ...require('./orderItem.dto').toMarketplaceItemFields(item),
     id: toId(item._id || item.id),
     externalItemId: item.externalItemId,
     sku: item.sku || null,
@@ -510,6 +511,11 @@ function toWorkbenchItem(row = {}) {
 
   return {
     item: {
+      ...require('./orderItem.dto').toMarketplaceItemFields({
+        ...item,
+        salesChannelCode: item.salesChannelCode || row.order?.salesChannelCode,
+        externalListingId: item.externalListingId || row.listing?.etsyListingId,
+      }),
       id: toId(item._id || item.id),
       orderId: toId(item.orderId),
       externalItemId: item.externalItemId || null,

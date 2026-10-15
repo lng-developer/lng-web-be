@@ -35,7 +35,7 @@ async function findByOrderItem(orderItemId) {
 async function findLatestByOrderItems(orderItemIds = []) {
   if (!orderItemIds.length) return [];
   const payloads = await CustomizationPayload.find({ orderItemId: { $in: orderItemIds } })
-    .select('orderItemId shopId status errorCode errorMessage parsedData.amazonCustomization.customerInputs assets.type assets.status assets.sourceUrl assets.metadata.extractedImages assets.metadata.failedImages createdAt')
+    .select('orderItemId shopId status errorCode errorMessage parsedData.amazonCustomization.customerInputs assets createdAt')
     .sort({ orderItemId: 1, createdAt: -1, _id: -1 })
     .lean();
   const seen = new Set();
@@ -51,6 +51,10 @@ async function findByOrderItemAndHash(orderItemId, rawCustomizationHash) {
   return CustomizationPayload.findOne({ orderItemId, rawCustomizationHash })
     .sort({ createdAt: -1, _id: -1 })
     .lean();
+}
+
+async function updateEtsyRevision(payloadId, version, patch) {
+  return CustomizationPayload.findOneAndUpdate({ _id: payloadId, __v: version }, { $set: patch, $inc: { __v: 1 } }, { returnDocument: 'after', runValidators: true }).lean();
 }
 
 async function updateStatus(payloadId, status, patch = {}) {
@@ -154,6 +158,7 @@ async function summarizeOperational(query = {}) {
 }
 
 module.exports = {
+  updateEtsyRevision,
   create,
   findById,
   findByOrderItem,

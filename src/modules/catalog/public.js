@@ -2,6 +2,7 @@ const catalogService = require('./services/catalog.service');
 
 const publicPort = {
   ...require('./services/listingImage.service'),
+  fillEtsyListingImage: catalogService.fillEtsyListingImage,
   findListingBySku: catalogService.findListingBySku,
   findListingForOrderItem: catalogService.findListingForOrderItem,
   findOrCreateListingForOrderItem: catalogService.findOrCreateListingForOrderItem,

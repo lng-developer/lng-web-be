@@ -26,7 +26,7 @@ async function cancelOrderItem(orderItemId, payload = {}, authContext = {}) {
   if (item.status === orderItemStatuses.CANCELLED) return item;
 
   const submission = await vendorSubmissionPublic.getByOrderItemId(orderItemId);
-  if (submission?.status === 'SUBMITTED') {
+  if (['SUBMITTED', 'SUBMITTING', 'NEEDS_REVIEW'].includes(submission?.status)) {
     throw new AppError('Submitted vendor order cannot be cancelled', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR, {
       orderItemId,
       vendorSubmissionId: submission.id,
@@ -42,7 +42,7 @@ async function cancelOrderItem(orderItemId, payload = {}, authContext = {}) {
     const updated = await orderItemStatusTransitionService.transitionItemStatus(
       orderItemId,
       orderItemStatuses.CANCELLED,
-      { ...authContext, source: orderTimelineSources.USER, session },
+      { ...authContext, source: authContext.system === true && authContext.source === 'IMPORT' ? orderTimelineSources.IMPORT : orderTimelineSources.USER, session },
     );
 
     await orderTimelineService.appendTimeline({
@@ -52,7 +52,7 @@ async function cancelOrderItem(orderItemId, payload = {}, authContext = {}) {
       salesChannelCode: current.salesChannelCode,
       marketplaceCode: current.marketplaceCode,
       eventType: orderTimelineEventTypes.ORDER_ITEM_CANCELLED,
-      source: orderTimelineSources.USER,
+      source: authContext.system === true && authContext.source === 'IMPORT' ? orderTimelineSources.IMPORT : orderTimelineSources.USER,
       actorId: authContext.accountId || null,
       metadata: {
         reason: payload.reason,

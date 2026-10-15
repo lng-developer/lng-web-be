@@ -30,6 +30,7 @@ const externalOrderRawRecordSchema = new mongoose.Schema(
       min: 1,
       validate: integerValidator,
     },
+    orderImportOutcome: { type: String, enum: ['CREATED', 'UPDATED'], default: null },
     externalOrderId: {
       type: String,
       trim: true,

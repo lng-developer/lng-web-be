@@ -173,7 +173,7 @@ function toOrderItemCustomizationViewDto(payload, { includeSourceCustomizationUr
       : {}),
     downloadedZip: toOrderItemDownloadedZip(customizedUrlAsset),
     customerInputs: toCustomerInputsView(payload.parsedData?.amazonCustomization?.customerInputs),
-    imageAssets: (metadata.extractedImages || []).map((image = {}) => ({
+    imageAssets: [...(metadata.extractedImages || []), ...(payload.assets || []).filter((asset) => asset.type === 'CUSTOMER_IMAGE').map((asset) => ({ ...asset.metadata, assetId: asset.assetId }))].map((image = {}) => ({
       assetId: toId(image.assetId),
       assetDownloadUrl: toAssetDownloadUrl(image.assetId),
       filename: image.filename || null,
@@ -199,7 +199,7 @@ function toCustomizationPayloadDto(payload) {
   const customizedUrlMetadata = customizedUrlAsset?.metadata || {};
   const parsedData = payload.parsedData || {};
   const customerInputs = parsedData.amazonCustomization?.customerInputs || null;
-  const extractedImages = (customizedUrlMetadata.extractedImages || []).map(toExtractedImage);
+  const extractedImages = [...(customizedUrlMetadata.extractedImages || []), ...assets.filter((asset) => asset.type === 'CUSTOMER_IMAGE').map((asset) => ({ ...asset.metadata, assetId: asset.assetId }))].map(toExtractedImage);
   const failedImages = (customizedUrlMetadata.failedImages || []).map(toFailedImage);
 
   return {

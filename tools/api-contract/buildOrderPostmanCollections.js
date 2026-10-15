@@ -23,6 +23,7 @@ const variables = [
 ];
 
 const bodyByRoute = {
+  'POST /api/integration/external-order-imports/:jobId/etsy-customization-manifest': { entries: [{ externalOrderId: '123', externalItemId: '456', assets: [{ mediaAssetId: '64d000000000000000000011' }] }] },
   'PATCH /api/orders/:orderId/assigned-staff': { assignedStaffIds: [oid('staffId')] },
   'PATCH /api/orders/:orderId/buyer': { name: 'Jane Customer', emailMasked: 'j***@example.com' },
   'POST /api/orders/:orderId/replacement': { reason: 'Damaged item', items: [{ orderItemId: oid('orderItemId'), quantity: 1 }] },
@@ -90,6 +91,8 @@ function generatedRequest(route) {
   if (route.authenticated) request.auth = { type: 'bearer', bearer: [{ key: 'token', value: oid('accessToken'), type: 'string' }] };
   if (route.method === 'POST' && ['/manual-excel', '/etsy-sold-order-items'].some((suffix) => route.path.endsWith(suffix))) {
     request.body = { mode: 'formdata', formdata: [{ key: 'file', type: 'file', src: [] }, { key: 'shopId', value: oid('shopId'), type: 'text' }, { key: 'marketplaceCode', value: 'US', type: 'text' }] };
+  } else if (route.method === 'POST' && route.path.endsWith('/etsy-assets')) {
+    request.body = { mode: 'formdata', formdata: [{ key: 'file', type: 'file', src: [] }, { key: 'sha256', type: 'text', value: '{{sha256}}' }] };
   } else if (Object.hasOwn(bodyByRoute, routeId(route))) {
     request.header.push({ key: 'Content-Type', value: 'application/json' });
     request.body = { mode: 'raw', raw: JSON.stringify(bodyByRoute[routeId(route)], null, 2), options: { raw: { language: 'json' } } };

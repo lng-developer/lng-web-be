@@ -22,6 +22,9 @@ describe('extension command validation', () => {
     const result = validate(createCommandSchema, { type: 'IMPORT_SETTLEMENTS', shopId: '507f1f77bcf86cd799439011', agentId: '507f1f77bcf86cd799439012', ...dates });
     expect(!result.details).toBe(valid);
   });
+  test.each([0, 201, 1.5])('rejects invalid maxOrders %s at HTTP boundary', (maxOrders) => {
+    expect(validate(createCommandSchema, { type: 'IMPORT_NEW_ORDERS', shopId: '507f1f77bcf86cd799439011', agentId: '507f1f77bcf86cd799439012', maxOrders }).details).toBeDefined();
+  });
   test('accepts import and connection-test command types with bounded completion payload', () => {
     expect(validate(createCommandSchema, {
       type: 'IMPORT_NEW_ORDERS', shopId: '507f1f77bcf86cd799439011', agentId: '507f1f77bcf86cd799439012',

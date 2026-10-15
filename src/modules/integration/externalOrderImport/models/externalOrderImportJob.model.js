@@ -35,6 +35,7 @@ const externalOrderImportJobSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    importOrigin: { type: String, enum: ['EXTENSION', 'UPLOAD'], default: null },
     shopId: {
       type: mongoose.Schema.Types.ObjectId,
       default: null,
@@ -74,6 +75,13 @@ const externalOrderImportJobSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       default: null,
     },
+    idempotencyKey: {
+      type: String,
+      trim: true,
+      maxlength: 120,
+      default: null,
+    },
+    requestHash: { type: String, default: null },
     status: {
       type: String,
       enum: Object.values(externalOrderImportJobStatuses),
@@ -114,5 +122,9 @@ const externalOrderImportJobSchema = new mongoose.Schema(
 externalOrderImportJobSchema.index({ source: 1, status: 1, createdAt: -1 });
 externalOrderImportJobSchema.index({ shopId: 1, status: 1, createdAt: -1 });
 externalOrderImportJobSchema.index({ sourceFileId: 1 });
+externalOrderImportJobSchema.index(
+  { shopId: 1, source: 1, idempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } },
+);
 
 module.exports = mongoose.model('ExternalOrderImportJob', externalOrderImportJobSchema);

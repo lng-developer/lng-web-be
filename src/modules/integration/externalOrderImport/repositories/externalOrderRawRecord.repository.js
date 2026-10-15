@@ -26,6 +26,10 @@ async function findById(rawRecordId) {
   return ExternalOrderRawRecord.findById(rawRecordId).lean();
 }
 
+async function findImportedItem(importJobId, externalOrderId, externalItemId) {
+  return ExternalOrderRawRecord.findOne({ importJobId, externalOrderId, externalItemId, importStatus: 'IMPORTED', orderItemId: { $ne: null } }).lean();
+}
+
 async function findByIds(rawRecordIds = []) {
   if (!rawRecordIds.length) return [];
   return ExternalOrderRawRecord.find({ _id: { $in: rawRecordIds } }).lean();
@@ -184,6 +188,18 @@ async function listByExternalOrderId(externalOrderId) {
 }
 
 module.exports = {
+  async summarizeOutcomes(jobIds) {
+    return ExternalOrderRawRecord.aggregate([
+      { $match: { importJobId: { $in: jobIds.map(id => new mongoose.Types.ObjectId(id)) }, importStatus: 'IMPORTED' } },
+      { $group: { _id: { job: '$importJobId', order: '$externalOrderId' }, outcomes: { $addToSet: { $ifNull: ['$orderImportOutcome', 'UNKNOWN'] } } } },
+      { $group: { _id: '$_id.job',
+        createdOrders: { $sum: { $cond: [{ $in: ['CREATED', '$outcomes'] }, 1, 0] } },
+        updatedOrders: { $sum: { $cond: [{ $and: [{ $in: ['UPDATED', '$outcomes'] }, { $not: [{ $in: ['CREATED', '$outcomes'] }] }] }, 1, 0] } },
+        unknownOrders: { $sum: { $cond: [{ $in: ['UNKNOWN', '$outcomes'] }, 1, 0] } },
+      } },
+    ]);
+  },
+  findImportedItem,
   create,
   createMany,
   findById,

@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Etsy extension agent v1",
+  "type": "object",
+  "required": ["version", "authentication", "operations"],
+  "properties": {
+    "version": { "const": "v1" },
+    "authentication": {
+      "type": "object",
+      "required": ["scheme", "tokenPrefix", "shopIdentity"],
+      "properties": {
+        "scheme": { "const": "Bearer" },
+        "tokenPrefix": { "const": "lng_ext_" },
+        "shopIdentity": { "const": "extension_token_scope" }
+      }
+    },
+    "operations": {
+      "type": "object",
+      "required": ["heartbeat", "claim", "start", "complete", "etsyOrdersImport", "etsyAdsImport"],
+      "properties": {
+        "heartbeat": { "$ref": "#/$defs/agentRequest" },
+        "claim": { "$ref": "#/$defs/agentRequest" },
+        "start": { "$ref": "#/$defs/leasedRequest" },
+        "complete": { "$ref": "#/$defs/completeRequest" },
+        "etsyOrdersImport": { "$ref": "#/$defs/importRequest" },
+        "etsyAdsImport": { "$ref": "#/$defs/importRequest" }
+      }
+    }
+  },
+  "$defs": {
+    "agentRequest": {
+      "type": "object",
+      "required": ["method", "path", "body"],
+      "properties": {
+        "method": { "const": "POST" },
+        "path": { "type": "string" },
+        "body": {
+          "type": "object",
+          "required": ["clientId", "label"],
+          "properties": {
+            "clientId": { "type": "string", "minLength": 1, "maxLength": 120 },
+            "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+            "version": { "type": ["string", "null"] },
+            "apiBaseUrl": { "type": ["string", "null"], "format": "uri" }
+          }
+        }
+      }
+    },
+    "leasedRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/agentRequest" },
+        { "properties": { "path": { "pattern": "/agent/commands/[a-f0-9]{24}/start$" }, "body": { "required": ["clientId", "label", "leaseToken"] } } }
+      ]
+    },
+    "completeRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/agentRequest" },
+        { "properties": { "path": { "pattern": "/agent/commands/[a-f0-9]{24}/complete$" }, "body": { "required": ["clientId", "label", "leaseToken", "success", "importedCount", "failedCount"] } } }
+      ]
+    },
+    "importRequest": {
+      "type": "object",
+      "required": ["method", "path", "multipartField", "idempotencyHeader"],
+      "properties": {
+        "method": { "const": "POST" },
+        "path": { "type": "string" },
+        "multipartField": { "const": "file" },
+        "idempotencyHeader": { "const": "Idempotency-Key" }
+      }
+    }
+  }
+}

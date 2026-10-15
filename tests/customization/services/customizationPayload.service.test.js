@@ -8,6 +8,7 @@ jest.mock('../../../src/modules/customization/repositories/customizationPayload.
   summarizeOperational: jest.fn(),
   updateStatus: jest.fn(),
   updateParsedData: jest.fn(),
+  updateEtsyRevision: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/order/public', () => ({
@@ -38,6 +39,24 @@ describe('customizationPayload.service', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  test('attaches verified Etsy images without dropping earlier successful uploads', async () => {
+    repository.findByOrderItem.mockResolvedValue({ _id: payloadId, shopId, orderId, orderItemId, rawCustomization: { provider: 'ETSY', expectedFileCount: 2, mediaAssets: [{ mediaAssetId: 'a' }] } });
+    repository.updateEtsyRevision.mockImplementation(async (id, version, patch) => ({ _id: id, shopId, orderId, orderItemId, ...patch }));
+    const result = await service.attachEtsyImportAssets(orderItemId, [{ mediaAssetId: 'b' }], { system: true });
+    expect(result.rawCustomization.mediaAssets.map((asset) => asset.mediaAssetId)).toEqual(['a', 'b']);
+    expect(result.status).toBe('PARSED');
+  });
+
+  test('reimport preserves images but does not discard increased expectations or changed text', async () => {
+    orderPublic.findItemById.mockResolvedValue({ orderId, shopId });
+    repository.findByOrderItem.mockResolvedValue({ _id: payloadId, shopId, orderId, orderItemId, status: 'PARSED', rawCustomization: { provider: 'ETSY', expectedFileCount: 1, mediaAssets: [{ mediaAssetId: 'a' }] } });
+    repository.findByOrderItemAndHash.mockResolvedValue(null);
+    repository.create.mockImplementation(async (input) => ({ _id: payloadId, ...input }));
+    const result = await service.createPendingPayload({ ...basePayload, source: 'MANUAL_EXCEL', rawCustomization: { provider: 'ETSY', expectedFileCount: 2, personalization: 'New text' } });
+    expect(result.payload.status).toBe('PENDING');
+    expect(result.payload.rawCustomization).toMatchObject({ expectedFileCount: 2, personalization: 'New text', mediaAssets: [{ mediaAssetId: 'a' }] });
   });
 
   test('global ORDERS:READ lists all payloads', async () => {

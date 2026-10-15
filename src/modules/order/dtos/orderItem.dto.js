@@ -53,7 +53,29 @@ function toPaginatedOrderItemDto(result = {}) {
   };
 }
 
+function etsyImageUrl(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol === 'https:' && url.hostname === 'i.etsystatic.com' && !url.port && !url.username && !url.password) return url.href;
+  } catch (_) { /* Missing or untrusted image is not rendered. */ }
+  return null;
+}
+
+function toMarketplaceItemFields(item = {}) {
+  const listingImageUrl = etsyImageUrl(item.listingImageUrl || item.externalData?.etsy?.listingImageUrl);
+  return {
+    salesChannelCode: item.salesChannelCode || null,
+    externalListingId: item.externalListingId || null,
+    variations: item.salesChannelCode === 'ETSY' && typeof (item.variations ?? item.variantRaw) === 'string' ? (item.variations ?? item.variantRaw) : null,
+    listingImageUrl: item.salesChannelCode === 'ETSY' ? listingImageUrl : null,
+    listingImageThumbnailUrl: item.salesChannelCode === 'ETSY' ? etsyImageUrl(item.listingImageThumbnailUrl || item.externalData?.etsy?.listingImageThumbnailUrl) : null,
+    listingImageAssetId: item.salesChannelCode === 'ETSY'
+      ? toId(item.listingImageAssetId || (item.listingImage?.sourceUrl === item.externalData?.etsy?.listingImageUrl ? item.listingImage?.mediaAssetId : null)) : null,
+  };
+}
+
 module.exports = {
+  toMarketplaceItemFields,
   toOrderItemDto,
   toPaginatedOrderItemDto,
 };

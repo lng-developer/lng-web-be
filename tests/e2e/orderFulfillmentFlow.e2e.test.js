@@ -28,6 +28,7 @@ jest.mock('../../src/modules/order/public', () => ({
   },
   appendTimeline: jest.fn(),
   appendTimelineOnce: jest.fn(),
+  assertMarketplaceAllowsFulfillment: jest.fn(),
   deriveOrderItemWorkflow: jest.requireActual('../../src/modules/order/services/orderWorkflow.service').deriveOrderItemWorkflow,
   findById: jest.fn(),
   findItemById: jest.fn(),

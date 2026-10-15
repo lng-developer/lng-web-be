@@ -35,6 +35,8 @@ router.post(
 );
 
 router.get('/issues', authPublic.authenticate, requireOrderRead, asyncHandler(controller.listIssues));
+router.post('/:jobId/etsy-assets', authPublic.authenticate, requireOrderWrite, upload.single('file'), asyncHandler(controller.uploadEtsyAsset));
+router.post('/:jobId/etsy-customization-manifest', authPublic.authenticate, requireOrderWrite, asyncHandler(controller.attachEtsyManifest));
 router.patch(
   '/issues/:issueId',
   authPublic.authenticate,

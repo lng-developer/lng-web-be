@@ -8,6 +8,7 @@ jest.mock('mongoose', () => ({
 }));
 
 jest.mock('../../../src/modules/order/public', () => ({
+  assertMarketplaceAllowsFulfillment: jest.fn(),
   appendTimeline: jest.fn(),
   deriveOrderItemWorkflow: jest.requireActual('../../../src/modules/order/services/orderWorkflow.service').deriveOrderItemWorkflow,
   addressValidationStatuses: {
@@ -339,6 +340,13 @@ describe('productionTask.service', () => {
         && (grantedScope.permissions || []).includes(permission)
       ))
     ));
+  });
+
+  test('Etsy cancellation blocks production creation', async () => {
+    orderPublic.assertMarketplaceAllowsFulfillment.mockRejectedValue(new Error('Etsy cancellation requires review'));
+    await expect(service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] }))
+      .rejects.toThrow('Etsy cancellation requires review');
+    expect(repository.upsertByOrderItemWithResult).not.toHaveBeenCalled();
   });
 
   function mockTaskUpdate(task) {

@@ -818,6 +818,10 @@ async function findListingBySku(params = {}) {
 }
 
 async function findListingForOrderItem(params = {}) {
+  if (normalizeUpper(params.salesChannelCode) === 'ETSY') {
+    const listing = await findEtsyListingIdentity(params);
+    return isActiveApprovedListing(listing) ? listing : null;
+  }
   const base = {
     shopId: params.shopId,
     salesChannelCode: normalizeUpper(params.salesChannelCode),
@@ -852,7 +856,26 @@ async function findListingForOrderItem(params = {}) {
   return null;
 }
 
+async function findEtsyListingIdentity(params = {}) {
+  const base = { shopId: params.shopId, salesChannelCode: 'ETSY', marketplaceCode: normalizeUpper(params.marketplaceCode) };
+  const etsyListingId = normalizeText(params.etsyListingId || params.externalListingId);
+  if (etsyListingId) {
+    const exact = await listingRepository.findByEtsyListingId({ ...base, etsyListingId });
+    if (exact) {
+      if (String(exact.shopId) !== String(base.shopId)) throw validationError('Etsy listing belongs to another shop');
+      return exact;
+    }
+    return null;
+  }
+  for (const sku of [...new Set([params.sku, params.fallbackSku].map(normalizeUpper).filter(Boolean))]) {
+    const listing = await listingRepository.findUniqueEtsySku({ ...base, sku, etsyListingId });
+    if (listing) return listing;
+  }
+  return null;
+}
+
 async function findOrCreateListingForOrderItem(payload = {}, authContext = {}) {
+  if (normalizeUpper(payload.salesChannelCode) === 'ETSY') return findOrCreateDraftListingForOrderItem(payload, authContext);
   const asin = normalizeUpper(payload.asin);
   const productImageUrl = normalizeUrl(payload.productImageUrl);
   const existing = await findListingForOrderItem(payload);
@@ -916,7 +939,7 @@ async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = 
   const marketplaceCode = normalizeUpper(payload.marketplaceCode);
   const marketplaceIdentity = { salesChannelCode, marketplaceCode };
   const asin = normalizeUpper(payload.asin);
-  const sku = normalizeUpper(payload.sku) || asin;
+  const sku = normalizeUpper(payload.sku) || asin || (salesChannelCode === 'ETSY' ? normalizeText(payload.etsyListingId || payload.externalListingId) : null);
   const title = normalizeText(payload.title);
   const productImageUrl = normalizeUrl(payload.productImageUrl);
 
@@ -928,9 +951,13 @@ async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = 
   await shopPublic.assertShopIsActive(shopId);
 
   const base = { shopId, salesChannelCode, marketplaceCode };
-  const existing = (asin && await listingRepository.findByAsin({ ...marketplaceIdentity, asin, includeInactive: true }))
+  const existing = salesChannelCode === 'ETSY' ? await findEtsyListingIdentity(payload) : (asin && await listingRepository.findByAsin({ ...marketplaceIdentity, asin, includeInactive: true }))
     || await listingRepository.findBySku({ ...base, sku, includeInactive: true });
   if (existing) {
+    if (salesChannelCode === 'ETSY') {
+      if (productImageUrl && !existing.productImageUrl) return await fillEtsyListingImage({ ...base, etsyListingId: existing.etsyListingId, productImageUrl }) || existing;
+      return existing;
+    }
     return enrichExistingListing(existing, { asin, sku: normalizeUpper(payload.sku), productImageUrl });
   }
 
@@ -940,16 +967,17 @@ async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = 
     marketplaceCode,
     sku,
     asin,
-    etsyListingId: normalizeText(payload.etsyListingId),
+    etsyListingId: normalizeText(payload.etsyListingId || payload.externalListingId),
     title,
     productImageUrl,
     imageSync: { source: 'IMPORTED' },
     baseCostAmount: 0,
     currency: normalizeUpper(payload.currency) || 'USD',
     status: recordStatuses.ACTIVE,
-    qcStatus: listingQcStatuses.DRAFT,
+    // Order evidence approves the listing, not its production configuration.
+    qcStatus: listingQcStatuses.APPROVED,
     approvedBy: null,
-    approvedAt: null,
+    approvedAt: new Date(),
     rejectedBy: null,
     rejectedAt: null,
     rejectionReason: null,
@@ -959,9 +987,13 @@ async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = 
     return await listingRepository.create(createPayload);
   } catch (error) {
     if (error && error.code === 11000) {
-      const raced = (asin && await listingRepository.findByAsin({ ...marketplaceIdentity, asin, includeInactive: true }))
+      const raced = salesChannelCode === 'ETSY' ? await findEtsyListingIdentity(payload) : (asin && await listingRepository.findByAsin({ ...marketplaceIdentity, asin, includeInactive: true }))
         || await listingRepository.findBySku({ ...base, sku, includeInactive: true });
       if (raced) {
+        if (salesChannelCode === 'ETSY') {
+          if (productImageUrl && !raced.productImageUrl) return await fillEtsyListingImage({ ...base, etsyListingId: raced.etsyListingId, productImageUrl }) || raced;
+          return raced;
+        }
         return enrichExistingListing(raced, { asin, sku: normalizeUpper(payload.sku), productImageUrl });
       }
     }
@@ -970,6 +1002,7 @@ async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = 
 }
 
 module.exports = {
+  fillEtsyListingImage,
   assertPsdAssetShape,
   getListingOptions,
   listListings,
@@ -993,3 +1026,11 @@ module.exports = {
   findOrCreateDraftListingForOrderItem,
   resolvePsdReadiness,
 };
+
+async function fillEtsyListingImage({ shopId, marketplaceCode, etsyListingId, productImageUrl } = {}) {
+  if (!shopId || !marketplaceCode || !/^\d+$/.test(String(etsyListingId || ''))) return null;
+  let url;
+  try { url = new URL(productImageUrl); } catch { return null; }
+  if (url.protocol !== 'https:' || url.hostname !== 'i.etsystatic.com' || url.port || url.username || url.password) return null;
+  return listingRepository.fillEtsyListingImage({ shopId, marketplaceCode: normalizeUpper(marketplaceCode), etsyListingId: String(etsyListingId), productImageUrl: url.href });
+}
