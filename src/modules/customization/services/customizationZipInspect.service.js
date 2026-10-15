@@ -412,7 +412,7 @@ async function downloadZipToTempFile(sourceUrl, options) {
   };
 }
 
-async function extractImagesFromZipFile(localPath, targetAsset) {
+async function extractImagesFromZipFile(localPath, targetAsset, payload = {}) {
   const zipfile = await openZip(localPath);
   const extractedImages = [];
   const failedImages = [];
@@ -484,6 +484,9 @@ async function extractImagesFromZipFile(localPath, targetAsset) {
           mimeType: imageMimeType(extension),
           sourceUrlRedacted: null,
           sourceUrlHash: null,
+          shopId: payload.shopId || null,
+          ownerType: 'CUSTOMIZATION_PAYLOAD',
+          ownerId: payload._id ? String(payload._id) : null,
           metadata: {
             source: 'CUSTOMIZATION_ZIP_ENTRY',
             sourceZipAssetId: targetAsset.assetId ? String(targetAsset.assetId) : null,
@@ -705,7 +708,7 @@ async function extractImagesForPayload(payload, options = {}, authContext) {
   const temp = await downloadZipToTempFile(targetAsset.sourceUrl, options);
 
   try {
-    const result = await extractImagesFromZipFile(temp.localPath, targetAsset);
+    const result = await extractImagesFromZipFile(temp.localPath, targetAsset, payload);
     const extractedAt = new Date();
     const updatedAsset = setInspectionMetadata(targetAsset, {
       zipImageExtractionStatus: result.failedCount > 0 ? 'PARTIAL_FAILED' : 'EXTRACTED',
