@@ -111,7 +111,7 @@ async function recordAdminAudit({
 
 function isTransactionUnsupported(error) {
   return error?.code === 20
-    && /transaction numbers are only allowed|transactions are not supported|only servers in a sharded cluster can start a new transaction/i.test(error.message || '');
+    && /transaction numbers are only allowed|transactions are not supported/i.test(error.message || '');
 }
 
 async function runAdminMutation(authContext, httpContext, mutate, buildEvent, {
@@ -592,9 +592,10 @@ async function bulkUpdateAccountAccess({
         ? await roleRepository.findByCode(roleCodes.SUPER_ADMIN, { session: activeSession })
         : null;
 
-      const accounts = await Promise.all(
-        uniqueAccountIds.map((id) => accountRepository.findById(id, { session: activeSession })),
-      );
+      const accounts = [];
+      for (const id of uniqueAccountIds) {
+        accounts.push(await accountRepository.findById(id, { session: activeSession }));
+      }
       const missing = accounts.filter((account, index) => !account)
         .map((_, index) => uniqueAccountIds[index]);
       if (missing.length) {
@@ -617,12 +618,9 @@ async function bulkUpdateAccountAccess({
         }
       }
 
-      await Promise.all(
-        uniqueAccountIds.map((id) => accessAssignmentRepository.deactivateActiveGlobalByAccount(
-          id,
-          { session: activeSession },
-        )),
-      );
+      for (const id of uniqueAccountIds) {
+        await accessAssignmentRepository.deactivateActiveGlobalByAccount(id, { session: activeSession });
+      }
       await accessAssignmentRepository.createMany(
         uniqueAccountIds.flatMap((id) => buildGlobalAssignments(id, roleIds, customPermissions, {
           validFrom,
@@ -665,9 +663,10 @@ async function bulkUpdateAccountAccess({
 async function bulkRevokeAccountAccess({ accountIds }, authContext, httpContext) {
   const uniqueAccountIds = uniqueIds(accountIds);
   const mutation = await runAdminMutation(authContext, httpContext, async (activeSession) => {
-    const accounts = await Promise.all(
-      uniqueAccountIds.map((id) => accountRepository.findById(id, { session: activeSession })),
-    );
+    const accounts = [];
+    for (const id of uniqueAccountIds) {
+      accounts.push(await accountRepository.findById(id, { session: activeSession }));
+    }
     const missing = accounts.filter((account) => !account)
       .map((_, index) => uniqueAccountIds[index]);
     if (missing.length) {
@@ -691,12 +690,9 @@ async function bulkRevokeAccountAccess({ accountIds }, authContext, httpContext)
       }
     }
 
-    await Promise.all(
-      uniqueAccountIds.map((id) => accessAssignmentRepository.deactivateActiveGlobalByAccount(
-        id,
-        { session: activeSession },
-      )),
-    );
+    for (const id of uniqueAccountIds) {
+      await accessAssignmentRepository.deactivateActiveGlobalByAccount(id, { session: activeSession });
+    }
 
     return { accountIds: uniqueAccountIds };
   }, ({ accountIds: mutationAccountIds }) => (
