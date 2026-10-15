@@ -358,7 +358,7 @@ async function buildDtoOptions(tasks = [], { includeScores = false } = {}) {
   ])));
   const assetIds = uniqueIds([...thumbnailAssetIds, ...latestAssetIds, ...submissionAssetIds]);
 
-  const [profiles, shops, assets, orderContexts, scores] = await Promise.all([
+  const [profiles, shops, assets, orderContexts, scores, listings] = await Promise.all([
     assignedDesignerIds.length ? hrPublic.listEmployeeProfilesByAccountIds(assignedDesignerIds) : [],
     Promise.all(shopIds.map((shopId) => shopPublic.findById(shopId))),
     assetIds.length && typeof mediaPublic.getAssetsByIds === 'function'
@@ -374,10 +374,12 @@ async function buildDtoOptions(tasks = [], { includeScores = false } = {}) {
       }];
     })),
     includeScores && submissionIds.length ? scoreRepository.findBySubmissionIds(submissionIds) : [],
+    listingIds.length ? catalogPublic.getListingsByIds(listingIds) : [],
   ]);
 
   return {
     profilesByAccountId: mapById(profiles, (profile) => profile.accountId),
+    listingsById: mapById(listings),
     shopsById: mapById(shops),
     assetsById: mapById(assets),
     orderContextByListingId: Object.fromEntries(orderContexts),

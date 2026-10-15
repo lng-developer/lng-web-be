@@ -113,6 +113,7 @@ function toDesignTaskDto(task, {
   detail = false,
   profilesByAccountId = {},
   shopsById = {},
+  listingsById = {},
   orderContextByListingId = {},
   scoresBySubmissionId = {},
   includeScores = false,
@@ -137,7 +138,7 @@ function toDesignTaskDto(task, {
     priority: task.priority || designTaskPriorities.NORMAL,
     listing: listing ? {
       ...listing,
-      productImageUrl: listing.productImageUrl || orderContext.productImageUrl || null,
+      productImageUrl: listing.productImageUrl || listingsById[listingId]?.productImageUrl || orderContext.productImageUrl || null,
     } : null,
     internalTemplate: toSnapshot(task.internalTemplateSnapshot),
     brief: task.brief || null,
