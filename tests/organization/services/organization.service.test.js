@@ -594,7 +594,10 @@ describe('organizationService', () => {
       memberType: teamMemberTypes.MEMBER,
     }, { session });
     expect(authPublic.ensureTeamMemberAssignment).not.toHaveBeenCalled();
-    expect(hrPublic.syncEmployeeProfileTeam).toHaveBeenCalledWith(memberAccountId, teamId, { session });
+    expect(hrPublic.syncEmployeeProfileTeam).toHaveBeenCalledWith(memberAccountId, teamId, {
+      departmentId,
+      session,
+    });
   });
 
   test('deactivateTeamMembership deactivates the account membership in the supplied transaction', async () => {
@@ -692,6 +695,38 @@ describe('organizationService', () => {
       memberType: teamMemberTypes.LEADER,
       moved: false,
     });
+  });
+
+  test('addTeamMember synchronizes the profile department from the assigned team', async () => {
+    teamRepository.findById.mockResolvedValue({
+      _id: teamId,
+      name: 'Sales Team',
+      code: 'SALES',
+      departmentId,
+      status: organizationStatuses.ACTIVE,
+    });
+    authPublic.getCurrentAccount.mockResolvedValue({
+      account: { _id: memberAccountId, email: 'member@example.com' },
+      roles: ['OPERATOR'],
+      permissions: ['ORDERS:READ'],
+    });
+    teamMembershipRepository.findActiveByAccountId.mockResolvedValue(null);
+    teamMembershipRepository.upsertActive.mockResolvedValue({
+      accountId: memberAccountId,
+      teamId,
+      memberType: teamMemberTypes.MEMBER,
+    });
+
+    await organizationService.addTeamMember(teamId, {
+      accountId: memberAccountId,
+      memberType: teamMemberTypes.MEMBER,
+    }, { actorAuth, httpContext });
+
+    expect(hrPublic.syncEmployeeProfileTeam).toHaveBeenCalledWith(
+      memberAccountId,
+      teamId,
+      { departmentId, session: expect.any(Object) },
+    );
   });
 
   test('addTeamMember updates member type when account is already in the selected team', async () => {

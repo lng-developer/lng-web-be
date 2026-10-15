@@ -22,6 +22,7 @@
     "seed:analytics:demo": "node tools/scripts/seed/seedAnalyticsDemo.js",
     "reset:analytics:demo": "node tools/scripts/seed/seedAnalyticsDemo.js --reset",
     "repair:team-memberships": "node tools/scripts/maintenance/repairTeamMemberships.js",
+    "reconcile:employee-profile-departments": "node src/modules/organization/scripts/reconcileEmployeeProfileDepartments.js",
     "seed:demo:full": "npm run seed:auth:demo-users && npm run seed:hr:demo-profiles && npm run seed:organization:demo && npm run seed:shop:demo",
     "seed:demo:relationships": "node tools/scripts/seed/seedRelationshipDemo.js",
     "seed:rbac": "node src/modules/auth/scripts/seedRbac.js",

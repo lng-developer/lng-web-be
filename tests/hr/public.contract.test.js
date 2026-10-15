@@ -1,9 +1,11 @@
 jest.mock('../../src/modules/hr/repositories/employeeProfile.repository', () => ({
+  findByAccountId: jest.fn(),
   findPublicByAccountId: jest.fn(),
   findPublicByEmployeeCode: jest.fn(),
   listPublicByAccountIds: jest.fn(),
   listPublicByEmployeeCodes: jest.fn(),
   listPublicProfiles: jest.fn(),
+  updateById: jest.fn(),
 }));
 jest.mock('../../src/modules/auth/public', () => ({ filterAssignableAccountIds: jest.fn() }));
 
@@ -48,10 +50,16 @@ describe('hr public port', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     repository.findPublicByAccountId.mockResolvedValue(unsafeProfile);
+    repository.findByAccountId.mockResolvedValue(unsafeProfile);
     repository.findPublicByEmployeeCode.mockResolvedValue(unsafeProfile);
     repository.listPublicByAccountIds.mockResolvedValue([unsafeProfile]);
     repository.listPublicByEmployeeCodes.mockResolvedValue([unsafeProfile]);
     repository.listPublicProfiles.mockResolvedValue([unsafeProfile]);
+    repository.updateById.mockResolvedValue({
+      ...unsafeProfile,
+      departmentId: 'department-2',
+      teamId: 'team-2',
+    });
     authPublic.filterAssignableAccountIds.mockResolvedValue(['account-1']);
   });
 
@@ -110,6 +118,21 @@ describe('hr public port', () => {
     expect(authPublic.filterAssignableAccountIds).toHaveBeenCalledWith(
       ['account-1'],
       'DESIGN:WRITE',
+    );
+  });
+
+  test('synchronizes a profile team and its owning department together', async () => {
+    const session = { id: 'organization-transaction' };
+
+    await hrPublic.syncEmployeeProfileTeam('account-1', 'team-2', {
+      departmentId: 'department-2',
+      session,
+    });
+
+    expect(repository.updateById).toHaveBeenCalledWith(
+      'profile-1',
+      { teamId: 'team-2', departmentId: 'department-2' },
+      { session },
     );
   });
 });
