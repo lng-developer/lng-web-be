@@ -3,6 +3,7 @@ const httpStatus = require('../../../../shared/constants/httpStatus');
 const teamsSyncService = require('../services/teamsSync.service');
 const teamsUserMappingRepository = require('../repositories/teamsUserMapping.repository');
 const teamsOAuthService = require('../services/teamsOAuth.service');
+const authPublic = require('../../../auth/public');
 
 async function getStatus(req, res) {
   const accountId = req.auth?.accountId || req.authContext?.accountId;
@@ -27,6 +28,8 @@ async function getStatus(req, res) {
 async function getOAuthStatus(req, res) {
   const accountId = req.auth?.accountId || req.authContext?.accountId;
   const userMapping = accountId ? await teamsUserMappingRepository.findByAccountId(accountId) : null;
+  const authModel = accountId ? await authPublic.getCurrentAccount(accountId) : null;
+  const hasMicrosoftIdentity = Boolean(authModel?.account?.microsoftId);
   const grantRecord = userMapping?.entraUserId
     ? await teamsUserMappingRepository.getWithRefreshToken(userMapping.entraUserId)
     : null;
@@ -35,7 +38,7 @@ async function getOAuthStatus(req, res) {
     success: true,
     data: {
       enabled: config.teams.enabled,
-      userLinked: Boolean(userMapping?.entraUserId),
+      userLinked: Boolean(userMapping?.entraUserId || hasMicrosoftIdentity),
       grantStatus: grantRecord?.encryptedRefreshToken ? 'CONNECTED' : (userMapping?.entraUserId ? 'REAUTH_REQUIRED' : 'NOT_CONNECTED'),
     },
   });

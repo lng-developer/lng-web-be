@@ -5,10 +5,12 @@ jest.mock('../../../../src/modules/integration/teamsChat/repositories/teamsOAuth
 jest.mock('../../../../src/modules/integration/teamsChat/repositories/teamsUserMapping.repository', () => ({ findByAccountId: jest.fn(), upsertMapping: jest.fn(), updateRefreshToken: jest.fn() }));
 jest.mock('../../../../src/modules/integration/teamsChat/services/crypto.service', () => ({ encrypt: jest.fn((v) => `encrypted:${v}`), decrypt: jest.fn((v) => v.replace('encrypted:', '')) }));
 jest.mock('../../../../src/modules/integration/teamsChat/services/microsoftGraphClient', () => ({ exchangeAuthorizationCode: jest.fn(), getMe: jest.fn() }));
+jest.mock('../../../../src/modules/auth/public', () => ({ getCurrentAccount: jest.fn() }));
 
 const states = require('../../../../src/modules/integration/teamsChat/repositories/teamsOAuthState.repository');
 const mappings = require('../../../../src/modules/integration/teamsChat/repositories/teamsUserMapping.repository');
 const graph = require('../../../../src/modules/integration/teamsChat/services/microsoftGraphClient');
+const authPublic = require('../../../../src/modules/auth/public');
 const service = require('../../../../src/modules/integration/teamsChat/services/teamsOAuth.service');
 
 describe('Teams OAuth service', () => {
@@ -25,11 +27,24 @@ describe('Teams OAuth service', () => {
   test('consumes state once and stores only encrypted refresh token', async () => {
     states.consume.mockResolvedValue({ accountId: 'account-1', encryptedVerifier: 'encrypted:verifier' });
     mappings.findByAccountId.mockResolvedValue({ entraUserId: 'entra-1' });
+    authPublic.getCurrentAccount.mockResolvedValue({ account: { email: 'hieunv@lngwork.co', microsoftId: 'entra-1' } });
     graph.exchangeAuthorizationCode.mockResolvedValue({ access_token: 'access', refresh_token: 'refresh', expires_in: 3600 });
     graph.getMe.mockResolvedValue({ id: 'entra-1', mail: 'hieunv@lngwork.co' });
     await expect(service.completeAuthorization({ code: 'code', state: 'state' })).resolves.toEqual({ connected: true, accountId: 'account-1' });
     expect(graph.exchangeAuthorizationCode).toHaveBeenCalledWith(expect.objectContaining({ code: 'code', codeVerifier: 'verifier' }));
     expect(mappings.updateRefreshToken).toHaveBeenCalledWith('entra-1', 'encrypted:refresh', expect.any(Date));
+  });
+
+  test('rejects a first-time consent from a different Microsoft email', async () => {
+    states.consume.mockResolvedValue({ accountId: 'account-1', encryptedVerifier: 'encrypted:verifier' });
+    mappings.findByAccountId.mockResolvedValue(null);
+    authPublic.getCurrentAccount.mockResolvedValue({ account: { email: 'portal@lngwork.co', microsoftId: null } });
+    graph.exchangeAuthorizationCode.mockResolvedValue({ access_token: 'access', refresh_token: 'refresh' });
+    graph.getMe.mockResolvedValue({ id: 'entra-2', mail: 'different@lngwork.co' });
+
+    await expect(service.completeAuthorization({ code: 'code', state: 'state' })).rejects.toThrow('does not match');
+    expect(mappings.upsertMapping).not.toHaveBeenCalled();
+    expect(mappings.updateRefreshToken).not.toHaveBeenCalled();
   });
 
   test('rejects expired or reused OAuth state before exchanging a code', async () => {
