@@ -97,6 +97,24 @@ describe('chat repositories', () => {
     })).toBe(1);
   });
 
+  test('keeps one message for an inbound idempotency key', async () => {
+    const message = await messageRepository.create({
+      conversationId: shopId,
+      senderAccountId: accountId,
+      body: 'Teams message',
+      idempotencyKey: 'teams:chat-1:message-1',
+    });
+
+    await expect(messageRepository.create({
+      conversationId: shopId,
+      senderAccountId: accountId,
+      body: 'Teams message',
+      idempotencyKey: 'teams:chat-1:message-1',
+    })).rejects.toMatchObject({ code: 11000 });
+    await expect(messageRepository.findByIdempotencyKey('teams:chat-1:message-1'))
+      .resolves.toMatchObject({ _id: message._id });
+  });
+
   test('summarizeConversationStates reports unread messages from other accounts', async () => {
     const conversation = await conversationRepository.create({
       type: 'DIRECT',

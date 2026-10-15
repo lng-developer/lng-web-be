@@ -358,7 +358,7 @@ describe('Teams chat synchronization service', () => {
         'conv-direct-1',
         { body: 'Hello from Teams client!', assetIds: [], mentions: [] },
         { accountId: 'acc-sender-alice', isSystem: true },
-        { source: 'TEAMS_INBOUND' },
+        { source: 'TEAMS_INBOUND', idempotencyKey: 'teams:19:chat-123@unq.gbl.spaces:1690002' },
       );
 
       expect(teamsMessageMappingRepository.createMapping).toHaveBeenCalledWith({
@@ -591,7 +591,7 @@ describe('Teams chat synchronization service', () => {
             body: 'New message from Teams',
           }),
           { accountId: 'acc-2', isSystem: true },
-          { source: 'TEAMS_INBOUND' },
+          { source: 'TEAMS_INBOUND', idempotencyKey: 'teams:19:entra-1_entra-2@unq.gbl.spaces:teams-msg-new' },
         );
         expect(teamsMessageMappingRepository.createMapping).toHaveBeenCalledWith({
           lngMessageId: 'lng-msg-new',

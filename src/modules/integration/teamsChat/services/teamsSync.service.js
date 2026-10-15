@@ -549,7 +549,7 @@ async function processInboundWebhookNotification(notification = {}) {
       ...(messageDetails.createdDateTime ? { createdAt: new Date(messageDetails.createdDateTime) } : {}),
     },
     { accountId: senderAccountId, isSystem: true },
-    { source: 'TEAMS_INBOUND' },
+    { source: 'TEAMS_INBOUND', idempotencyKey: `teams:${teamsChatId}:${effectiveMessageId}` },
   );
 
   await teamsMessageMappingRepository.createMapping({
@@ -701,7 +701,7 @@ async function syncInboundMessagesForConversation({ conversationId, limit = 30 }
           createdAt: msg.createdDateTime ? new Date(msg.createdDateTime) : undefined,
         },
         { accountId: senderAccountId, isSystem: true },
-        { source: 'TEAMS_INBOUND' },
+        { source: 'TEAMS_INBOUND', idempotencyKey: `teams:${teamsChatId}:${msg.id}` },
       );
 
       await teamsMessageMappingRepository.createMapping({

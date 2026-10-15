@@ -29,6 +29,7 @@ jest.mock('../../../src/modules/chat/repositories/conversation.repository', () =
 
 jest.mock('../../../src/modules/chat/repositories/message.repository', () => ({
   create: jest.fn(),
+  findByIdempotencyKey: jest.fn(),
   listByConversation: jest.fn(),
   findById: jest.fn(),
   findReplyTargets: jest.fn(),
@@ -132,6 +133,32 @@ describe('chat service', () => {
       mimeType: 'image/png',
       downloadUrl: `/api/media/assets/${assetId}/download`,
     });
+  });
+
+  test('returns the existing message without publishing it again for an idempotency key', async () => {
+    const existing = {
+      _id: '660000000000000000000007',
+      conversationId,
+      senderAccountId: accountId,
+      body: 'Hello from Teams',
+      assetIds: [],
+      mentions: [],
+      replyToMessageId: null,
+    };
+    messageRepository.findByIdempotencyKey.mockResolvedValue(existing);
+    const listener = jest.fn();
+    chatEvents.once('message.created', listener);
+
+    await expect(service.sendMessage(
+      conversationId,
+      { body: 'Hello from Teams' },
+      { accountId, isSystem: true },
+      { idempotencyKey: 'teams:chat-1:message-1' },
+    )).resolves.toMatchObject({ id: existing._id, body: existing.body });
+
+    expect(messageRepository.create).not.toHaveBeenCalled();
+    expect(conversationRepository.updateLastMessage).not.toHaveBeenCalled();
+    expect(listener).not.toHaveBeenCalled();
   });
 
   test('listParticipants delegates to auth public directory and excludes the current account', async () => {

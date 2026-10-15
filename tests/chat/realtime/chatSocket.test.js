@@ -164,7 +164,7 @@ describe('chat socket', () => {
     expect(readAck).toHaveBeenCalledWith({ ok: true, state: expect.objectContaining({ accountId: '660000000000000000000001' }) });
   });
 
-  test('broadcasts created messages to participant account rooms', async () => {
+  test('broadcasts a created message once across account and conversation rooms', async () => {
     const io = attachChatSocket({});
 
     chatEvents.emit('message.created', {
@@ -179,13 +179,13 @@ describe('chat socket', () => {
       },
     });
 
+    expect(mockToEmit).toHaveBeenCalledTimes(1);
     expect(mockToEmit).toHaveBeenCalledWith(
-      'account:660000000000000000000001',
-      'message.created',
-      expect.objectContaining({ message: expect.objectContaining({ body: 'hello' }) }),
-    );
-    expect(mockToEmit).toHaveBeenCalledWith(
-      'account:660000000000000000000002',
+      [
+        'account:660000000000000000000001',
+        'account:660000000000000000000002',
+        'conversation:660000000000000000000010',
+      ],
       'message.created',
       expect.objectContaining({ message: expect.objectContaining({ body: 'hello' }) }),
     );

@@ -11,6 +11,7 @@ const messageSchema = new mongoose.Schema({
   },
   assetIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'MediaAsset' }],
   mentions: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Account' }],
+  idempotencyKey: { type: String, trim: true, unique: true, sparse: true },
   replyToMessageId: { type: mongoose.Schema.Types.ObjectId, ref: 'ChatMessage', default: null },
   editedAt: { type: Date, default: null },
   deletedAt: { type: Date, default: null, index: true },

@@ -51,6 +51,7 @@
     "backfill:finance-snapshot-ordered-at": "node tools/scripts/maintenance/backfillFinanceSnapshotOrderedAt.js",
     "setup:psd-vendor-readiness": "node tools/scripts/maintenance/applyPsdVendorReadiness.js",
     "indexes:audit": "node src/modules/audit/scripts/ensureAuditIndexes.js",
+    "indexes:chat": "node src/modules/chat/scripts/ensureChatIndexes.js",
     "audit:mongo-indexes": "node -r dotenv/config tools/scripts/audit/auditMongoIndexes.js",
     "audit:mongo-fields": "node -r dotenv/config tools/scripts/audit/auditMongoFields.js",
     "audit:vendor-products:canonical": "node -r dotenv/config src/modules/vendor/scripts/vendorProductCanonicalization.js",

@@ -55,11 +55,11 @@ function attachChatSocket(server) {
   socketMetrics.attachIo(io);
   io.use(authenticateSocket);
   const broadcastCreatedMessage = ({ conversation, message }) => {
-    const participantIds = conversation?.participantAccountIds || [];
-    participantIds.forEach((participantId) => {
-      io.to(`account:${participantId}`).emit('message.created', { conversation, message });
-    });
-    io.to(`conversation:${message.conversationId}`).emit('message.created', { conversation, message });
+    const rooms = [
+      ...(conversation?.participantAccountIds || []).map((participantId) => `account:${participantId}`),
+      `conversation:${message.conversationId}`,
+    ];
+    io.to(rooms).emit('message.created', { conversation, message });
   };
   chatEvents.on('message.created', broadcastCreatedMessage);
   const broadcastRead = (state) => io.to([

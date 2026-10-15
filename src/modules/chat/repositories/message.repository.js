@@ -15,6 +15,11 @@ async function findById(id) {
   return Message.findById(id).lean();
 }
 
+async function findByIdempotencyKey(idempotencyKey) {
+  if (!idempotencyKey) return null;
+  return Message.findOne({ idempotencyKey }).lean();
+}
+
 async function findReplyTargets(conversationId, ids) {
   return Message.find({ _id: { $in: ids }, conversationId, deletedAt: null })
     .select('_id senderAccountId body assetIds').lean();
@@ -122,6 +127,7 @@ async function summarizeConversationStates(conversationIds = [], accountId) {
 module.exports = {
   create,
   findById,
+  findByIdempotencyKey,
   findReplyTargets,
   listByConversation,
   markRead,

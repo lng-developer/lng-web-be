@@ -30,6 +30,14 @@ function uniqueIds(values = []) {
   return [...new Set((values || []).filter(Boolean).map(String))];
 }
 
+function normalizeIdempotencyKey(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+async function toExistingMessageDto(message) {
+  return toMessageDto(message, await assetsById(message.assetIds));
+}
+
 function directKeyFor(accountIds = []) {
   return uniqueIds(accountIds).sort().join(':');
 }
@@ -164,6 +172,11 @@ async function assetsById(assetIds = []) {
 
 async function sendMessage(conversationId, payload = {}, authContext = {}, options = {}) {
   const conversation = await loadConversation(conversationId, authContext, chatWritablePermissions);
+  const idempotencyKey = normalizeIdempotencyKey(options.idempotencyKey);
+  if (idempotencyKey) {
+    const existing = await messageRepository.findByIdempotencyKey(idempotencyKey);
+    if (existing) return toExistingMessageDto(existing);
+  }
   const replyTargets = new Map();
   if (payload.replyToMessageId) {
     assertValidObjectId(payload.replyToMessageId, 'replyToMessageId');
@@ -176,15 +189,24 @@ async function sendMessage(conversationId, payload = {}, authContext = {}, optio
   const assetIds = await assertAssetsReady(payload.assetIds);
   if (assetIds.length) await mediaPublic.attachAssetsToChat(assetIds, conversationId);
   const mentions = uniqueIds(payload.mentions);
-  const message = await messageRepository.create({
-    conversationId,
-    senderAccountId: authContext.accountId,
-    body: payload.body || '',
-    assetIds,
-    mentions,
-    replyToMessageId: payload.replyToMessageId || null,
-    ...(payload.createdAt ? { createdAt: new Date(payload.createdAt) } : {}),
-  });
+  let message;
+  try {
+    message = await messageRepository.create({
+      conversationId,
+      senderAccountId: authContext.accountId,
+      body: payload.body || '',
+      assetIds,
+      mentions,
+      replyToMessageId: payload.replyToMessageId || null,
+      ...(idempotencyKey ? { idempotencyKey } : {}),
+      ...(payload.createdAt ? { createdAt: new Date(payload.createdAt) } : {}),
+    });
+  } catch (error) {
+    if (!idempotencyKey || error?.code !== 11000) throw error;
+    const existing = await messageRepository.findByIdempotencyKey(idempotencyKey);
+    if (!existing) throw error;
+    return toExistingMessageDto(existing);
+  }
   const updatedConversation = await conversationRepository.updateLastMessage(conversationId, message);
 
   const messageDto = toMessageDto(message, await assetsById(assetIds), replyTargets);

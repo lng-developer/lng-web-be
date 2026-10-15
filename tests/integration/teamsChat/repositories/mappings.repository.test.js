@@ -118,15 +118,13 @@ describe('Teams mapping repositories', () => {
       const byTeams = await teamsMessageMappingRepository.findByTeamsMessageId(teamsMessageId);
       expect(String(byTeams.lngMessageId)).toBe(String(lngMessageId));
 
-      await expect(
-        teamsMessageMappingRepository.createMapping({
-          lngMessageId: new mongoose.Types.ObjectId(),
-          teamsMessageId, // Duplicate teamsMessageId
-          teamsChatId,
-          conversationId,
-          direction: TEAMS_SYNC_DIRECTIONS.INBOUND,
-        }),
-      ).rejects.toThrow();
+      await expect(teamsMessageMappingRepository.createMapping({
+        lngMessageId: new mongoose.Types.ObjectId(),
+        teamsMessageId,
+        teamsChatId,
+        conversationId,
+        direction: TEAMS_SYNC_DIRECTIONS.INBOUND,
+      })).resolves.toMatchObject({ _id: mapping._id });
     });
   });
 });

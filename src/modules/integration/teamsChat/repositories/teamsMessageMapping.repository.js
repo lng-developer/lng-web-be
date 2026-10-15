@@ -16,8 +16,17 @@ async function findByTeamsChatAndMessageId(teamsChatId, teamsMessageId) {
 }
 
 async function createMapping(data) {
-  const mapping = await TeamsMessageMapping.create(data);
-  return mapping.toObject();
+  try {
+    const mapping = await TeamsMessageMapping.create(data);
+    return mapping.toObject();
+  } catch (error) {
+    if (error?.code !== 11000) throw error;
+    const mapping = await TeamsMessageMapping.findOne({
+      $or: [{ lngMessageId: data.lngMessageId }, { teamsMessageId: data.teamsMessageId }],
+    }).lean();
+    if (!mapping) throw error;
+    return mapping;
+  }
 }
 
 async function updateStatus(teamsMessageId, status, errorDetails = null) {
