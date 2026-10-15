@@ -1,5 +1,18 @@
 # Etsy extension order + image test handoff
 
+## Remote Orders from web (protocol v1)
+
+Update BE → FE → extension before testing. Protocol: [etsy-remote-order-api.md](etsy-remote-order-api.md). The generated Postman inventory currently does not include extension-command routes.
+
+1. Keep schedules, Ads, tracking and vendor submission disabled. This change does not run imports or restart services by itself.
+2. Reload the extension in the Etsy VM, enter the session token for the correct shop/backend, and confirm the Etsy account in that browser matches. Finish or explicitly clear any manual preview first; remote work will not overwrite it.
+3. In Integrations → Extensions → Automation, choose the online Etsy VM. Request Orders with maximum **1**. This queues a WEB task and automatically imports; do not click manual Confirm Import in the VM.
+4. Inspect command status and requested count. Open its import-job link; compare order ID, customization, listing image and attached files. SUCCEEDED means import/manifest complete, not ready for production. Zero orders is a valid success with no job.
+5. For lost HTTP responses, the extension resumes the same CSV/key/job. Completion acknowledgement retries do not collect again. Online heartbeat is not task ownership; the task lease is renewed separately every minute.
+6. If Chrome closes or the lease/session is lost, do not erase storage or submit another import blindly. The extension preserves its remote checkpoint and stops automatic claiming until that interrupted work is reconciled. Re-entering a token is not permission to restart an expired task. A dedicated operator recovery/reset UI is not part of this change.
+
+No live VM/Etsy/backend import was executed as automated verification. Test one order explicitly before increasing the count (1–200; not a date or New-only filter).
+
 Implementation branches: BE `codex/etsy-extension-provider`; extension `codex/etsy-lng-web-be`. No develop merge or deployment is part of this change.
 
 See the extension's `docs/etsy-manual-import.md` for the operator flow and acceptance checks.

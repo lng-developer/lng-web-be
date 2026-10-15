@@ -50,6 +50,7 @@ describe('extension order schedules', () => {
     await service.dispatchDueOrderSchedules(now);
 
     expect(repository.createCommand).toHaveBeenCalledWith({
+      origin: 'SCHEDULE',
       type: 'IMPORT_NEW_ORDERS',
       shopId: 'shop-1',
       agentId: 'agent-1',

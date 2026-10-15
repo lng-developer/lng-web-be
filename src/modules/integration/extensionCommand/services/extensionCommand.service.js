@@ -17,6 +17,10 @@ const notFound = (message) => new AppError(message, httpStatus.NOT_FOUND, true, 
 const conflict = (message) => new AppError(message, httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
 const financeCommandTypes = [extensionCommandTypes.IMPORT_ADS_SPEND, extensionCommandTypes.IMPORT_TRANSACTIONS, extensionCommandTypes.IMPORT_SETTLEMENTS];
 const lockedImportTypes = [extensionCommandTypes.IMPORT_NEW_ORDERS, ...financeCommandTypes];
+const invalid = (message) => new AppError(message, httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+function rejectEtsyAutomation(agent) {
+  if (agent.provider === 'ETSY') throw invalid('Etsy supports web-requested Orders only');
+}
 
 async function createLockedImportCommand(payload) {
   try {
@@ -80,7 +84,7 @@ async function heartbeat(input, auth) {
   const now = new Date();
   const offlineForMs = previous?.lastSeenAt ? Date.now() - new Date(previous.lastSeenAt).getTime() : 0;
   const reconnected = offlineForMs > ONLINE_MS;
-  const agent = await repository.upsertAgent({ extensionTokenId: auth.extensionTokenId, shopId, clientId: input.clientId, label: input.label, version: input.version || null, apiBaseUrl: input.apiBaseUrl || null, lastSeenAt: now, ...(reconnected ? { lastReconnectedAt: now } : {}) });
+  const agent = await repository.upsertAgent({ extensionTokenId: auth.extensionTokenId, shopId, clientId: input.clientId, label: input.label, version: input.version || null, apiBaseUrl: input.apiBaseUrl || null, lastSeenAt: now, ...(input.provider === 'ETSY' && input.protocolVersion === 1 ? { provider: 'ETSY', protocolVersion: 1 } : {}), ...(reconnected ? { lastReconnectedAt: now } : {}) });
   if (reconnected) {
     logger.info('extension_agent_reconnected', { agentId: String(agent._id || agent.id), clientId: input.clientId, shopId: String(shopId), offlineForSeconds: Math.floor(offlineForMs / 1000) });
   }
@@ -105,7 +109,11 @@ async function createCommand(input, auth) {
   assertUserShopAccess(auth, input.shopId, financeCommandTypes.includes(input.type) ? 'FINANCE:WRITE' : 'ORDERS:WRITE');
   const agent = await repository.findAgentById(input.agentId);
   if (!agent || String(agent.shopId) !== String(input.shopId)) throw notFound('Extension agent not found for shop');
-  const payload = { type: input.type, shopId: input.shopId, agentId: input.agentId, numDays: input.numDays, dateFrom: input.dateFrom || null, dateTo: input.dateTo || null, createdByAccountId: auth.accountId || null };
+  const etsy = agent.provider === 'ETSY';
+  const maxOrders = input.maxOrders ?? 1;
+  if (etsy && (input.type !== extensionCommandTypes.IMPORT_NEW_ORDERS || !Number.isInteger(maxOrders) || maxOrders < 1 || maxOrders > 200)) throw invalid('Etsy requires an Orders request with maxOrders from 1 to 200');
+  if (etsy) await repository.releaseExpired(agent._id, new Date(), 'ETSY');
+  const payload = { origin: 'WEB', ...(etsy ? { provider: 'ETSY', maxOrders } : {}), type: input.type, shopId: input.shopId, agentId: input.agentId, numDays: input.numDays, dateFrom: input.dateFrom || null, dateTo: input.dateTo || null, createdByAccountId: auth.accountId || null };
   return lockedImportTypes.includes(input.type) ? createLockedImportCommand(payload) : repository.createCommand(payload);
 }
 
@@ -125,20 +133,23 @@ async function getCurrentAgent(auth, input) {
 
 async function queueCurrentOrderImport(input, auth) {
   const agent = await getCurrentAgent(auth, input);
-  return createLockedImportCommand({ type: extensionCommandTypes.IMPORT_NEW_ORDERS, shopId: agent.shopId, agentId: agent._id || agent.id, numDays: input.numDays || 1, createdByAccountId: null });
+  rejectEtsyAutomation(agent);
+  return createLockedImportCommand({ origin: 'EXTENSION', type: extensionCommandTypes.IMPORT_NEW_ORDERS, shopId: agent.shopId, agentId: agent._id || agent.id, numDays: input.numDays || 1, createdByAccountId: null });
 }
 
 async function queueCurrentAdsImport(input, auth) {
   const agent = await getCurrentAgent(auth, input);
-  return createLockedImportCommand({ type: extensionCommandTypes.IMPORT_ADS_SPEND, shopId: agent.shopId, agentId: agent._id || agent.id, dateFrom: input.dateFrom, dateTo: input.dateTo, createdByAccountId: null });
+  rejectEtsyAutomation(agent);
+  return createLockedImportCommand({ origin: 'EXTENSION', type: extensionCommandTypes.IMPORT_ADS_SPEND, shopId: agent.shopId, agentId: agent._id || agent.id, dateFrom: input.dateFrom, dateTo: input.dateTo, createdByAccountId: null });
 }
 
 async function claimNext(input, auth) {
   const agent = await getCurrentAgent(auth, input);
   const now = new Date();
-  await repository.releaseExpired(agent._id, now);
+  if (agent.provider === 'ETSY') await repository.releaseExpired(agent._id, now, 'ETSY');
+  else await repository.releaseExpired(agent._id, now);
   const leaseToken = generateRandomToken(24);
-  const command = await repository.claimNext({ agentId: agent._id, leaseTokenHash: hashString(leaseToken), now, leaseExpiresAt: new Date(now.getTime() + LEASE_MS) });
+  const command = await repository.claimNext({ ...(agent.provider === 'ETSY' ? { provider: 'ETSY' } : {}), agentId: agent._id, leaseTokenHash: hashString(leaseToken), now, leaseExpiresAt: new Date(now.getTime() + LEASE_MS) });
   return command ? { command, leaseToken } : null;
 }
 
@@ -151,10 +162,13 @@ async function startCommand(commandId, input, auth) {
 
 async function completeCommand(commandId, input, auth) {
   const agent = await getCurrentAgent(auth, input);
-  const command = await repository.updateClaimed({
+  if (agent.provider === 'ETSY' && input.importJobId) await validateEtsyJob(commandId, input.importJobId, agent, auth);
+  let command = await repository.updateClaimed({
     commandId, agentId: agent._id, leaseTokenHash: hashString(input.leaseToken), statuses: [extensionCommandStatuses.CLAIMED, extensionCommandStatuses.RUNNING],
-    patch: { status: input.success ? extensionCommandStatuses.SUCCEEDED : extensionCommandStatuses.FAILED, completedAt: new Date(), leaseExpiresAt: null, leaseTokenHash: null, importJobId: input.importJobId || null, result: { importedCount: input.importedCount, failedCount: input.failedCount }, errorMessage: input.success ? null : (input.errorMessage || 'Extension task failed') }, unset: { activeOrderKey: 1 },
+    patch: { status: input.success ? extensionCommandStatuses.SUCCEEDED : extensionCommandStatuses.FAILED, completedAt: new Date(), leaseExpiresAt: null, ...(agent.provider === 'ETSY' ? {} : { leaseTokenHash: null }), ...(agent.provider === 'ETSY' && !input.importJobId ? {} : { importJobId: input.importJobId || null }), result: { importedCount: input.importedCount, failedCount: input.failedCount }, errorMessage: input.success ? null : (input.errorMessage || 'Extension task failed') }, unset: { activeOrderKey: 1 },
   });
+  // A completed Etsy lease can acknowledge the same request, never reopen work.
+  if (!command && agent.provider === 'ETSY') command = await repository.findCompletedForLease({ commandId, agentId: agent._id, leaseTokenHash: hashString(input.leaseToken) });
   if (!command) throw conflict('Command is no longer completable');
   const financeSource = financeSourceForCommand(command.type);
   if (financeSource) {
@@ -170,12 +184,27 @@ async function completeCommand(commandId, input, auth) {
   return command;
 }
 
+async function validateEtsyJob(commandId, jobId, agent, auth) {
+  const job = await require('../../externalOrderImport/public').getImportJob(jobId, auth);
+  if (String(job.shopId) !== String(agent.shopId) || job.salesChannelCode !== 'ETSY' || job.idempotencyKey !== String(commandId)) throw invalid('Import job does not belong to this Etsy command');
+}
+
+async function renewCommand(commandId, input, auth) {
+  const agent = await getCurrentAgent(auth, input);
+  if (agent.provider !== 'ETSY') throw invalid('Lease renewal requires Etsy protocol');
+  if (input.importJobId) await validateEtsyJob(commandId, input.importJobId, agent, auth);
+  const command = await repository.updateClaimed({ commandId, agentId: agent._id, leaseTokenHash: hashString(input.leaseToken), statuses: [extensionCommandStatuses.CLAIMED, extensionCommandStatuses.RUNNING], patch: { leaseExpiresAt: new Date(Date.now() + LEASE_MS), ...(input.importJobId ? { importJobId: input.importJobId } : {}) } });
+  if (!command) throw conflict('Command ownership expired or changed');
+  return command;
+}
+
 async function dispatchDueOrderSchedules(now = new Date()) {
   const schedules = await repository.listDueOrderSchedules(now);
   for (const schedule of schedules) {
-    if (!await repository.claimDueOrderSchedule(schedule._id, now, schedule.intervalMinutes)) continue;
     const agentId = schedule.agentId?._id || schedule.agentId;
     const agent = await repository.findAgentById(agentId);
+    if (agent?.provider === 'ETSY') continue;
+    if (!await repository.claimDueOrderSchedule(schedule._id, now, schedule.intervalMinutes)) continue;
     if (!isOnline(agent, now)) {
       await repository.postponeOrderSchedule(schedule._id, now, 'AGENT_OFFLINE');
       continue;
@@ -184,7 +213,7 @@ async function dispatchDueOrderSchedules(now = new Date()) {
       await repository.postponeOrderSchedule(schedule._id, now, 'ACTIVE_ORDER_COMMAND');
       continue;
     }
-    await createLockedImportCommand({ type: extensionCommandTypes.IMPORT_NEW_ORDERS, shopId: schedule.shopId, agentId, numDays: 1, createdByAccountId: null });
+    await createLockedImportCommand({ origin: 'SCHEDULE', type: extensionCommandTypes.IMPORT_NEW_ORDERS, shopId: schedule.shopId, agentId, numDays: 1, createdByAccountId: null });
     await repository.markOrderScheduleQueued(schedule._id, now);
   }
 }
@@ -192,9 +221,10 @@ async function dispatchDueOrderSchedules(now = new Date()) {
 async function dispatchDueFinanceSchedules(now = new Date()) {
   const schedules = await repository.listDueFinanceSchedules(now);
   for (const schedule of schedules) {
-    if (!await repository.claimDueFinanceSchedule(schedule._id, now)) continue;
     const agentId = schedule.agentId?._id || schedule.agentId;
     const agent = await repository.findAgentById(agentId);
+    if (agent?.provider === 'ETSY') continue;
+    if (!await repository.claimDueFinanceSchedule(schedule._id, now)) continue;
     if (!isOnline(agent, now)) {
       await repository.postponeFinanceSchedule(schedule._id, now, 'AGENT_OFFLINE');
       continue;
@@ -206,7 +236,7 @@ async function dispatchDueFinanceSchedules(now = new Date()) {
     const payload = schedule.source === 'TRANSACTIONS'
       ? { type: extensionCommandTypes.IMPORT_TRANSACTIONS, ...transactionWindow(schedule, now) }
       : { type: extensionCommandTypes.IMPORT_SETTLEMENTS };
-    await createLockedImportCommand({ ...payload, shopId: schedule.shopId, agentId, createdByAccountId: null });
+    await createLockedImportCommand({ ...payload, origin: 'SCHEDULE', shopId: schedule.shopId, agentId, createdByAccountId: null });
     await repository.markFinanceScheduleQueued(schedule._id, now);
   }
 }
@@ -230,6 +260,7 @@ async function upsertOrderSchedule(agentId, input, auth) {
   const agent = await repository.findAgentById(agentId);
   if (!agent) throw notFound('Extension agent not found');
   assertUserShopAccess(auth, agent.shopId, 'ORDERS:WRITE');
+  if (input.enabled) rejectEtsyAutomation(agent);
   const now = new Date();
   const existing = await repository.findOrderScheduleByAgentId(agentId);
   const runImmediately = input.enabled && !existing?.enabled;
@@ -244,6 +275,7 @@ async function upsertFinanceSchedule(agentId, source, input, auth) {
   const agent = await repository.findAgentById(agentId);
   if (!agent) throw notFound('Extension agent not found');
   assertUserShopAccess(auth, agent.shopId, 'FINANCE:WRITE');
+  if (input.enabled) rejectEtsyAutomation(agent);
   return repository.upsertFinanceSchedule({
     shopId: agent.shopId,
     agentId: agent._id || agent.id,
@@ -258,6 +290,7 @@ async function requestFinanceScheduleNow(agentId, source, auth) {
   const agent = await repository.findAgentById(agentId);
   if (!agent) throw notFound('Extension agent not found');
   assertUserShopAccess(auth, agent.shopId, 'FINANCE:WRITE');
+  rejectEtsyAutomation(agent);
   const schedule = await repository.findFinanceSchedule({ agentId, source });
   if (!schedule?.enabled) throw conflict('Enable this Finance schedule before requesting it');
   const now = new Date();
@@ -268,4 +301,4 @@ async function requestFinanceScheduleNow(agentId, source, auth) {
   return repository.findFinanceSchedule({ agentId, source });
 }
 
-module.exports = { heartbeat, listAgents, listManagementAgents, createCommand, listCommands, queueCurrentOrderImport, queueCurrentAdsImport, claimNext, startCommand, completeCommand, dispatchDueOrderSchedules, dispatchDueFinanceSchedules, listOrderSchedules, upsertOrderSchedule, listFinanceSchedules, upsertFinanceSchedule, requestFinanceScheduleNow };
+module.exports = { renewCommand, heartbeat, listAgents, listManagementAgents, createCommand, listCommands, queueCurrentOrderImport, queueCurrentAdsImport, claimNext, startCommand, completeCommand, dispatchDueOrderSchedules, dispatchDueFinanceSchedules, listOrderSchedules, upsertOrderSchedule, listFinanceSchedules, upsertFinanceSchedule, requestFinanceScheduleNow };

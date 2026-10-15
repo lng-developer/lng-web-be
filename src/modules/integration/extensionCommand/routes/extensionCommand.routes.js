@@ -21,5 +21,6 @@ router.post('/agent/import-new-orders', authPublic.authenticate, write, asyncHan
 router.post('/agent/import-ads-spend', authPublic.authenticate, financeWrite, asyncHandler(controller.queueCurrentAdsImport));
 router.post('/agent/claim', authPublic.authenticate, write, asyncHandler(controller.claimNext));
 router.post('/agent/commands/:commandId/start', authPublic.authenticate, write, asyncHandler(controller.startCommand));
+router.post('/agent/commands/:commandId/renew', authPublic.authenticate, write, asyncHandler(controller.renewCommand));
 router.post('/agent/commands/:commandId/complete', authPublic.authenticate, write, asyncHandler(controller.completeCommand));
 module.exports = router;
