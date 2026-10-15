@@ -357,7 +357,7 @@ describe('Teams chat synchronization service', () => {
       expect(chatPublic.sendMessage).toHaveBeenCalledWith(
         'conv-direct-1',
         { body: 'Hello from Teams client!', assetIds: [], mentions: [] },
-        { accountId: 'acc-sender-alice' },
+        { accountId: 'acc-sender-alice', isSystem: true },
         { source: 'TEAMS_INBOUND' },
       );
 
@@ -530,7 +530,7 @@ describe('Teams chat synchronization service', () => {
           title: 'Engineering Pod',
           participantAccountIds: ['acc-alice', 'acc-bob', 'acc-charlie'],
         },
-        { accountId: 'acc-alice' },
+        { accountId: 'acc-alice', isSystem: true },
       );
 
       expect(teamsChatMappingRepository.createOrUpdateMapping).toHaveBeenCalledWith(
@@ -597,7 +597,7 @@ describe('Teams chat synchronization service', () => {
           expect.objectContaining({
             body: 'New message from Teams',
           }),
-          { accountId: 'acc-2' },
+          { accountId: 'acc-2', isSystem: true },
           { source: 'TEAMS_INBOUND' },
         );
         expect(teamsMessageMappingRepository.createMapping).toHaveBeenCalledWith({
@@ -631,7 +631,7 @@ describe('Teams chat synchronization service', () => {
       const result = await teamsSyncService.ensureWebhookSubscription();
 
       expect(graphClient.deleteSubscription).toHaveBeenCalledWith('old-sub-id');
-      expect(teamsSubscriptionRepository.updateStatus).toHaveBeenCalledWith('old-sub-id', 'SUPERSEDED');
+      expect(teamsSubscriptionRepository.updateStatus).toHaveBeenCalledWith('old-sub-id', 'REVOKED');
       expect(graphClient.createSubscription).toHaveBeenCalled();
       expect(teamsSubscriptionRepository.saveSubscription).toHaveBeenCalled();
       expect(result.status).toBe('CREATED');

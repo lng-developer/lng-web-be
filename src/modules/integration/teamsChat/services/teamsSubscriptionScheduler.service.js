@@ -2,7 +2,7 @@ const config = require('../../../../config');
 const logger = require('../../../../shared/utils/logger');
 const teamsSyncService = require('./teamsSync.service');
 
-const RENEW_CHECK_INTERVAL_MS = 15 * 60 * 1000; // Check every 15 minutes
+const RENEW_CHECK_INTERVAL_MS = 10 * 60 * 1000; // Check every 10 minutes
 
 let intervalId = null;
 

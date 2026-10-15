@@ -397,6 +397,30 @@ async function assertAssetReadAccess(asset, authContext = {}) {
     const chatPublic = require('../../chat/public');
     if (await chatPublic.canReadConversation(String(asset.ownerId), authContext)) return;
   }
+
+  const isCustomization =
+    ownerType === 'CUSTOMIZATION'
+    || ownerType === 'CUSTOMIZATION_PAYLOAD'
+    || asset.metadata?.source === 'CUSTOMIZATION_ZIP_ENTRY'
+    || Boolean(asset.metadata?.sourceZipAssetId)
+    || Boolean(asset.metadata?.sourceZipUrlRedacted);
+
+  if (isCustomization) {
+    if (asset.shopId) {
+      if (authPublic.canAccessScope(authContext, 'ORDERS:READ', { scopeType: 'SHOP', scopeId: asset.shopId })) {
+        return;
+      }
+    } else {
+      const hasOrderRead = (authContext.permissions || []).includes('ORDERS:READ')
+        || (authContext.scopes || []).some((scope) => (
+          (scope.permissions || []).includes('ORDERS:READ')
+        ));
+      if (hasOrderRead) {
+        return;
+      }
+    }
+  }
+
   const permissions = ['MEDIA:READ', ...(ownerReadPermissions[ownerType] || [])];
   const scope = asset.shopId ? { scopeType: 'SHOP', scopeId: asset.shopId } : { scopeType: null, scopeId: null };
 
@@ -425,6 +449,9 @@ async function getAuthorizedAsset(assetId, authContext) {
 
 async function getAuthorizedDownloadUrl(assetId, authContext, options = {}) {
   const asset = await getAuthorizedAsset(assetId, authContext);
+  if (asset.provider === 'cloudinary') {
+    return asset.secureUrl || null;
+  }
   if (asset.provider !== 'wasabi') return null;
   if (asset.uploadStatus !== 'READY') {
     throw new AppError('Media asset is not ready', httpStatus.CONFLICT, true, 'MEDIA_ASSET_NOT_READY');

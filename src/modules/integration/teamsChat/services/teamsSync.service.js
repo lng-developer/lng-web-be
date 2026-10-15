@@ -28,9 +28,10 @@ function stripHtml(html) {
 function parseResource(resource = '') {
   const chatMatch = resource.match(/chats\('([^']+)'\)/) || resource.match(/chats\/([^/]+)/);
   const messageMatch = resource.match(/messages\('([^']+)'\)/) || resource.match(/messages\/([^/]+)/);
+  const rawChatId = chatMatch ? chatMatch[1] : null;
 
   return {
-    teamsChatId: chatMatch ? chatMatch[1] : null,
+    teamsChatId: rawChatId === 'getAllMessages' ? null : rawChatId,
     teamsMessageId: messageMatch ? messageMatch[1] : null,
   };
 }
@@ -346,8 +347,16 @@ async function processInboundWebhookNotification(notification = {}) {
     return { status: 'IGNORED_CHANGE_TYPE' };
   }
 
-  const { teamsChatId, teamsMessageId } = parseResource(notification.resource || notification.resourceData?.['@odata.id'] || '');
-  const effectiveMessageId = teamsMessageId || notification.resourceData?.id;
+  const resourceData = notification.resourceData || {};
+  let { teamsChatId, teamsMessageId } = parseResource(notification.resource || resourceData['@odata.id'] || '');
+  if (!teamsChatId && resourceData.chatId) {
+    teamsChatId = resourceData.chatId;
+  }
+  if (!teamsChatId && resourceData['@odata.id']) {
+    const odataParsed = parseResource(resourceData['@odata.id']);
+    teamsChatId = odataParsed.teamsChatId;
+  }
+  const effectiveMessageId = teamsMessageId || resourceData.id;
 
   if (!teamsChatId || !effectiveMessageId) {
     logger.warn('teams_webhook_missing_resource_ids', { notification });
@@ -402,7 +411,7 @@ async function processInboundWebhookNotification(notification = {}) {
   const isGroup = chatDetails?.chatType === 'group' || members.length > 2;
 
   const isSenderGuest = senderEntraUser.userIdentityType === 'guest' || senderEntraUser.userIdentityType === 'externalUser';
-  const senderAccountId = await resolveAccountForEntraUser({
+  let senderAccountId = await resolveAccountForEntraUser({
     entraUserId: senderEntraUser.id,
     email: senderEntraUser.email || senderEntraUser.userPrincipalName || `teams_${senderEntraUser.id}@guest.lngwork.co`,
     displayName: senderEntraUser.displayName || 'External Guest',
@@ -429,22 +438,6 @@ async function processInboundWebhookNotification(notification = {}) {
         userType: isOtherGuest ? TEAMS_USER_TYPES.GUEST : TEAMS_USER_TYPES.INTERNAL,
       })
       : null;
-
-    if (!senderAccountId || !recipientAccountId) {
-      logger.warn('teams_inbound_cannot_resolve_accounts', {
-        teamsChatId,
-        senderEntraId: senderEntraUser.id,
-        senderAccountId,
-        recipientAccountId,
-      });
-      return { status: 'UNRESOLVED_ACCOUNTS' };
-    }
-  } else if (!senderAccountId) {
-    logger.warn('teams_inbound_cannot_resolve_sender', {
-      teamsChatId,
-      senderEntraId: senderEntraUser.id,
-    });
-    return { status: 'UNRESOLVED_ACCOUNTS' };
   }
 
   let conversation = null;
@@ -454,8 +447,58 @@ async function processInboundWebhookNotification(notification = {}) {
   }
 
   if (!conversation) {
-    if (isGroup) {
-      const participantAccountIds = [senderAccountId];
+    if (!isGroup) {
+      if (!senderAccountId || !recipientAccountId) {
+        logger.warn('teams_inbound_cannot_resolve_accounts', {
+          teamsChatId,
+          senderEntraId: senderEntraUser.id,
+          senderAccountId,
+          recipientAccountId,
+        });
+        return { status: 'UNRESOLVED_ACCOUNTS' };
+      }
+
+      conversation = await chatPublic.findDirectConversation([senderAccountId, recipientAccountId]);
+      if (!conversation) {
+        const isExternalChat = isSenderGuest || (otherMember?.userIdentityType === 'guest' || otherMember?.userIdentityType === 'externalUser');
+        const title = isExternalChat
+          ? (isSenderGuest ? senderEntraUser.displayName : otherMember?.displayName)
+          : null;
+
+        conversation = await chatPublic.createConversation(
+          {
+            type: 'DIRECT',
+            title: title || null,
+            participantAccountIds: [senderAccountId, recipientAccountId],
+          },
+          { accountId: senderAccountId, isSystem: true },
+        );
+      }
+
+      const isOtherGuest = otherMember?.userIdentityType === 'guest' || otherMember?.userIdentityType === 'externalUser';
+      await teamsChatMappingRepository.createOrUpdateMapping({
+        conversationId: conversation.id,
+        teamsChatId,
+        chatType: 'oneOnOne',
+        participantEntraUserIds: [senderEntraUser.id, otherMember?.userId || otherMember?.id].filter(Boolean),
+        participantAccountIds: [senderAccountId, recipientAccountId],
+        isExternal: isSenderGuest || isOtherGuest,
+        externalParticipantDetails: (isSenderGuest || isOtherGuest)
+          ? {
+            sender: senderEntraUser,
+            otherMember,
+          }
+          : null,
+      });
+    } else {
+      if (!senderAccountId) {
+        logger.warn('teams_inbound_cannot_resolve_sender', {
+          teamsChatId,
+          senderEntraId: senderEntraUser.id,
+        });
+        return { status: 'UNRESOLVED_ACCOUNTS' };
+      }
+      const participantAccountIds = [senderAccountId].filter(Boolean);
       const participantEntraUserIds = [senderEntraUser.id];
 
       for (const member of members) {
@@ -482,7 +525,7 @@ async function processInboundWebhookNotification(notification = {}) {
           title: chatDetails.topic || 'Teams Group',
           participantAccountIds,
         },
-        { accountId: senderAccountId },
+        { accountId: senderAccountId, isSystem: true },
       );
 
       await teamsChatMappingRepository.createOrUpdateMapping({
@@ -492,40 +535,11 @@ async function processInboundWebhookNotification(notification = {}) {
         participantEntraUserIds,
         participantAccountIds,
       });
-    } else {
-      conversation = await chatPublic.findDirectConversation([senderAccountId, recipientAccountId]);
-      if (!conversation) {
-        const isExternalChat = isSenderGuest || (otherMember?.userIdentityType === 'guest' || otherMember?.userIdentityType === 'externalUser');
-        const title = isExternalChat
-          ? (isSenderGuest ? senderEntraUser.displayName : otherMember?.displayName)
-          : null;
-
-        conversation = await chatPublic.createConversation(
-          {
-            type: 'DIRECT',
-            title: title || null,
-            participantAccountIds: [senderAccountId, recipientAccountId],
-          },
-          { accountId: senderAccountId },
-        );
-      }
-
-      const isOtherGuest = otherMember?.userIdentityType === 'guest' || otherMember?.userIdentityType === 'externalUser';
-      await teamsChatMappingRepository.createOrUpdateMapping({
-        conversationId: conversation.id,
-        teamsChatId,
-        chatType: 'oneOnOne',
-        participantEntraUserIds: [senderEntraUser.id, otherMember?.userId || otherMember?.id].filter(Boolean),
-        participantAccountIds: [senderAccountId, recipientAccountId],
-        isExternal: isSenderGuest || isOtherGuest,
-        externalParticipantDetails: (isSenderGuest || isOtherGuest)
-          ? {
-            sender: senderEntraUser,
-            otherMember,
-          }
-          : null,
-      });
     }
+  }
+
+  if (!senderAccountId) {
+    senderAccountId = conversation.participantAccountIds?.[0] || null;
   }
 
   const createdMessage = await chatPublic.sendMessage(
@@ -536,7 +550,7 @@ async function processInboundWebhookNotification(notification = {}) {
       mentions: [],
       ...(messageDetails.createdDateTime ? { createdAt: new Date(messageDetails.createdDateTime) } : {}),
     },
-    { accountId: senderAccountId },
+    { accountId: senderAccountId, isSystem: true },
     { source: 'TEAMS_INBOUND' },
   );
 
@@ -597,31 +611,23 @@ async function ensureWebhookSubscription() {
     active = null;
   }
   if (active) {
-    if (active.notificationUrl && active.notificationUrl !== config.teams.webhookUrl) {
-      try {
-        await graphClient.deleteSubscription(active.subscriptionId);
-      } catch (_err) {
-        // ignore if already deleted on Graph
-      }
-      await teamsSubscriptionRepository.updateStatus(active.subscriptionId, 'SUPERSEDED');
-    } else {
-      const msUntilExpiry = new Date(active.expirationDateTime).getTime() - Date.now();
-      if (msUntilExpiry > 15 * 60 * 1000) {
-        return { status: 'ACTIVE', subscription: active };
-      }
+    const msUntilExpiry = new Date(active.expirationDateTime).getTime() - Date.now();
+    if (msUntilExpiry > 20 * 60 * 1000) {
+      return { status: 'ACTIVE', subscription: active };
+    }
 
-      try {
-        const expirationDateTime = new Date(Date.now() + 55 * 60 * 1000).toISOString();
-        const res = await graphClient.renewSubscription(active.subscriptionId, { expirationDateTime });
-        const saved = await teamsSubscriptionRepository.saveSubscription({
-          ...active,
-          expirationDateTime: new Date(res?.expirationDateTime || expirationDateTime),
-          status: 'ACTIVE',
-        });
-        return { status: 'RENEWED', subscription: saved };
-      } catch (_err) {
-        await teamsSubscriptionRepository.updateStatus(active.subscriptionId, 'EXPIRED');
-      }
+    try {
+      const expirationDateTime = new Date(Date.now() + 55 * 60 * 1000).toISOString();
+      const res = await graphClient.renewSubscription(active.subscriptionId, { expirationDateTime });
+      const saved = await teamsSubscriptionRepository.saveSubscription({
+        ...active,
+        expirationDateTime: new Date(res?.expirationDateTime || expirationDateTime),
+        status: 'ACTIVE',
+      });
+      return { status: 'RENEWED', subscription: saved };
+    } catch (_err) {
+      await teamsSubscriptionRepository.updateStatus(active.subscriptionId, 'EXPIRED');
+      active = null;
     }
   }
 
@@ -715,7 +721,7 @@ async function syncInboundMessagesForConversation({ conversationId, limit = 30 }
           mentions: [],
           createdAt: msg.createdDateTime ? new Date(msg.createdDateTime) : undefined,
         },
-        { accountId: senderAccountId },
+        { accountId: senderAccountId, isSystem: true },
         { source: 'TEAMS_INBOUND' },
       );
 
