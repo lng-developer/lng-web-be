@@ -19,6 +19,14 @@ jest.mock('../../../src/config/redis', () => ({
 }));
 
 describe('accountRepository', () => {
+  test('strict permission invalidation rejects Redis failure while legacy calls remain best-effort', async () => {
+    const warn = jest.spyOn(require('../../../src/shared/utils/logger'), 'warn').mockImplementation(() => {});
+    config.redis.enabled = true;
+    getRedisClient.mockReturnValue({ del: jest.fn().mockRejectedValue(new Error('Redis unavailable')) });
+    await expect(accountRepository.invalidatePermissionCache('account', { strict: true })).rejects.toThrow('Redis unavailable');
+    await expect(accountRepository.invalidatePermissionCache('account')).resolves.toBeUndefined();
+    warn.mockRestore();
+  });
   beforeEach(() => {
     jest.clearAllMocks();
     config.redis.enabled = false;

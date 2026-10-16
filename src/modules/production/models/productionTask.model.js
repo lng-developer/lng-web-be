@@ -178,6 +178,8 @@ const productionTaskSchema = new mongoose.Schema(
     vendorProductSnapshot: { type: vendorProductSnapshotSchema, default: null },
     vendorCostCenterSnapshot: { type: vendorCostCenterSnapshotSchema, default: null },
     customizationSnapshot: { type: customizationSnapshotSchema, default: null },
+    designType: { type: String, enum: ['NORMAL', 'CUSTOM_IMAGE'], default: null },
+    designTypeSource: { type: String, enum: ['AUTO', 'MANUAL'], default: 'AUTO' },
     fulfillQty: {
       type: Number,
       min: 1,

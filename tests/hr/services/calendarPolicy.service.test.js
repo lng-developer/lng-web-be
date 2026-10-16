@@ -436,6 +436,21 @@ describe('calendar policy service', () => {
     )).rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
   });
 
+  test('rotation-only leader can set own team but cannot set another team or holidays', async () => {
+    const auth = { scopes: [{ scopeType: 'team', scopeId: 't1', permissions: ['HR_SATURDAY_ROTATION:WRITE'] }] };
+    repository.upsertRotation.mockImplementation(async (rotation) => ({ id: 'r1', ...rotation }));
+    const payload = { teamId: 't1', dateKey: '2026-02-07', employeeProfileIds: ['p1'], minPresent: 1 };
+    await expect(service.createRotation(payload, auth)).resolves.toMatchObject({ employeeProfileIds: ['p1'] });
+    await expect(service.createRotation({ ...payload, teamId: 't2' }, auth)).rejects.toMatchObject({ statusCode: 403 });
+    await expect(service.createRotation({ ...payload, employeeProfileIds: ['outside'] }, auth)).rejects.toMatchObject({ statusCode: 400 });
+    await expect(service.createHoliday({ name: 'Test', dateKey: '2026-02-07', appliedTeamIds: ['t1'] }, auth)).rejects.toMatchObject({ statusCode: 403 });
+    await expect(service.generateRotations({ teamId: 't2', month: 2, year: 2026 }, auth)).rejects.toMatchObject({ statusCode: 403 });
+    repository.findRotationById.mockResolvedValue({ _id: 'r2', teamId: 't2' });
+    await expect(service.updateRotation('r2', { employeeProfileIds: [] }, auth)).rejects.toMatchObject({ statusCode: 403 });
+    await expect(service.deleteRotation('r2', auth)).rejects.toMatchObject({ statusCode: 403 });
+    await expect(service.deleteTeamRotations('t2', { month: 2, year: 2026 }, auth)).rejects.toMatchObject({ statusCode: 403 });
+  });
+
   test('creates one manual Saturday rotation and exposes its source', async () => {
     organizationPublic.listTeamMembers.mockResolvedValue({
       team: { id: 't1' }, leaders: [], members: [{ profileId: 'p1' }, { profileId: 'p2' }],

@@ -27,6 +27,8 @@ const SORT_FIELDS = new Set([
   'qcStatus',
 ]);
 const LIST_SELECT = [
+  'designType',
+  'designTypeSource',
   'orderId',
   'orderItemId',
   'orderSnapshot',
@@ -137,7 +139,20 @@ async function listPsdBlockedByExternalOrderId(externalOrderId) {
 
 function buildFilter(query = {}) {
   const filter = {};
+  if (query.designType) filter.designType = query.designType === 'UNCLASSIFIED' ? null : query.designType;
   const andClauses = [];
+  if (query.qcTeamAccountIds) {
+    const accountIds = query.qcTeamAccountIds.map((id) => new mongoose.Types.ObjectId(String(id)));
+    andClauses.push({ $or: [
+      ...(query.allowNonQcTasks ? [{ qcStatus: { $nin: ['PENDING', 'PASSED', 'REJECTED'] } }] : []),
+      { assignedDesignUserId: { $in: accountIds } },
+      { csAssigneeId: { $in: accountIds } },
+      { 'fileChecks.outputWorkerId': { $in: accountIds } },
+      ...(query.qcReadShopIds?.length ? [{ shopId: {
+        $in: query.qcReadShopIds.map((id) => new mongoose.Types.ObjectId(String(id))),
+      } }] : []),
+    ] });
+  }
   if (query.status) filter.status = query.status;
   if (query.scaleStatus) filter.scaleStatus = query.scaleStatus;
   if (query.qcStatus) filter.qcStatus = query.qcStatus;
@@ -147,7 +162,7 @@ function buildFilter(query = {}) {
   }
   if (query.qcQueueOnly) filter.qcStatus = productionQcStatuses.PENDING;
   if (query.view === 'QC') filter.qcStatus = productionQcStatuses.PENDING;
-  if (query.view === 'SCALE' && !query.status) {
+  if (query.view === 'SCALE' && !query.status && query.designType !== 'CUSTOM_IMAGE') {
     filter.status = { $in: [productionTaskStatuses.NEED_SCALE, productionTaskStatuses.QC_REJECTED] };
   }
   if (query.salesChannelCode) filter['orderItemSnapshot.salesChannelCode'] = query.salesChannelCode;
@@ -191,12 +206,12 @@ function buildFilter(query = {}) {
     filter.assignedDesignUserId = query.assignedDesignUserId;
   }
   if (query.assignedDesignUserIds && query.assignedDesignUserIds.length) {
-    filter.assignedDesignUserId = {
+    andClauses.push({ assignedDesignUserId: {
       $in: [
         ...query.assignedDesignUserIds,
         ...(query.includeUnassignedDesignUser ? [null] : []),
       ],
-    };
+    } });
   }
   if (query.qcBy) filter.qcBy = query.qcBy;
   if (Object.prototype.hasOwnProperty.call(query, 'csAssigneeId')) {
@@ -342,6 +357,7 @@ async function summarize(query = {}) {
     blocked: totals.blocked || 0,
     needScale: totals.needScale || 0,
     qcPending: totals.qcPending || 0,
+    qcRejected: mapCountRows(facetResult.qcStatuses).REJECTED || 0,
     scaleQueue: totals.scaleQueue || 0,
     qcQueue: totals.qcQueue || 0,
     readyToSendVendor: totals.readyToSendVendor || 0,
@@ -391,6 +407,7 @@ async function summarizeQueueCounts(query = {}) {
             $cond: [{
               $and: [
                 psdReady,
+                { $eq: ['$designType', 'NORMAL'] },
                 { $in: ['$status', [productionTaskStatuses.NEED_SCALE, productionTaskStatuses.QC_REJECTED]] },
               ],
             }, 1, 0],
@@ -498,20 +515,23 @@ function mutableScaleFilter(taskId) {
   };
 }
 
-async function appendFileCheckIfMutable(taskId, fileCheck, { session } = {}) {
+async function appendFileCheckIfMutable(taskId, fileCheck, { session, assignedDesignUserId } = {}) {
   return ProductionTask.findOneAndUpdate(
-    { ...mutableScaleFilter(taskId), 'fileChecks.slotKey': { $ne: fileCheck.slotKey } },
+    { ...mutableScaleFilter(taskId), 'fileChecks.slotKey': { $ne: fileCheck.slotKey },
+      ...(assignedDesignUserId ? { assignedDesignUserId } : {}),
+    },
     { $push: { fileChecks: fileCheck } },
     { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
 async function updateFileCheckOutputIfMutable(
-  taskId, fileCheckId, expected, patch, { session } = {},
+  taskId, fileCheckId, expected, patch, { session, assignedDesignUserId } = {},
 ) {
   return ProductionTask.findOneAndUpdate(
     {
       ...mutableScaleFilter(taskId),
+      ...(assignedDesignUserId ? { assignedDesignUserId } : {}),
       fileChecks: { $elemMatch: { _id: fileCheckId, ...expected } },
     },
     {
@@ -545,7 +565,20 @@ function listQcPassedForWorkScore(limit) {
     .sort({ _id: 1 }).limit(limit).lean();
 }
 
+function findAssignedTaskReferencingInputAsset(assetId, assignedDesignUserId) {
+  return ProductionTask.findOne({
+    assignedDesignUserId,
+    $or: [
+      { 'fileChecks.inputAssetId': assetId },
+      { 'listingSnapshot.psdTemplateAssetId': assetId },
+      { 'customizationSnapshot.customerInputs.images.assetId': assetId },
+      { 'customizationSnapshot.imageAssets.assetId': assetId },
+    ],
+  }).select('_id').lean();
+}
+
 module.exports = {
+  findAssignedTaskReferencingInputAsset,
   findById,
   findByOrderItem,
   list,

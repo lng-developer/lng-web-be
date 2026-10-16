@@ -537,6 +537,87 @@ describe('designTask.service', () => {
     expect(result.status).toBe('SUBMITTED');
   });
 
+  test('same recipient is a no-op without audit or notifications', async () => {
+    repository.findById.mockResolvedValue({ ...openTask, status: 'ASSIGNED', assignedDesignerId: accountId });
+    const result = await service.assignTask(taskId, { assignedDesignerId: accountId }, {
+      permissions: ['DESIGN:WRITE'], accountId: managerId,
+    });
+    expect(result).toMatchObject({ status: 'ASSIGNED', assignedDesignerId: accountId });
+    expect(repository.updateById).not.toHaveBeenCalled();
+    expect(auditPublic.record).not.toHaveBeenCalled();
+    expect(notificationPublic.notify).not.toHaveBeenCalled();
+  });
+
+  test('notifies the previous recipient but not the actor when self-assigning', async () => {
+    repository.findById.mockResolvedValue({ ...openTask, status: 'ASSIGNED', assignedDesignerId: managerId });
+    repository.updateById.mockResolvedValue({ ...openTask, status: 'ASSIGNED', assignedDesignerId: accountId });
+    await service.assignTask(taskId, { assignedDesignerId: accountId }, {
+      permissions: ['DESIGN:WRITE'], accountId,
+    });
+    expect(notificationPublic.notify).toHaveBeenCalledTimes(1);
+    expect(notificationPublic.notify).toHaveBeenCalledWith(expect.objectContaining({
+      recipientAccountId: managerId, type: 'DESIGN_TASK_REASSIGNED',
+      relatedResource: { type: 'designTask', id: taskId },
+    }));
+  });
+
+  test('notifies both recipients when a third-party leader reassigns the task', async () => {
+    const previousDesignerId = '660000000000000000510099';
+    repository.findById.mockResolvedValue({ ...openTask, status: 'ASSIGNED', assignedDesignerId: previousDesignerId });
+    repository.updateById.mockResolvedValue({ ...openTask, status: 'ASSIGNED', assignedDesignerId: accountId });
+    await service.assignTask(taskId, { assignedDesignerId: accountId }, {
+      permissions: ['DESIGN:WRITE'], accountId: managerId,
+    });
+    expect(notificationPublic.notify).toHaveBeenCalledTimes(2);
+    expect(notificationPublic.notify).toHaveBeenCalledWith(expect.objectContaining({
+      recipientAccountId: accountId, type: 'DESIGN_TASK_ASSIGNED',
+    }));
+    expect(notificationPublic.notify).toHaveBeenCalledWith(expect.objectContaining({
+      recipientAccountId: previousDesignerId, type: 'DESIGN_TASK_REASSIGNED',
+    }));
+  });
+
+  test('reassigns an unclaimed task and records the old and new recipients', async () => {
+    repository.findById.mockResolvedValue({ ...openTask, status: 'ASSIGNED', assignedDesignerId: managerId });
+    repository.updateById.mockResolvedValue({ ...openTask, status: 'ASSIGNED', assignedDesignerId: accountId });
+    const result = await service.assignTask(taskId, { assignedDesignerId: accountId }, {
+      permissions: ['DESIGN:WRITE'], accountId: managerId,
+    });
+    expect(result).toMatchObject({ status: 'ASSIGNED', assignedDesignerId: accountId });
+    expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.any(Object), {
+      status: 'ASSIGNED', assignedDesignerId: managerId, startedAt: null,
+    });
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      changes: { assignedDesignerId: { from: managerId, to: accountId } },
+    }));
+  });
+
+  test('rejects reassignment after work starts', async () => {
+    repository.findById.mockResolvedValue({ ...openTask, status: 'IN_PROGRESS', assignedDesignerId: managerId });
+    await expect(service.assignTask(taskId, { assignedDesignerId: accountId }, {
+      permissions: ['DESIGN:WRITE'], accountId: managerId,
+    })).rejects.toMatchObject({ statusCode: 409 });
+    expect(repository.updateById).not.toHaveBeenCalled();
+  });
+
+  test('reassignment loses safely when the member has claimed the task', async () => {
+    repository.findById.mockResolvedValue({ ...openTask, status: 'ASSIGNED', assignedDesignerId: managerId });
+    repository.updateById.mockResolvedValue(null);
+    await expect(service.assignTask(taskId, { assignedDesignerId: accountId }, {
+      permissions: ['DESIGN:WRITE'], accountId: managerId,
+    })).rejects.toMatchObject({ statusCode: 409 });
+    expect(auditPublic.record).not.toHaveBeenCalled();
+    expect(notificationPublic.notify).not.toHaveBeenCalled();
+  });
+
+  test('claim loses safely when a manager has changed the recipient', async () => {
+    repository.findById.mockResolvedValue({ ...openTask, status: 'ASSIGNED', assignedDesignerId: accountId });
+    repository.updateById.mockResolvedValue(null);
+    await expect(service.startTask(taskId, {}, scopedTeamAuth(accountId, ['DESIGN:WORK'])))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(auditPublic.record).not.toHaveBeenCalled();
+  });
+
   test('assign and cancel accept requested tasks', async () => {
     repository.findById.mockResolvedValueOnce({ ...openTask, status: 'REQUESTED' });
     await service.assignTask(taskId, { assignedDesignerId: accountId }, {
@@ -546,7 +627,7 @@ describe('designTask.service', () => {
     expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
       assignedDesignerId: accountId,
       status: 'ASSIGNED',
-    }));
+    }), { status: 'REQUESTED', assignedDesignerId: null, startedAt: null });
     expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
       action: 'DESIGN_TASK_ASSIGNED',
       entityId: taskId,
@@ -707,7 +788,7 @@ describe('designTask.service', () => {
 
     expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
       status: 'IN_PROGRESS',
-    }));
+    }), { status: 'ASSIGNED', assignedDesignerId: accountId, startedAt: null });
   });
 
   test('team-scoped design writer can assign tasks without shop scope', async () => {
@@ -719,7 +800,7 @@ describe('designTask.service', () => {
     expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
       assignedDesignerId: accountId,
       status: 'ASSIGNED',
-    }));
+    }), { status: 'REQUESTED', assignedDesignerId: null, startedAt: null });
   });
 
   test('team-scoped design reviewer can approve submitted tasks without shop scope', async () => {
@@ -1329,11 +1410,11 @@ describe('designTask.service', () => {
     expect(result.items[0].listing.productImageUrl).toBe('https://i.etsystatic.com/123/main.jpg');
   });
 
-  test('current Catalog image never replaces the task snapshot image', async () => {
+  test('current Catalog image takes precedence over the task snapshot for display', async () => {
     repository.list.mockResolvedValue({ items: [{ ...openTask, listingId, listingSnapshot: { id: listingId, productImageUrl: 'https://example.test/original.jpg' } }], total: 1, page: 1, limit: 20 });
     catalogPublic.getListingsByIds.mockResolvedValue([{ _id: listingId, productImageUrl: 'https://i.etsystatic.com/123/main.jpg' }]);
     const result = await service.listTasks({}, { permissions: ['DESIGN:READ'], accountId });
-    expect(result.items[0].listing.productImageUrl).toBe('https://example.test/original.jpg');
+    expect(result.items[0].listing.productImageUrl).toBe('https://i.etsystatic.com/123/main.jpg');
   });
 
   test('lists PSD score records with Auth-resolved scorer and automated fallback', async () => {

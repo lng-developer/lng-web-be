@@ -109,6 +109,8 @@ function assertHolidayAccess(authContext, permissions, holiday, { requireAll = f
 
 const calendarReadPermissions = ['HR_CALENDAR:READ', 'HR_CALENDAR:WRITE'];
 const calendarWritePermissions = ['HR_CALENDAR:WRITE'];
+const rotationWritePermissions = [...calendarWritePermissions, 'HR_SATURDAY_ROTATION:WRITE'];
+const rotationReadPermissions = [...calendarReadPermissions, 'HR_SATURDAY_ROTATION:WRITE'];
 
 function duplicateError(error, message) {
   if (error?.code === 11000) return operationalError(message, httpStatus.CONFLICT, errorCodes.CONFLICT_ERROR);
@@ -369,7 +371,7 @@ async function getTeamContext(teamId, minPresent) {
 }
 
 async function generateRotations({ teamId, month, year, minPresent, customRotations = [] }, authContext) {
-  assertTeamAccess(authContext, calendarWritePermissions, teamId);
+  assertTeamAccess(authContext, rotationWritePermissions, teamId);
   const { members, minPresent: requiredPresent, maxOff } = await getTeamContext(teamId, minPresent);
   const saturdays = saturdaysInMonth(year, month);
   const custom = new Map();
@@ -417,7 +419,7 @@ async function generateRotations({ teamId, month, year, minPresent, customRotati
 }
 
 async function createRotation({ teamId, dateKey, employeeProfileIds, minPresent }, authContext) {
-  assertTeamAccess(authContext, calendarWritePermissions, teamId);
+  assertTeamAccess(authContext, rotationWritePermissions, teamId);
   if (!isSaturday(dateKey)) throw validationError('Manual rotation date must be a Saturday');
   const context = await getTeamContext(teamId, minPresent);
   const rotation = await repository.upsertRotation({
@@ -440,14 +442,14 @@ async function createRotation({ teamId, dateKey, employeeProfileIds, minPresent 
 }
 
 async function listRotations(query, authContext) {
-  if (!query.teamId && authContext && !hasGlobalPermission(authContext, calendarReadPermissions)) throw forbidden();
-  if (query.teamId) assertTeamAccess(authContext, calendarReadPermissions, query.teamId);
+  if (!query.teamId && authContext && !hasGlobalPermission(authContext, rotationReadPermissions)) throw forbidden();
+  if (query.teamId) assertTeamAccess(authContext, rotationReadPermissions, query.teamId);
   return toPaginatedDto(await repository.listRotations(query), toRotationDto);
 }
 
 async function listRotationMatrix(query, authContext) {
-  if (!query.teamId && authContext && !hasGlobalPermission(authContext, calendarReadPermissions)) throw forbidden();
-  if (query.teamId) assertTeamAccess(authContext, calendarReadPermissions, query.teamId);
+  if (!query.teamId && authContext && !hasGlobalPermission(authContext, rotationReadPermissions)) throw forbidden();
+  if (query.teamId) assertTeamAccess(authContext, rotationReadPermissions, query.teamId);
 
   const rotations = await repository.listRotationsForMatrix(query);
   const dates = saturdaysInMonth(query.year, query.month);
@@ -483,7 +485,7 @@ async function listRotationMatrix(query, authContext) {
 async function updateRotation(id, { employeeProfileIds }, authContext) {
   const current = await repository.findRotationById(id);
   if (!current) throw notFound('Saturday rotation not found');
-  assertTeamAccess(authContext, calendarWritePermissions, current.teamId);
+  assertTeamAccess(authContext, rotationWritePermissions, current.teamId);
   const { members, maxOff } = await getTeamContext(String(current.teamId), current.minPresent);
   const updated = await repository.updateRotation(id, {
     employeeProfileIds: validateOffProfiles(employeeProfileIds, members, maxOff),
@@ -502,7 +504,7 @@ async function updateRotation(id, { employeeProfileIds }, authContext) {
 async function deleteRotation(id, authContext) {
   const current = await repository.findRotationById(id);
   if (!current) throw notFound('Saturday rotation not found');
-  assertTeamAccess(authContext, calendarWritePermissions, current.teamId);
+  assertTeamAccess(authContext, rotationWritePermissions, current.teamId);
   const rotation = await repository.deleteRotation(id);
   await recordCalendarAudit(
     'HR_SATURDAY_ROTATION_DELETED',
@@ -515,7 +517,7 @@ async function deleteRotation(id, authContext) {
 }
 
 async function deleteTeamRotations(teamId, { month, year }, authContext) {
-  assertTeamAccess(authContext, calendarWritePermissions, teamId);
+  assertTeamAccess(authContext, rotationWritePermissions, teamId);
   const existing = await repository.listRotations({ teamId, month, year, page: 1, limit: 100 });
   const result = await repository.deleteTeamRotations(teamId, month, year);
   if (result.deletedCount) {

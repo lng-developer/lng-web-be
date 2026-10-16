@@ -31,6 +31,7 @@ jest.mock('../../../src/modules/chat/public', () => ({
 
 jest.mock('../../../src/modules/production/public', () => ({
   canReadTaskById: jest.fn(),
+  canReadAssignedTaskInputAsset: jest.fn(),
 }));
 
 const EventEmitter = require('events');
@@ -417,6 +418,16 @@ describe('mediaAsset.service', () => {
 
     await expect(service.getAuthorizedAsset('660000000000000000000901', { accountId: 'reader' }))
       .rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
+  });
+
+  test.each(['CATALOG_LISTING', 'CUSTOMIZATION_PAYLOAD'])('allows referenced %s inputs through assigned task access', async (ownerType) => {
+    const asset = { _id: '660000000000000000000901', ownerType, shopId: 'shop' };
+    repository.findById.mockResolvedValueOnce(asset);
+    authPublic.canAccessScope.mockReturnValue(false);
+    productionPublic.canReadAssignedTaskInputAsset.mockResolvedValueOnce(true);
+    const context = { accountId: 'designer' };
+    await expect(service.getAuthorizedAsset(asset._id, context)).resolves.toEqual(asset);
+    expect(productionPublic.canReadAssignedTaskInputAsset).toHaveBeenCalledWith(asset._id, context);
   });
 
   test('getAuthorizedAsset permits readable production task assets', async () => {

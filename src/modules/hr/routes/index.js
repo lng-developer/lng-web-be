@@ -55,8 +55,9 @@ const requireCalendarWrite = authPublic.authorizeAnyGlobalPermission(hrPermissio
 const requireRotationRead = authPublic.authorizeAnyPermission(
   hrPermissions.CALENDAR_READ,
   hrPermissions.CALENDAR_WRITE,
+  hrPermissions.SATURDAY_ROTATION_WRITE,
 );
-const requireRotationWrite = authPublic.authorizeAnyPermission(hrPermissions.CALENDAR_WRITE);
+const requireRotationWrite = authPublic.authorizeAnyPermission(hrPermissions.CALENDAR_WRITE, hrPermissions.SATURDAY_ROTATION_WRITE);
 const requireGlobalScheduleWrite = authPublic.authorizeScopedPermission(
   hrTimePermissions.SCHEDULE_WRITE,
   { scopeType: 'global', scopeId: null },

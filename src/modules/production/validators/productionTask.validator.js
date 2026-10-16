@@ -51,6 +51,7 @@ const orderItemParamSchema = Joi.object({
 });
 
 const listTasksQuerySchema = Joi.object({
+  designType: Joi.string().trim().uppercase().valid('NORMAL', 'CUSTOM_IMAGE', 'UNCLASSIFIED'),
   view: Joi.string().trim().uppercase().valid('SCALE', 'QC'),
   status: Joi.string().trim().uppercase().valid(...Object.values(productionTaskStatuses)),
   scaleStatus: Joi.string().trim().uppercase().valid(...Object.values(productionScaleStatuses)),

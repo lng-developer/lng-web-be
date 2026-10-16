@@ -95,6 +95,7 @@ jest.mock('../../../src/modules/workScore/public', () => ({
 }));
 
 jest.mock('../../../src/modules/production/repositories/productionTask.repository', () => ({
+  findAssignedTaskReferencingInputAsset: jest.fn(),
   findById: jest.fn(),
   findByOrderItem: jest.fn(),
   list: jest.fn(),
@@ -133,6 +134,18 @@ const repository = require('../../../src/modules/production/repositories/product
 const service = require('../../../src/modules/production/services/productionTask.service');
 
 describe('productionTask.service', () => {
+  test('input access requires design work permission and a current assignment referencing the asset', async () => {
+    const context = { accountId: 'designer', scopes: [{ scopeType: 'TEAM', scopeId: 'team', permissions: ['DESIGN:WORK'] }] };
+    repository.findAssignedTaskReferencingInputAsset.mockResolvedValueOnce({ _id: 'task' });
+    await expect(service.canReadAssignedTaskInputAsset('asset', context)).resolves.toBe(true);
+    expect(repository.findAssignedTaskReferencingInputAsset).toHaveBeenCalledWith('asset', 'designer');
+    repository.findAssignedTaskReferencingInputAsset.mockResolvedValueOnce(null);
+    await expect(service.canReadAssignedTaskInputAsset('unrelated', context)).resolves.toBe(false);
+    repository.findAssignedTaskReferencingInputAsset.mockClear();
+    await expect(service.canReadAssignedTaskInputAsset('asset', { accountId: 'designer' })).resolves.toBe(false);
+    await expect(service.canReadAssignedTaskInputAsset('asset', { permissions: ['DESIGN:WORK'] })).resolves.toBe(false);
+    expect(repository.findAssignedTaskReferencingInputAsset).not.toHaveBeenCalled();
+  });
   const taskId = '660000000000000000100001';
   const fileCheckId = '660000000000000000100002';
   const orderId = '660000000000000000000301';
@@ -340,6 +353,30 @@ describe('productionTask.service', () => {
         && (grantedScope.permissions || []).includes(permission)
       ))
     ));
+  });
+
+  test.each([
+    [{ status: 'PARSED', customerInputs: { images: [], texts: [{ value: 'Name' }] } }, 'NORMAL'],
+    [{ status: 'PARSED', customerInputs: { images: [{ label: 'Upload photo', value: 'photo.jpg' }] }, failedImages: [{ imageName: 'photo.jpg' }] }, 'CUSTOM_IMAGE'],
+    [{ status: 'PENDING', imageAssets: [{ assetId: mediaAssetId }] }, null],
+    [{ status: 'PARSED', needsReview: true, customerInputs: { images: [] } }, null],
+    [{ status: 'PARSED', customerInputs: { images: [{ key: 'CUSTOMIZED_URL', assetId: mediaAssetId, value: 'https://example.test/preview' }], texts: [{ value: 'Name' }] } }, 'NORMAL'],
+    [{ status: 'PARSED', customerInputs: { images: [] }, imageAssets: [{ assetId: mediaAssetId }] }, null],
+  ])('classifies normalized buyer evidence without treating previews as uploads (%j)', async (payload, expected) => {
+    customizationPublic.getOrderItemCustomizationView.mockResolvedValue(payload);
+    const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+    expect(result.designType).toBe(expected);
+    expect(repository.upsertByOrderItemWithResult).toHaveBeenCalledWith(orderItemId,
+      expect.objectContaining({ designType: expected, designTypeSource: 'AUTO' }), expect.anything());
+  });
+
+  test('recheck preserves a manual design type', async () => {
+    repository.findByOrderItem.mockResolvedValue({ _id: taskId, designType: 'NORMAL', designTypeSource: 'MANUAL', status: 'NEED_SCALE', fileChecks: [] });
+    repository.updateById.mockImplementation(async (id, patch) => ({ _id: id, designType: 'NORMAL', designTypeSource: 'MANUAL', ...patch }));
+    const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+    expect(result.designType).toBe('NORMAL');
+    expect(result.designTypeSource).toBe('MANUAL');
+    expect(repository.updateByIdIf.mock.calls[0][2]).not.toHaveProperty('designType');
   });
 
   test('Etsy cancellation blocks production creation', async () => {
@@ -3021,6 +3058,41 @@ describe('productionTask.service', () => {
     expect(repository.updateById).not.toHaveBeenCalled();
   });
 
+  test.each(['upload', 'submit', 'manual'])('assigned team Designer can %s without production management permissions', async (action) => {
+    mockTaskUpdate({ _id: taskId, shopId, orderItemId, assignedDesignUserId: designerId,
+      status: 'NEED_SCALE', qcStatus: 'NOT_READY', blockers: [],
+      fileChecks: [{ _id: fileCheckId, slotKey: 'FRONT', required: true, sourceType: 'CUSTOMER_IMAGE',
+        inputAssetId: mediaAssetId, outputAssetId, scaleStatus: 'SCALED', qcStatus: 'NOT_READY', blockers: [] }],
+    });
+    const auth = { accountId: designerId, permissions: [], scopes: [{ scopeType: 'team', scopeId: '660000000000000000000102', permissions: ['DESIGN:WORK'] }] };
+    const result = action === 'upload' ? await service.uploadScaledFile(taskId, fileCheckId, outputAssetId, auth)
+      : action === 'submit' ? await service.submitScaleForQc(taskId, auth)
+        : await service.addManualFileCheck(taskId, { slotKey: 'BACK' }, auth);
+    expect(result).toBeDefined();
+    if (action === 'upload') expect(result.fileChecks[0].outputWorkerId).toBe(designerId);
+    if (action === 'submit') expect(result.status).toBe('QC_PENDING');
+    if (action === 'manual') expect(result.fileChecks.at(-1).slotKey).toBe('BACK');
+    if (action === 'upload') expect(repository.updateFileCheckOutputIfMutable.mock.calls[0][4]).toMatchObject({ assignedDesignUserId: designerId });
+    if (action === 'submit') expect(repository.updateByIdIf.mock.calls[0][1]).toMatchObject({ assignedDesignUserId: designerId });
+    if (action === 'manual') expect(repository.appendFileCheckIfMutable.mock.calls[0][2]).toMatchObject({ assignedDesignUserId: designerId });
+  });
+
+  test.each([null, qcUserId])('Designer cannot upload to a task assigned to %s', async (assignee) => {
+    repository.findById.mockResolvedValue({ _id: taskId, shopId, orderItemId, assignedDesignUserId: assignee, status: 'NEED_SCALE' });
+    const auth = { accountId: designerId, permissions: ['DESIGN:WORK'] };
+    await expect(service.uploadScaledFile(taskId, fileCheckId, outputAssetId, auth)).rejects.toMatchObject({ statusCode: 403 });
+    await expect(service.submitScaleForQc(taskId, auth)).rejects.toMatchObject({ statusCode: 403 });
+    expect(mediaPublic.assertMediaAssetExists).not.toHaveBeenCalled();
+  });
+
+  test('Designer upload loses its conditional write after reassignment', async () => {
+    repository.findById.mockResolvedValue({ _id: taskId, shopId, orderItemId, assignedDesignUserId: designerId,
+      status: 'NEED_SCALE', fileChecks: [{ _id: fileCheckId, slotKey: 'FRONT', required: true }] });
+    repository.updateFileCheckOutputIfMutable.mockResolvedValue(null);
+    await expect(service.uploadScaledFile(taskId, fileCheckId, outputAssetId, { accountId: designerId, permissions: ['DESIGN:WORK'] })).rejects.toMatchObject({ statusCode: 409 });
+    expect(repository.updateById).not.toHaveBeenCalled();
+  });
+
   test('upload scaled output keeps task in scale queue until designer submits QC', async () => {
     mockTaskUpdate({
       _id: taskId,
@@ -4239,6 +4311,102 @@ describe('productionTask.service', () => {
     await service.listTasks({}, { accountId: designerId, permissions: ['PRODUCTION:SCALE_ASSIGN'], scopes: [] });
 
     expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({ scaleQueueOnly: true }));
+  });
+
+  test('Design leader QC reads are limited to team contributors despite Scale assignment permission', async () => {
+    const auth = scopedTeamAuth(qcUserId, ['DESIGN:REVIEW', 'PRODUCTION:SCALE_ASSIGN']);
+    repository.list.mockResolvedValueOnce({ items: [], total: 0, page: 1, limit: 50 });
+    await service.listTasks({ view: 'QC' }, auth);
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({
+      view: 'QC', qcTeamAccountIds: [qcUserId, designerId],
+    }));
+    expect(repository.list.mock.calls[0][0].scaleQueueOnly).toBeUndefined();
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId, shopId, status: 'QC_PENDING', qcStatus: 'PENDING',
+      fileChecks: [{ outputWorkerId: designerId }],
+    });
+    await expect(service.getTaskById(taskId, auth)).resolves.toMatchObject({ id: taskId });
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId, shopId, status: 'QC_PENDING', qcStatus: 'PENDING',
+      assignedDesignUserId: '660000000000000000009999', fileChecks: [],
+    });
+    await expect(service.getTaskById(taskId, auth)).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  test('Design leader QC summary and export use the same team restriction', async () => {
+    const auth = scopedTeamAuth(qcUserId, ['DESIGN:REVIEW', 'PRODUCTION:SCALE_ASSIGN']);
+    repository.summarizeQueueCounts.mockResolvedValueOnce({ blocked: 0, scaleQueue: 7, qcQueue: 0 });
+    repository.summarizeQueueCounts.mockResolvedValueOnce({ blocked: 0, scaleQueue: 0, qcQueue: 2 });
+    await expect(service.summarizeQueueCounts({}, auth)).resolves.toEqual({ blocked: 0, scaleQueue: 7, qcQueue: 2 });
+    expect(repository.summarizeQueueCounts).toHaveBeenLastCalledWith({
+      view: 'QC', qcTeamAccountIds: [qcUserId, designerId],
+    });
+    repository.listForExport.mockResolvedValueOnce([]);
+    await service.exportQcTasksExcel({}, auth);
+    expect(repository.listForExport).toHaveBeenCalledWith(expect.objectContaining({
+      qcTeamAccountIds: [qcUserId, designerId],
+    }));
+  });
+
+  test('Design leader with no team members cannot read QC or approve it', async () => {
+    const auth = scopedTeamAuth(qcUserId, ['DESIGN:REVIEW', 'PRODUCTION:SCALE_ASSIGN']);
+    authPublic.listTeamScopedAccountIds.mockResolvedValueOnce([]);
+    await expect(service.listTasks({ view: 'QC' }, auth)).resolves.toMatchObject({ total: 0, items: [] });
+    expect(repository.list).not.toHaveBeenCalled();
+    repository.findById.mockResolvedValueOnce({ _id: taskId, shopId, qcStatus: 'PENDING', fileChecks: [] });
+    await expect(service.submitQc(taskId, { decision: 'REJECTED' }, auth)).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  test('Design leader retains independently granted shop QC access outside the team', async () => {
+    const auth = scopedTeamAuth(qcUserId, ['DESIGN:REVIEW', 'PRODUCTION:SCALE_ASSIGN']);
+    auth.scopes.push(...scopedShopAuth(qcUserId, ['PRODUCTION:QC_REVIEW']).scopes);
+    repository.list.mockResolvedValueOnce({ items: [], total: 0, page: 1, limit: 50 });
+    await service.listTasks({ view: 'QC' }, auth);
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({ qcReadShopIds: [shopId] }));
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId, shopId, status: 'QC_PENDING', qcStatus: 'PENDING', fileChecks: [],
+    });
+    await expect(service.getTaskById(taskId, auth)).resolves.toMatchObject({ id: taskId });
+  });
+
+  test('omitting the QC view cannot bypass team QC read restrictions', async () => {
+    authPublic.hasTeamQueueScope.mockReturnValueOnce(true);
+    repository.list.mockResolvedValueOnce({ items: [], total: 0, page: 1, limit: 50 });
+    await service.listTasks({ qcStatus: 'PENDING' }, scopedTeamAuth(qcUserId, ['DESIGN:REVIEW']));
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({
+      qcTeamAccountIds: [qcUserId, designerId], allowNonQcTasks: true,
+    }));
+  });
+
+  test('Design leader keeps all-Scale access to rejected work for reassignment', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId, shopId, status: 'QC_REJECTED', qcStatus: 'REJECTED',
+      assignedDesignUserId: '660000000000000000009999',
+    });
+    await expect(service.getTaskById(taskId, scopedTeamAuth(qcUserId,
+      ['DESIGN:REVIEW', 'PRODUCTION:SCALE_ASSIGN'])))
+      .resolves.toMatchObject({ id: taskId });
+  });
+
+  test.each(['PASSED', 'REJECTED'])('QC cannot %s an output created by the reviewer even after reassignment', async (decision) => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId, shopId, orderItemId, status: 'QC_PENDING', qcStatus: 'PENDING',
+      assignedDesignUserId: designerId,
+      fileChecks: [{ _id: fileCheckId, required: true, outputAssetId, outputWorkerId: qcUserId }],
+    });
+    await expect(service.submitQc(taskId, { decision }, scopedShopAuth(qcUserId, ['PRODUCTION:QC_REVIEW'])))
+      .rejects.toMatchObject({ statusCode: 403 });
+    expect(repository.updateByIdIf).not.toHaveBeenCalled();
+  });
+
+  test('QC rejects self review of legacy output with missing worker identity', async () => {
+    repository.findById.mockResolvedValueOnce({
+      _id: taskId, shopId, orderItemId, status: 'QC_PENDING', qcStatus: 'PENDING',
+      csAssigneeId: qcUserId,
+      fileChecks: [{ _id: fileCheckId, required: true, outputAssetId }],
+    });
+    await expect(service.submitQc(taskId, { decision: 'PASSED' }, scopedShopAuth(qcUserId, ['PRODUCTION:QC_REVIEW'])))
+      .rejects.toMatchObject({ statusCode: 403 });
   });
 
   test('global scale leader can read a completed task outside the active scale queue', async () => {

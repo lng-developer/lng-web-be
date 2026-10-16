@@ -1028,13 +1028,22 @@ async function assignTask(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
   assertCanAccessShop(task.shopId, designPermissions.WRITE, authContext);
   assertStatus(task, [designTaskStatuses.REQUESTED, designTaskStatuses.OPEN, designTaskStatuses.ASSIGNED], 'assigned');
+  if (task.status === designTaskStatuses.ASSIGNED
+    && toId(task.assignedDesignerId) === toId(payload.assignedDesignerId)) {
+    return toDesignTaskDto(task, { detail: true });
+  }
   await assertAssignableDesigner(payload.assignedDesignerId);
   const updated = await repository.updateById(taskId, {
     assignedDesignerId: payload.assignedDesignerId,
     assignedAt: task.assignedAt || new Date(),
     note: Object.prototype.hasOwnProperty.call(payload, 'note') ? payload.note || null : task.note || null,
     status: designTaskStatuses.ASSIGNED,
+  }, {
+    status: task.status,
+    assignedDesignerId: task.assignedDesignerId || null,
+    startedAt: null,
   });
+  if (!updated) throw conflict('Task changed or was already claimed. Refresh before assigning again.');
   await recordDesignOperation({
     action: 'DESIGN_TASK_ASSIGNED',
     entityId: taskId,
@@ -1051,6 +1060,17 @@ async function assignTask(taskId, payload = {}, authContext) {
     message: 'You were assigned a design task.',
     deduplicationScope: updated.updatedAt ? new Date(updated.updatedAt).toISOString() : updated.status,
   });
+  if (task.assignedDesignerId && toId(task.assignedDesignerId) !== toId(payload.assignedDesignerId)) {
+    await designNotificationService.notifyAccount({
+      recipientAccountId: task.assignedDesignerId,
+      actorAccountId: authContext?.accountId || null,
+      task: updated,
+      type: 'DESIGN_TASK_REASSIGNED',
+      title: 'Design task reassigned',
+      message: 'This design task has been reassigned to another member. You are no longer assigned to it.',
+      deduplicationScope: updated.updatedAt ? new Date(updated.updatedAt).toISOString() : updated.status,
+    });
+  }
   return toDesignTaskDto(updated, { detail: true });
 }
 
@@ -1105,7 +1125,12 @@ async function startTask(taskId, payload = {}, authContext) {
     note: Object.prototype.hasOwnProperty.call(payload, 'note') ? payload.note || null : task.note || null,
     startedAt: task.startedAt || new Date(),
     status: designTaskStatuses.IN_PROGRESS,
+  }, {
+    status: designTaskStatuses.ASSIGNED,
+    assignedDesignerId: task.assignedDesignerId || null,
+    startedAt: null,
   });
+  if (!updated) throw conflict('Task changed or was reassigned. Refresh before claiming again.');
   await recordDesignOperation({
     action: 'DESIGN_TASK_STARTED',
     entityId: taskId,

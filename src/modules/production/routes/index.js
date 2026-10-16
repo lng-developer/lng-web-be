@@ -36,7 +36,7 @@ const requireProductionWrite = authPublic.authorizeAnyPermission('PRODUCTION:WRI
 const requireScaleAssign = authPublic.authorizeAnyPermission('PRODUCTION:WRITE', 'PRODUCTION:SCALE_ASSIGN');
 const requireDesignAssign = authPublic.authorizeAnyPermission('PRODUCTION:WRITE', 'DESIGN:REVIEW');
 const requireDesignWork = authPublic.authorizeAnyPermission('PRODUCTION:WRITE', 'DESIGN:WORK');
-const requireScaleWork = authPublic.authorizeAnyPermission('PRODUCTION:WRITE', 'PRODUCTION:SCALE_WORK');
+const requireScaleWork = authPublic.authorizeAnyPermission('PRODUCTION:WRITE', 'PRODUCTION:SCALE_WORK', 'DESIGN:WORK');
 const requireQcReview = authPublic.authorizeAnyPermission('PRODUCTION:WRITE', 'PRODUCTION:QC_REVIEW');
 
 router.get('/health', (req, res) => {

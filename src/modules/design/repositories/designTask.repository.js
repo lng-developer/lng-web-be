@@ -375,9 +375,9 @@ async function listPsdFileLinks(query = {}) {
   };
 }
 
-async function updateById(taskId, patch) {
-  return DesignTask.findByIdAndUpdate(
-    taskId,
+async function updateById(taskId, patch, expected = {}) {
+  return DesignTask.findOneAndUpdate(
+    { ...expected, _id: taskId },
     { $set: patch },
     { returnDocument: 'after', runValidators: true },
   ).lean();

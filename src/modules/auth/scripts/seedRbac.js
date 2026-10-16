@@ -1,5 +1,6 @@
 const { connectDatabase, disconnectDatabase } = require('../../../config/database');
 const logger = require('../../../shared/utils/logger');
+const { leaderHrPermissions, leaderRoleName } = require('../constants/leaderPermissionMatrix');
 const Permission = require('../models/permission.model');
 const Role = require('../models/role.model');
 const { roleCodes } = require('../constants/auth.constants');
@@ -68,6 +69,7 @@ const permissions = [
   'HR_OVERTIME:APPROVE',
   'HR_CALENDAR:READ',
   'HR_CALENDAR:WRITE',
+  'HR_SATURDAY_ROTATION:WRITE',
   'HR_PAYROLL:READ',
   'HR_PAYROLL:WRITE',
   'HR_PAYROLL:FINALIZE',
@@ -113,6 +115,7 @@ const rolePermissions = {
     'PRODUCTION:READ',
   ],
   [roleCodes.DESIGN_LEADER]: [
+    'PRODUCTION:SCALE_ASSIGN',
     'CATALOG:READ',
     'MEDIA:READ',
     'DESIGN:READ',
@@ -173,6 +176,7 @@ const rolePermissions = {
     'DESIGN:PSD_REQUEST',
   ],
   [roleCodes.SALES_LEADER]: [
+    'REPORTS:READ',
     'ORDERS:READ',
     'ORDERS:WRITE',
     'ORDERS:ASSIGN',
@@ -271,24 +275,7 @@ const rolePermissions = {
     'HR_OVERTIME:APPROVE',
     'HR_CALENDAR:READ',
   ],
-  [roleCodes.LEADER]: [
-    'CATALOG:READ',
-    'MAPPING:READ',
-    'MEDIA:READ',
-    'PRODUCTION:READ',
-    'SHOPS:READ',
-    'VENDORS:READ',
-    'REPORTS:READ',
-    'HR_EMPLOYEES:READ',
-    'HR_SCHEDULE:READ',
-    'HR_ATTENDANCE:READ',
-    'HR_LEAVE:READ',
-    'HR_LEAVE:APPROVE',
-    'HR_OVERTIME:READ',
-    'HR_OVERTIME:APPROVE',
-    'HR_CALENDAR:READ',
-    'HR_CALENDAR:WRITE',
-  ],
+  [roleCodes.LEADER]: [...leaderHrPermissions],
   [roleCodes.USER]: [
     'HR_ATTENDANCE:WRITE',
     'HR_LEAVE:WRITE',
@@ -353,7 +340,7 @@ async function upsertRoles(permissionDocs) {
       { code },
       {
         $set: {
-          name,
+          name: code === roleCodes.LEADER ? leaderRoleName : name,
           code,
           description: buildRoleDescription(code),
           permissions: permissionIds,

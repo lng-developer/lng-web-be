@@ -7,6 +7,13 @@ const {
 } = require('../../../src/modules/production/validators/productionTask.validator');
 
 describe('production task validators', () => {
+  test('validates design type and server-side pending assignment filters', () => {
+    expect(validate(listTasksQuerySchema, { designType: 'custom_image', unassigned: 'true' })).toEqual({
+      value: { designType: 'CUSTOM_IMAGE', unassigned: true },
+    });
+    expect(validate(listTasksQuerySchema, { designType: 'UNCLASSIFIED' }).details).toBeUndefined();
+    expect(validate(listTasksQuerySchema, { designType: 'TYPO' }).details).toBeDefined();
+  });
   test('rejects unknown production queue enums', () => {
     const result = validate(listTasksQuerySchema, {
       status: 'TYPO', scaleStatus: 'TYPO', qcStatus: 'TYPO', blocker: 'TYPO',

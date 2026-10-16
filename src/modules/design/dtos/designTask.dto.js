@@ -138,7 +138,7 @@ function toDesignTaskDto(task, {
     priority: task.priority || designTaskPriorities.NORMAL,
     listing: listing ? {
       ...listing,
-      productImageUrl: listing.productImageUrl || listingsById[listingId]?.productImageUrl || orderContext.productImageUrl || null,
+      productImageUrl: listingsById[listingId]?.productImageUrl || listing.productImageUrl || orderContext.productImageUrl || null,
     } : null,
     internalTemplate: toSnapshot(task.internalTemplateSnapshot),
     brief: task.brief || null,

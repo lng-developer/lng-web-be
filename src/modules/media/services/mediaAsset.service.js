@@ -436,6 +436,8 @@ async function assertAssetReadAccess(asset, authContext = {}) {
   ));
   if (allowed) return;
   if (await canReadProductionTaskAsset(asset, authContext)) return;
+  const productionPublic = require('../../production/public');
+  if (await productionPublic.canReadAssignedTaskInputAsset(toId(asset._id), authContext)) return;
 
   throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
 }
