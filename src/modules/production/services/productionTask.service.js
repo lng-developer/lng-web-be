@@ -185,8 +185,8 @@ function assertScaleMutationAllowed(task) {
   }
 }
 
-function forbidden() {
-  return appError('Forbidden', httpStatus.FORBIDDEN, errorCodes.AUTHORIZATION_ERROR);
+function forbidden(message = 'Forbidden') {
+  return appError(message, httpStatus.FORBIDDEN, errorCodes.AUTHORIZATION_ERROR);
 }
 
 function assertScaledOutputStorageProvider() {
@@ -306,8 +306,15 @@ async function teamScopedDesignAccountIds(authContext = {}) {
   return authPublic.listTeamScopedAccountIds(authContext, [DESIGN_WORK_PERMISSION, DESIGN_REVIEW_PERMISSION]);
 }
 
+function isAssignedDesigner(task, authContext = {}) {
+  return Boolean(authContext.accountId)
+    && toId(task.assignedDesignUserId) === String(authContext.accountId)
+    && (hasPermission(authContext, DESIGN_WORK_PERMISSION)
+      || hasAnyScopedPermission(authContext, [DESIGN_WORK_PERMISSION]));
+}
+
 function assertCanScaleTask(task, authContext) {
-  if (isAssignedScaleWorker(task, authContext)) return;
+  if (isAssignedDesigner(task, authContext) || isAssignedScaleWorker(task, authContext)) return;
   assertCanAccessShopAny(task.shopId, SCALE_WORK_PERMISSIONS, authContext);
 }
 
@@ -367,6 +374,19 @@ async function applyReadScope(query, authContext) {
     return query;
   }
 
+  if (query.view === 'QC') {
+    if (hasAnyGlobalPermission(authContext, QC_REVIEW_PERMISSIONS)
+      || hasAnyTeamScopedPermission(authContext, QC_REVIEW_PERMISSIONS)) return query;
+    if (hasAnyTeamScopedPermission(authContext, [DESIGN_REVIEW_PERMISSION])) {
+      const accountIds = await authPublic.listTeamScopedAccountIds(authContext, [DESIGN_REVIEW_PERMISSION]);
+      const shopIds = getScopedShopIds(authContext, QC_REVIEW_PERMISSIONS);
+      return accountIds.length || shopIds.length ? {
+        ...query, qcTeamAccountIds: accountIds,
+        ...(shopIds.length ? { qcReadShopIds: shopIds } : {}),
+      } : null;
+    }
+  }
+
   if (hasAnyPermission(authContext, [productionPermissions.SCALE_ASSIGN])
     || hasAnyTeamScopedPermission(authContext, [productionPermissions.SCALE_ASSIGN])) {
     return { ...query, scaleQueueOnly: true };
@@ -391,8 +411,15 @@ async function applyReadScope(query, authContext) {
     const accountIds = await teamScopedDesignAccountIds(authContext);
     if (!accountIds.length) return null;
     if (query.assignedDesignUserId && !accountIds.includes(String(query.assignedDesignUserId))) return null;
-    if (query.assignedDesignUserId) return query;
-    return { ...query, assignedDesignUserIds: accountIds, includeUnassignedDesignUser: true };
+    const scopedQuery = query.assignedDesignUserId ? query
+      : { ...query, assignedDesignUserIds: accountIds, includeUnassignedDesignUser: true };
+    if (hasAnyTeamScopedPermission(authContext, [DESIGN_REVIEW_PERMISSION])) {
+      return { ...scopedQuery,
+        qcTeamAccountIds: await authPublic.listTeamScopedAccountIds(authContext, [DESIGN_REVIEW_PERMISSION]),
+        qcReadShopIds: getScopedShopIds(authContext, QC_REVIEW_PERMISSIONS), allowNonQcTasks: true,
+      };
+    }
+    return scopedQuery;
   }
 
   const scopedShopIds = getScopedShopIds(authContext, PRODUCTION_QUEUE_READ_PERMISSIONS);
@@ -1298,6 +1325,19 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
       blockers: initialBlockers,
       ...readinessSnapshots
     } = snapshotPayload({ item, order, plan, listing, template, customization, fileChecks, aggregate });
+    if (current?.designTypeSource !== 'MANUAL') {
+      // Extracted ZIP previews are not evidence of a buyer-uploaded image.
+      const buyerImages = customerImageInputs(customization).filter((image) => (
+        !normalizedInputKeys(image).some((key) => genericImageInputKeys.has(key))
+      ));
+      readinessSnapshots.designType = buyerImages.length
+        ? 'CUSTOM_IMAGE'
+        : customization?.status === 'PARSED' && !customization.needsReview
+          && Array.isArray(customization.customerInputs?.images)
+          && (customization.customerInputs.texts?.length || customization.customerInputs.options?.length)
+          ? 'NORMAL' : null;
+      readinessSnapshots.designTypeSource = 'AUTO';
+    }
     let result;
     if (current) {
       const terminal = RECHECK_TERMINAL_STATUSES.has(current.status);
@@ -1523,7 +1563,7 @@ async function recheckPsdBlockedTasksByListing(listingId, authContext = {}) {
 
 async function getTaskById(taskId, authContext) {
   const task = await loadTask(taskId);
-  const scopedQuery = await applyReadScope({}, authContext);
+  const scopedQuery = await readScopeForTask(task, authContext);
   const canReadCompletedTask = hasAnyGlobalPermission(authContext, [
     productionPermissions.SCALE_ASSIGN,
     productionPermissions.QC_REVIEW,
@@ -1541,6 +1581,15 @@ async function getTaskById(taskId, authContext) {
 }
 
 function taskMatchesScopedReadQuery(task = {}, query = {}) {
+  if (query.qcTeamAccountIds) {
+    const contributors = [task.assignedDesignUserId, task.csAssigneeId,
+      ...(task.fileChecks || []).map((check) => check.outputWorkerId)].map(toId).filter(Boolean);
+    const canReadQc = contributors.some((id) => query.qcTeamAccountIds.map(String).includes(id))
+      || (query.qcReadShopIds || []).map(String).includes(toId(task.shopId));
+    const isNonQc = ![productionQcStatuses.PENDING, productionQcStatuses.PASSED, productionQcStatuses.REJECTED]
+      .includes(task.qcStatus);
+    if (!canReadQc && !(query.allowNonQcTasks && isNonQc)) return false;
+  }
   if (query.shopId && toId(task.shopId) !== String(query.shopId)) return false;
   if (query.shopIds?.length && !query.shopIds.map(String).includes(toId(task.shopId))) return false;
   if (
@@ -1567,7 +1616,7 @@ function taskMatchesScopedReadQuery(task = {}, query = {}) {
 async function canReadTaskById(taskId, authContext = {}) {
   try {
     const task = await loadTask(taskId);
-    const scopedQuery = await applyReadScope({}, authContext);
+    const scopedQuery = await readScopeForTask(task, authContext);
     return Boolean(scopedQuery && taskMatchesScopedReadQuery(task, scopedQuery));
   } catch (error) {
     if (error?.statusCode === httpStatus.NOT_FOUND || error?.statusCode === httpStatus.FORBIDDEN) return false;
@@ -1575,8 +1624,23 @@ async function canReadTaskById(taskId, authContext = {}) {
   }
 }
 
+async function canReadAssignedTaskInputAsset(assetId, authContext = {}) {
+  if (!assetId || !isAssignedDesigner({ assignedDesignUserId: authContext.accountId }, authContext)) return false;
+  return Boolean(await repository.findAssignedTaskReferencingInputAsset(assetId, authContext.accountId));
+}
+
+async function readScopeForTask(task, authContext) {
+  const query = await applyReadScope({}, authContext);
+  if (query && taskMatchesScopedReadQuery(task, query)) return query;
+  if ([productionQcStatuses.PENDING, productionQcStatuses.PASSED, productionQcStatuses.REJECTED].includes(task.qcStatus)) {
+    return applyReadScope({ view: 'QC' }, authContext);
+  }
+  return null;
+}
+
 function normalizeListQuery(query = {}) {
   const result = {};
+  if (query.designType) result.designType = String(query.designType).trim().toUpperCase();
   if (query.status) result.status = String(query.status).trim().toUpperCase();
   if (query.scaleStatus) result.scaleStatus = String(query.scaleStatus).trim().toUpperCase();
   if (query.qcStatus) result.qcStatus = String(query.qcStatus).trim().toUpperCase();
@@ -1715,8 +1779,20 @@ async function summarizeQueueCounts(query = {}, authContext) {
     ...(normalizedQuery.salesChannelCode ? { salesChannelCode: normalizedQuery.salesChannelCode } : {}),
     ...(normalizedQuery.shopId ? { shopId: normalizedQuery.shopId } : {}),
   }, authContext);
-  if (!scopedQuery) return emptyQueueCounts();
-  return repository.summarizeQueueCounts(scopedQuery);
+  const counts = scopedQuery ? await repository.summarizeQueueCounts(scopedQuery) : emptyQueueCounts();
+  if (hasAnyTeamScopedPermission(authContext, [DESIGN_REVIEW_PERMISSION])
+    || (hasAnyPermission(authContext, [productionPermissions.SCALE_ASSIGN])
+      && hasAnyPermission(authContext, [productionPermissions.QC_REVIEW]))) {
+    const qcQuery = await applyReadScope({
+      view: 'QC',
+      ...(normalizedQuery.search ? { search: normalizedQuery.search } : {}),
+      ...(normalizedQuery.salesChannelCode ? { salesChannelCode: normalizedQuery.salesChannelCode } : {}),
+      ...(normalizedQuery.shopId ? { shopId: normalizedQuery.shopId } : {}),
+    }, authContext);
+    const qcCounts = qcQuery ? await repository.summarizeQueueCounts(qcQuery) : emptyQueueCounts();
+    return { ...counts, qcQueue: qcCounts.qcQueue };
+  }
+  return counts;
 }
 
 function warnIfProductionQueueSlow(startedAt, { route, resultCount, filters }) {
@@ -1771,7 +1847,10 @@ async function addManualFileCheck(taskId, payload = {}, authContext) {
     note: null,
   };
   const updated = await withProductionOperation(async (session) => {
-    const appended = await repository.appendFileCheckIfMutable(taskId, fileCheck, { session });
+    const appended = await repository.appendFileCheckIfMutable(taskId, fileCheck, {
+      session,
+      ...(isAssignedDesigner(task, authContext) ? { assignedDesignUserId: authContext.accountId } : {}),
+    });
     if (!appended) throw conflict('Production file check changed concurrently');
     const aggregate = aggregateStatus(appended.fileChecks || []);
     await repository.updateById(taskId, aggregate, { session });
@@ -1810,7 +1889,10 @@ async function uploadScaledFileForTask(task, fileCheckId, mediaAssetId, authCont
   };
   const updated = await withProductionOperation(async (session) => {
     const changed = await repository.updateFileCheckOutputIfMutable(
-      toId(task), fileCheckId, expected, checkPatch, { session },
+      toId(task), fileCheckId, expected, checkPatch, {
+        session,
+        ...(isAssignedDesigner(task, authContext) ? { assignedDesignUserId: authContext.accountId } : {}),
+      },
     );
     if (!changed) throw conflict('Scaled output changed concurrently');
     const aggregate = aggregateStatus(changed.fileChecks || []);
@@ -1856,7 +1938,9 @@ async function submitScaleForQc(taskId, authContext = {}) {
   const aggregate = aggregateStatus(fileChecks, [], { submitQc: true });
   const updated = await commitProductionMutation({
     task,
-    filter: { status: task.status, qcStatus: task.qcStatus, fileChecks: task.fileChecks || [] },
+    filter: { status: task.status, qcStatus: task.qcStatus, fileChecks: task.fileChecks || [],
+      ...(isAssignedDesigner(task, authContext) ? { assignedDesignUserId: authContext.accountId } : {}),
+    },
     patch: { ...aggregate, fileChecks },
     eventType: 'PRODUCTION_SCALE_SUBMITTED_QC',
     action: 'PRODUCTION_SCALE_SUBMITTED_QC',
@@ -2201,6 +2285,12 @@ async function updateCsStatus(taskId, payload = {}, authContext) {
 async function submitQc(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
   await assertCanReviewTask(task, authContext);
+  const reviewerId = toId(authContext?.accountId);
+  const outputs = (task.fileChecks || []).filter((check) => check.outputAssetId);
+  const isOutputWorker = reviewerId && outputs.some((check) => toId(check.outputWorkerId) === reviewerId);
+  const isLegacyAssignee = reviewerId && outputs.some((check) => !check.outputWorkerId)
+    && [task.assignedDesignUserId, task.csAssigneeId].some((id) => toId(id) === reviewerId);
+  if (isOutputWorker || isLegacyAssignee) throw forbidden('You cannot review your own production output');
   const fileDecisions = Array.isArray(payload.fileDecisions) ? payload.fileDecisions : [];
   const decisionByFileCheckId = new Map(fileDecisions.map((item) => [toId(item.fileCheckId), item]));
   const reviewableChecks = (task.fileChecks || []).filter(requiresScaledOutput);
@@ -2234,7 +2324,8 @@ async function submitQc(taskId, payload = {}, authContext) {
       };
     });
     const updated = await commitProductionMutation({
-      task, filter: { qcStatus: task.qcStatus || null, fileChecks: task.fileChecks || [] },
+      task, filter: { qcStatus: task.qcStatus || null, fileChecks: task.fileChecks || [],
+        assignedDesignUserId: task.assignedDesignUserId || null, csAssigneeId: task.csAssigneeId || null },
       patch: {
         fileChecks,
         status: productionTaskStatuses.QC_REJECTED,
@@ -2281,7 +2372,8 @@ async function submitQc(taskId, payload = {}, authContext) {
     };
   });
   const updated = await commitProductionMutation({
-    task, filter: { qcStatus: task.qcStatus || null, fileChecks: task.fileChecks || [] },
+    task, filter: { qcStatus: task.qcStatus || null, fileChecks: task.fileChecks || [],
+      assignedDesignUserId: task.assignedDesignUserId || null, csAssigneeId: task.csAssigneeId || null },
     patch: {
       fileChecks,
       status: productionTaskStatuses.READY_TO_SEND_VENDOR,
@@ -2546,7 +2638,7 @@ async function exportTasksCsv(query = {}, authContext) {
 
 async function exportQcTasksExcel(query = {}, authContext) {
   const normalizedQuery = await withVariantScaleDifficultyFilter(normalizeListQuery(query));
-  const scopedQuery = await applyReadScope(normalizedQuery, authContext);
+  const scopedQuery = await applyReadScope({ ...normalizedQuery, view: 'QC' }, authContext);
   const headers = ['Task ID', 'Shop', 'Order ID', 'SKU', 'Title', 'QC Status', 'Production Status', 'Scale Status', 'Order Date', 'Shipping Type', 'Fulfill Name', 'Seller', 'Vendor Submission'];
 
   if (!scopedQuery) {
@@ -2668,6 +2760,7 @@ const productionTaskService = {
   bulkAssignDesignTasks,
   bulkPushVendor,
   canReadTaskById,
+  canReadAssignedTaskInputAsset,
   claimDesignTask,
   createOrRecheckTaskForOrderItem,
   exportTasksCsv,

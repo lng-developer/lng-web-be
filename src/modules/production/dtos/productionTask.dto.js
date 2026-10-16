@@ -421,6 +421,8 @@ function commonTaskFields(task = {}) {
   return {
     shopId: toId(task.shopId),
     shopName: shop?.name || null,
+    designType: task.designType || null,
+    designTypeSource: task.designTypeSource || null,
     shop,
     salesChannelCode,
     marketplaceCode,
@@ -554,6 +556,8 @@ function toQcTaskSummaryDto(task) {
     blockers: task.blockers || [],
     fulfillQty: task.fulfillQty,
     qcPreviewFileChecks: (task.fileChecks || []).map(toQcFileCheckDto),
+    assignedDesignUserId: toId(task.assignedDesignUserId),
+    csAssigneeId: toId(task.csAssigneeId),
     ...(assignedDesigner ? { assignedDesigner } : {}),
     designNote: task.designNote || null,
     csNote: task.csNote || null,

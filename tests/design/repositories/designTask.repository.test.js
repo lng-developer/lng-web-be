@@ -1,7 +1,9 @@
 const mockAggregate = jest.fn();
+const mockFindOneAndUpdate = jest.fn();
 
 jest.mock('../../../src/modules/design/models/designTask.model', () => ({
   aggregate: mockAggregate,
+  findOneAndUpdate: mockFindOneAndUpdate,
 }));
 
 const mongoose = require('mongoose');
@@ -10,6 +12,19 @@ const repository = require('../../../src/modules/design/repositories/designTask.
 describe('designTask.repository', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  test('conditional updates match the observed status and recipient atomically', async () => {
+    mockFindOneAndUpdate.mockReturnValue({ lean: async () => null });
+    const result = await repository.updateById('task', { status: 'IN_PROGRESS' }, {
+      status: 'ASSIGNED', assignedDesignerId: 'member-a',
+    });
+    expect(result).toBeNull();
+    expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+      { _id: 'task', status: 'ASSIGNED', assignedDesignerId: 'member-a' },
+      { $set: { status: 'IN_PROGRESS' } },
+      expect.objectContaining({ runValidators: true }),
+    );
   });
 
   test('buildFilter supports UI search, dates, priority, and listing PSD status', () => {

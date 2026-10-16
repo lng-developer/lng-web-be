@@ -112,6 +112,8 @@ test('registers department/team scoped operating roles', () => {
 });
 
 test('separates scale work, scale assignment, and QC review from production administration', () => {
+  expect(rolePermissions[roleCodes.DESIGN_LEADER]).toContain('PRODUCTION:SCALE_ASSIGN');
+  expect(rolePermissions[roleCodes.DESIGN_LEADER]).not.toContain('PRODUCTION:WRITE');
   expect(permissions).toEqual(expect.arrayContaining([
     'PRODUCTION:SCALE_WORK',
     'PRODUCTION:SCALE_ASSIGN',
@@ -143,7 +145,7 @@ test('persists each required HR foundation permission exactly once', async () =>
     .toEqual([...requiredHrPermissions].sort());
 });
 
-test('grants leaders team rotation read/write permissions without broader schedule write', async () => {
+test('grants leaders HR visibility without calendar or schedule administration', async () => {
   persistedPermissions.length = 0;
   persistedRoles.length = 0;
   await seedRbac();
@@ -152,9 +154,22 @@ test('grants leaders team rotation read/write permissions without broader schedu
   const leader = persistedRoles.find((role) => role.code === roleCodes.LEADER);
   expect(manager.permissions).toContain('permission:HR_CALENDAR:READ');
   expect(leader.permissions).toContain('permission:HR_CALENDAR:READ');
-  expect(leader.permissions).toContain('permission:HR_CALENDAR:WRITE');
+  expect(leader.permissions).not.toContain('permission:HR_CALENDAR:WRITE');
   expect(manager.permissions).not.toContain('permission:HR_CALENDAR:WRITE');
   expect(leader.permissions).not.toContain('permission:HR_SCHEDULE:WRITE');
+});
+
+test('leader grants allow team HR but not Portal access; Sales retains team reports', () => {
+  const { canAccessScope, authorizeAnyPermission } = require('../../../src/modules/auth/middlewares/authorization');
+  const ctx = { permissions: [], scopes: [{ scopeType: 'team', scopeId: 'design-team', permissions: rolePermissions.LEADER }] };
+  expect(canAccessScope(ctx, 'HR_LEAVE:APPROVE', { scopeType: 'team', scopeId: 'design-team' })).toBe(true);
+  expect(canAccessScope(ctx, 'HR_LEAVE:APPROVE', { scopeType: 'team', scopeId: 'other-team' })).toBe(false);
+  for (const permission of ['CATALOG:READ', 'MAPPING:READ', 'MEDIA:READ', 'PRODUCTION:READ', 'SHOPS:READ', 'VENDORS:READ', 'REPORTS:READ', 'HR_CALENDAR:WRITE', 'HR_PAYROLL:READ']) {
+    const next = jest.fn();
+    authorizeAnyPermission(permission)({ auth: ctx }, {}, next);
+    expect(next.mock.calls[0][0]).toBeInstanceOf(Error);
+  }
+  expect(canAccessScope({ permissions: [], scopes: [{ scopeType: 'team', scopeId: 'sales-team', permissions: rolePermissions.SALES_LEADER }] }, 'REPORTS:READ', { scopeType: 'team', scopeId: 'sales-team' })).toBe(true);
 });
 
 test('grants scoped leaders request decision permissions', () => {

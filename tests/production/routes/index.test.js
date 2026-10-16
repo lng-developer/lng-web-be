@@ -13,10 +13,12 @@ jest.mock('../../../src/modules/order/public', () => ({
 
 jest.mock('../../../src/modules/auth/public', () => ({
   authenticate: (req, res, next) => {
-    req.auth = { permissions: ['PRODUCTION:READ', 'PRODUCTION:WRITE'], scopes: [] };
+    req.auth = { permissions: req.headers['x-test-permission'] ? [req.headers['x-test-permission']] : ['PRODUCTION:READ', 'PRODUCTION:WRITE'], scopes: [] };
     next();
   },
-  authorizeAnyPermission: () => (req, res, next) => next(),
+  authorizeAnyPermission: (...permissions) => (req, res, next) => (
+    permissions.some(permission => req.auth.permissions.includes(permission)) ? next() : res.status(403).json({ success: false })
+  ),
 }));
 
 function createTestServer() {
@@ -78,6 +80,18 @@ describe('production routes', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  test('Designer passes the upload and submit route gates for task-level authorization', async () => {
+    service.uploadScaledFile.mockResolvedValue({ id: taskId });
+    service.submitScaleForQc.mockResolvedValue({ id: taskId });
+    for (const [path, body] of [
+      [`/tasks/${taskId}/file-checks/${fileCheckId}/scaled-output`, { mediaAssetId }],
+      [`/tasks/${taskId}/submit-scale-qc`, {}],
+    ]) {
+      const response = await request(createTestServer(), { method: 'PATCH', path, body, headers: { 'x-test-permission': 'DESIGN:WORK' } });
+      expect(response.statusCode).toBe(200);
+    }
   });
 
   test('GET order item task returns production task dto', async () => {

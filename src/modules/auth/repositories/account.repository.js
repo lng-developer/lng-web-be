@@ -453,7 +453,7 @@ async function writeCachedAuthorization(accountId, authorization) {
   }
 }
 
-async function deleteCachedAuthorization(accountId) {
+async function deleteCachedAuthorization(accountId, { strict = false } = {}) {
   if (!config.redis.enabled) {
     return;
   }
@@ -463,6 +463,7 @@ async function deleteCachedAuthorization(accountId) {
     await redis.del(getPermissionCacheKey(accountId));
   } catch (error) {
     logger.warn('auth_permission_cache_delete_failed', { accountId: String(accountId), error });
+    if (strict) throw error;
   }
 }
 

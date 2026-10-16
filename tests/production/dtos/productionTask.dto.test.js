@@ -147,6 +147,16 @@ describe('productionTask.dto', () => {
     ]);
   });
 
+  test('QC summary retains assignee identity for legacy self-review protection', () => {
+    expect(toQcTaskSummaryDto({
+      _id: 'task', assignedDesignUserId: 'designer', csAssigneeId: 'worker',
+      fileChecks: [{ outputAssetId: 'asset', outputWorkerId: null }],
+    })).toMatchObject({
+      assignedDesignUserId: 'designer', csAssigneeId: 'worker',
+      qcPreviewFileChecks: [expect.objectContaining({ outputWorkerId: null })],
+    });
+  });
+
   test('summary task exposes the same workflow stage as the order workbench', () => {
     const dto = toProductionTaskSummaryDto({
       _id: '660000000000000000100001',

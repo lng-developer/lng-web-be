@@ -1000,8 +1000,8 @@ async function setInitialPassword(accountId, { newPassword }, httpContext = {}) 
   });
 }
 
-async function invalidatePermissionCache(accountId) {
-  await accountRepository.invalidatePermissionCache(accountId);
+async function invalidatePermissionCache(accountId, options) {
+  await accountRepository.invalidatePermissionCache(accountId, options);
 }
 
 async function filterAssignableAccountIds(accountIds = [], requiredPermission) {

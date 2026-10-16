@@ -10,6 +10,19 @@ const ProductionTask = require('../../../src/modules/production/models/productio
 const repository = require('../../../src/modules/production/repositories/productionTask.repository');
 
 describe('productionTask.repository', () => {
+  test('input lookup intersects exact asset references with current assignee', async () => {
+    const chain = { select: jest.fn().mockReturnThis(), lean: jest.fn().mockResolvedValue(null) };
+    ProductionTask.findOne.mockReturnValueOnce(chain);
+    await expect(repository.findAssignedTaskReferencingInputAsset('asset', 'designer')).resolves.toBeNull();
+    expect(ProductionTask.findOne).toHaveBeenCalledWith({ assignedDesignUserId: 'designer', $or: [
+      { 'fileChecks.inputAssetId': 'asset' },
+      { 'listingSnapshot.psdTemplateAssetId': 'asset' },
+      { 'customizationSnapshot.customerInputs.images.assetId': 'asset' },
+      { 'customizationSnapshot.imageAssets.assetId': 'asset' },
+    ] });
+    expect(chain.select).toHaveBeenCalledWith('_id');
+    expect(chain.lean).toHaveBeenCalled();
+  });
   beforeEach(() => {
     jest.clearAllMocks();
   });
@@ -26,6 +39,47 @@ describe('productionTask.repository', () => {
     ProductionTask.countDocuments.mockResolvedValue(items.length);
     return chain;
   }
+
+  test('type filter is shared by pagination, totals and export; PNG includes its full lifecycle', async () => {
+    mockFind();
+    ProductionTask.aggregate.mockResolvedValue([]);
+    const query = { view: 'SCALE', designType: 'CUSTOM_IMAGE', assignedDesignUserId: null };
+    await repository.list(query);
+    const filter = ProductionTask.find.mock.calls[0][0];
+    expect(filter).toMatchObject({ designType: 'CUSTOM_IMAGE', assignedDesignUserId: null });
+    expect(filter.status).toBeUndefined();
+    expect(ProductionTask.countDocuments).toHaveBeenCalledWith(filter);
+    await repository.summarize(query);
+    expect(ProductionTask.aggregate.mock.calls[0][0][0].$match).toEqual(filter);
+    await repository.listForExport(query);
+    expect(ProductionTask.find).toHaveBeenLastCalledWith(filter);
+  });
+
+  test('QC team restriction intersects search and is reused for totals and export', async () => {
+    mockFind();
+    const member = '660000000000000000000201';
+    await repository.list({ view: 'QC', qcTeamAccountIds: [member], search: 'napkin' });
+    const filter = ProductionTask.find.mock.calls[0][0];
+    const memberId = new (require('mongoose').Types.ObjectId)(member);
+    expect(filter.qcStatus).toBe('PENDING');
+    expect(filter.$and).toContainEqual({ $or: [
+      { assignedDesignUserId: { $in: [memberId] } },
+      { csAssigneeId: { $in: [memberId] } },
+      { 'fileChecks.outputWorkerId': { $in: [memberId] } },
+    ] });
+    expect(ProductionTask.countDocuments).toHaveBeenCalledWith(filter);
+    await repository.listForExport({ view: 'QC', qcTeamAccountIds: [member], search: 'napkin' });
+    expect(ProductionTask.find).toHaveBeenLastCalledWith(filter);
+  });
+
+  test('QC team aggregation uses BSON identities rather than uncast string ids', async () => {
+    ProductionTask.aggregate.mockResolvedValueOnce([]);
+    await repository.summarizeQueueCounts({ view: 'QC', qcTeamAccountIds: ['660000000000000000000201'] });
+    const match = ProductionTask.aggregate.mock.calls[0][0][0].$match;
+    const id = match.$or[0].assignedDesignUserId.$in[0];
+    expect(id).toBeInstanceOf(require('mongoose').Types.ObjectId);
+    expect(String(id)).toBe('660000000000000000000201');
+  });
 
   test('list builds filters, search query, and pagination', async () => {
     const chain = mockFind([{ _id: 'task-1' }]);
@@ -120,6 +174,17 @@ describe('productionTask.repository', () => {
       runValidators: true,
     });
     expect(result).toEqual({ _id: 'task-1', status: 'QC_PENDING' });
+  });
+
+  test('Designer upload and slot creation atomically require the expected assignee', async () => {
+    ProductionTask.findOneAndUpdate.mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
+    const options = { assignedDesignUserId: '660000000000000000000201' };
+    await repository.appendFileCheckIfMutable('task-1', { slotKey: 'FRONT' }, options);
+    await repository.updateFileCheckOutputIfMutable('task-1', 'check-1', {}, { outputAssetId: 'asset-1' }, options);
+    for (const [filter] of ProductionTask.findOneAndUpdate.mock.calls) {
+      expect(filter.assignedDesignUserId).toBe(options.assignedDesignUserId);
+      expect(filter.status.$nin).toContain('CANCELLED');
+    }
   });
 
   test('findByOrderItem joins the caller transaction', async () => {

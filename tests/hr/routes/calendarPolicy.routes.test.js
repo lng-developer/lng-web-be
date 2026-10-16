@@ -132,7 +132,7 @@ describe('calendar policy routes', () => {
     expect(response.body.success).toBe(false);
   });
 
-  test('team-scoped calendar write can create a rotation for its team', async () => {
+  test.each(['HR_CALENDAR:WRITE', 'HR_SATURDAY_ROTATION:WRITE'])('team-scoped %s can create a rotation for its team', async (permission) => {
     const response = await request({
       method: 'POST',
       path: '/saturday-rotations',
@@ -141,7 +141,7 @@ describe('calendar policy routes', () => {
         scopes: [{
           scopeType: 'team',
           scopeId: '507f1f77bcf86cd799439012',
-          permissions: ['HR_CALENDAR:WRITE'],
+          permissions: [permission],
         }],
       },
       body: { teamId: '507f1f77bcf86cd799439012', dateKey: '2026-09-05', employeeProfileIds: [] },
