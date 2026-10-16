@@ -987,10 +987,15 @@ async function listActiveVendorProductsByVendor(vendorId, { productTypeGroupId }
 }
 
 async function getVendorProductOptions(productId, { size, color } = {}) {
-  const [, rows] = await Promise.all([
+  const [, costCenters] = await Promise.all([
     assertActiveVendorProduct(productId),
     costCenterRepository.listOptionsByProduct(productId),
   ]);
+  const rows = costCenters.map((row) => ({
+    ...row,
+    standardSize: row.standardSize || row.vendorSize || null,
+    standardColor: row.standardColor || row.vendorColor || null,
+  }));
   const hasSize = rows.some((row) => Boolean(row.standardSize));
   const hasColor = rows.some((row) => Boolean(row.standardColor));
   const selectionComplete = (!hasSize || Boolean(size)) && (!hasColor || Boolean(color));

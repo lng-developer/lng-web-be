@@ -6,6 +6,14 @@ describe('vendorCostCenter.repository', () => {
     jest.restoreAllMocks();
   });
 
+  test('option queries include vendor dimensions for fallback matching', async () => {
+    const query = VendorCostCenter.find();
+    jest.spyOn(VendorCostCenter, 'find').mockReturnValue(query);
+    jest.spyOn(query, 'lean').mockResolvedValue([]);
+    await repository.listOptionsByProduct('660000000000000000000601');
+    expect(query.projection()).toMatchObject({ vendorSize: 1, vendorColor: 1, standardSize: 1, standardColor: 1 });
+  });
+
   test('atomically increments the persisted mutation version on update', async () => {
     const costCenterId = '660000000000000000000701';
     const lean = jest.fn().mockResolvedValue({ _id: costCenterId, __v: 5 });
