@@ -445,6 +445,32 @@ describe('vendor.service', () => {
     });
   });
 
+  test('product options use vendor dimensions when standard dimensions are missing', async () => {
+    costCenterRepository.listOptionsByProduct.mockResolvedValue([
+      { _id: costCenterId, vendorSize: '3,5 in', standardSize: null, vendorColor: null, standardColor: null },
+      { _id: 'other', vendorSize: '1,9 in', standardSize: '', vendorColor: null },
+    ]);
+    const result = await service.getVendorProductOptions(productId, { size: '3,5 in' });
+    expect(result.dimensions).toEqual({ hasSize: true, hasColor: false });
+    expect(result.options).toEqual({ sizes: ['1,9 in', '3,5 in'], colors: [] });
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({ id: costCenterId, size: '3,5 in', color: null });
+    expect(result.allCandidates).toHaveLength(2);
+  });
+
+  test('product options prefer standard dimensions and filter vendor color fallbacks consistently', async () => {
+    costCenterRepository.listOptionsByProduct.mockResolvedValue([
+      { _id: costCenterId, standardSize: 'M', vendorSize: 'Medium', standardColor: 'Black', vendorColor: 'BK' },
+      { _id: 'other', vendorSize: 'L', vendorColor: 'Red' },
+    ]);
+    const result = await service.getVendorProductOptions(productId, { size: 'L', color: 'Red' });
+    expect(result.dimensions).toEqual({ hasSize: true, hasColor: true });
+    expect(result.options).toEqual({ sizes: ['L'], colors: ['Red'] });
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({ id: 'other', size: 'L', color: 'Red' });
+    expect(result.allCandidates[0]).toMatchObject({ size: 'M', color: 'Black' });
+  });
+
   test('updateVendorIntegrationConfig stores encrypted secrets and returns masked DTO', async () => {
     let storedConfig;
     integrationRepository.upsertByVendorAndProvider.mockImplementation(async (payload) => {

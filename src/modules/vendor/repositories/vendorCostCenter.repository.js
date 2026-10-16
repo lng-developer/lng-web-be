@@ -130,7 +130,7 @@ async function listOptionsByProduct(vendorProductId) {
     vendorProductId,
     status: recordStatuses.ACTIVE,
   })
-    .select('code sku standardSize standardColor baseCostAmount currency')
+    .select('code sku standardSize standardColor vendorSize vendorColor baseCostAmount currency')
     .sort({ code: 1, _id: 1 })
     .lean();
 }
