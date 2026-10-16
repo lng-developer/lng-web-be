@@ -14,7 +14,7 @@ async function enqueueFulfillmentSideEffects(payload) {
   if (!config.redis.enabled) return { queued: false };
   try {
     await getQueue().add('apply', payload, {
-      jobId: `fulfillment-side-effects:${payload.orderItemId}`,
+      jobId: `fulfillment-side-effects-${payload.orderItemId}`,
       attempts: 3,
       backoff: { type: 'exponential', delay: 1000 },
       removeOnComplete: true,
