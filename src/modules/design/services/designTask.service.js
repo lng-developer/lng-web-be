@@ -154,6 +154,7 @@ function hasPsdRequesterPermission(authContext = {}) {
 
 async function getPsdRequesterAccountIds(authContext = {}) {
   if (!authContext.accountId || !hasPsdRequesterPermission(authContext)) return [];
+  if (authPublic.personalSellerAccountId?.(authContext)) return [String(authContext.accountId)];
   if (!hasTeamScopedPermission(authContext, designPermissions.PSD_REQUEST)) {
     return [String(authContext.accountId)];
   }
@@ -171,6 +172,13 @@ async function assertCanAccessPsdRequesterTask(task, authContext = {}) {
 }
 
 async function assertCanReadTask(task, authContext = {}) {
+  if (authPublic.personalSellerAccountId?.(authContext)) {
+    const scope = await sellerPsdScope(authContext);
+    if (task.taskType !== designTaskTypes.PSD_TEMPLATE || !scope
+      || (String(task.requestedByAccountId) !== scope.sellerRequestedByAccountId
+        && !scope.sellerListingIds.map(String).includes(String(task.listingId)))) throw forbidden();
+    return;
+  }
   if (hasFullRead(authContext)) {
     assertCanAccessShopAny(task.shopId, DESIGN_READ_SCOPE_PERMISSIONS, authContext);
     return;
@@ -207,6 +215,9 @@ function assertCanCreatePsdTask(listing, payload = {}, authContext = {}) {
 }
 
 async function assertCanReviewTask(task, authContext = {}) {
+  if (authPublic.personalSellerAccountId?.(authContext)
+    && !hasExplicitPermission(authContext, designPermissions.REVIEW)
+    && !hasExplicitPermission(authContext, designPermissions.WRITE)) throw forbidden();
   if (hasPermission(authContext, designPermissions.REVIEW)) {
     assertCanAccessShopAny(task.shopId, [designPermissions.REVIEW, designPermissions.WRITE], authContext);
     return;
@@ -214,8 +225,20 @@ async function assertCanReviewTask(task, authContext = {}) {
   await assertCanAccessPsdRequesterTask(task, authContext);
 }
 
+async function sellerPsdScope(authContext) {
+  const accountId = authPublic.personalSellerAccountId?.(authContext);
+  if (!accountId) return null;
+  if (!hasExplicitPermission(authContext, designPermissions.READ) && !hasPsdRequesterPermission(authContext)) throw forbidden();
+  const profile = await hrPublic.getEmployeeProfileByAccountId(accountId);
+  const code = String(profile?.employeeCode || '').trim().toUpperCase();
+  return { sellerRequestedByAccountId: accountId,
+    sellerListingIds: code ? await catalogPublic.findListingIdsBySellerCode(code) : [] };
+}
+
 async function applyReadAccessFilter(query = {}, authContext = {}) {
   const normalizedQuery = normalizeQueryAliases(query);
+  const sellerScope = await sellerPsdScope(authContext);
+  if (sellerScope) return { ...normalizedQuery, ...sellerScope, taskType: designTaskTypes.PSD_TEMPLATE };
   if (hasFullRead(authContext)) {
     if (normalizedQuery.shopId) {
       assertCanAccessShopAny(normalizedQuery.shopId, DESIGN_READ_SCOPE_PERMISSIONS, authContext);
@@ -516,8 +539,9 @@ function updateSubmission(submissions = [], target, patch = {}) {
 }
 
 async function listTasks(query = {}, authContext) {
-  const result = await repository.list(await applyOrderIdFilter(await applyReadAccessFilter(query, authContext)));
-  if (authContext) {
+  const scopedQuery = await applyOrderIdFilter(await applyReadAccessFilter(query, authContext));
+  const result = await repository.list(scopedQuery);
+  if (authContext && !scopedQuery.sellerRequestedByAccountId) {
     await Promise.all(result.items.map((task) => assertCanReadTask(task, authContext)));
   }
   return toPaginatedResponse({
@@ -1465,7 +1489,15 @@ async function cancelTask(taskId, payload = {}, authContext) {
   return toDesignTaskDto(updated, { detail: true });
 }
 
+async function canReadSellerAsset(assetId, authContext) {
+  if (!hasExplicitPermission(authContext, designPermissions.READ) && !hasPsdRequesterPermission(authContext)) return false;
+  const scope = await sellerPsdScope(authContext);
+  if (!scope) return false;
+  return Boolean(await repository.findTaskReferencingAsset(assetId, { ...scope, taskType: designTaskTypes.PSD_TEMPLATE }));
+}
+
 module.exports = {
+  canReadSellerAsset,
   approveTask,
   assignTask,
   bulkAssignTasks,

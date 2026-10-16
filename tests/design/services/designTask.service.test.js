@@ -1,4 +1,5 @@
 jest.mock('../../../src/modules/catalog/public', () => ({
+  findListingIdsBySellerCode: jest.fn(),
   getListingsByIds: jest.fn().mockResolvedValue([]),
   getInternalTemplateById: jest.fn(),
   getListingById: jest.fn(),
@@ -27,6 +28,7 @@ jest.mock('../../../src/modules/mapping/public', () => ({
 }));
 
 jest.mock('../../../src/modules/auth/public', () => ({
+  personalSellerAccountId: require('../../../src/modules/auth/services/sellerAccess.service').personalSellerAccountId,
   canAccessScope: jest.fn(),
   listAccountIdsByScopes: jest.fn(),
   listTeamScopedAccountIds: jest.fn(),
@@ -34,6 +36,7 @@ jest.mock('../../../src/modules/auth/public', () => ({
 }));
 
 jest.mock('../../../src/modules/hr/public', () => ({
+  getEmployeeProfileByAccountId: jest.fn(),
   listAssignableProfiles: jest.fn(),
   listEmployeeProfilesByAccountIds: jest.fn(),
 }));
@@ -88,6 +91,20 @@ const notificationPublic = require('../../../src/modules/notification/public');
 const service = require('../../../src/modules/design/services/designTask.service');
 
 describe('designTask.service', () => {
+  test('Seller PSD reads use own requester or owned listings, never the whole team', async () => {
+    const auth = { accountId: 'seller-a', scopes: [{ roles: ['SALES'], scopeType: 'team', permissions: ['DESIGN:READ', 'DESIGN:PSD_REQUEST'] }] };
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ employeeCode: 'J2502' });
+    catalogPublic.findListingIdsBySellerCode.mockResolvedValue(['own-listing']);
+    repository.list.mockResolvedValue({ items: [], total: 0 });
+    await service.listTasks({}, auth);
+    expect(repository.list).toHaveBeenLastCalledWith(expect.objectContaining({
+      sellerRequestedByAccountId: 'seller-a', sellerListingIds: ['own-listing'], taskType: 'PSD_TEMPLATE',
+    }));
+    repository.findById.mockResolvedValue({ _id: '660000000000000000510001', taskType: 'PSD_TEMPLATE', listingId: 'other-listing', requestedByAccountId: 'seller-b' });
+    await expect(service.getTask('660000000000000000510001', auth)).rejects.toMatchObject({ statusCode: 403 });
+    repository.findById.mockResolvedValue({ _id: '660000000000000000510001', taskType: 'PSD_TEMPLATE', listingId: 'own-listing', requestedByAccountId: 'seller-a', status: 'SUBMITTED', submittedAssetIds: ['asset'] });
+    await expect(service.approveTask('660000000000000000510001', { approvedAssetId: 'asset' }, auth)).rejects.toMatchObject({ statusCode: 403 });
+  });
   const taskId = '660000000000000000510001';
   const listingId = '660000000000000000510002';
   const shopId = '660000000000000000510003';

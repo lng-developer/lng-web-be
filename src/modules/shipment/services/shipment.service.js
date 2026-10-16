@@ -99,7 +99,18 @@ function scopedShopIds(authContext = {}, permission) {
     .map((scope) => String(scope.scopeId)))];
 }
 
-function scopedReadQuery(query = {}, authContext = {}) {
+async function assertCanReadShipment(shipment, authContext) {
+  const ids = await orderPublic.personalSellerItemIds?.(authContext, shipmentPermissions.READ);
+  if (ids !== undefined) {
+    if (!ids.map(String).includes(String(shipment.orderItemId))) throw forbidden();
+    return;
+  }
+  assertCanAccessShop(shipment.shopId, shipmentPermissions.READ, authContext);
+}
+
+async function scopedReadQuery(query = {}, authContext = {}) {
+  const sellerOrderItemIds = await orderPublic.personalSellerItemIds?.(authContext, shipmentPermissions.READ);
+  if (sellerOrderItemIds !== undefined) return { ...query, sellerOrderItemIds };
   if (authContext?.system) return query;
   if (query.shopId) {
     assertCanAccessShop(query.shopId, shipmentPermissions.READ, authContext);
@@ -288,7 +299,7 @@ async function markOrderDeliveredWhenComplete(shipment, deliveredAt) {
 }
 
 async function listShipments(query = {}, authContext) {
-  const scopedQuery = authContext ? scopedReadQuery(query, authContext) : query;
+  const scopedQuery = authContext ? await scopedReadQuery(query, authContext) : query;
   if (!scopedQuery) {
     return toPaginatedResponse({
       items: [],
@@ -339,7 +350,7 @@ async function exportShipmentsCsv(query = {}, authContext) {
 
 async function getShipment(shipmentId, authContext) {
   const shipment = await loadShipment(shipmentId);
-  assertCanAccessShop(shipment.shopId, shipmentPermissions.READ, authContext);
+  await assertCanReadShipment(shipment, authContext);
   return toShipmentDto(shipment);
 }
 
@@ -347,7 +358,7 @@ async function getShipmentByOrderItem(orderItemId, authContext) {
   assertValidObjectId(orderItemId, 'orderItemId');
   const shipment = await repository.findByOrderItem(orderItemId);
   if (!shipment) return null;
-  assertCanAccessShop(shipment.shopId, shipmentPermissions.READ, authContext);
+  await assertCanReadShipment(shipment, authContext);
   return toShipmentDto(shipment);
 }
 
@@ -781,13 +792,13 @@ async function listSummariesByOrderItemIds(orderItemIds = [], authContext) {
   uniqueIds.forEach((orderItemId) => assertValidObjectId(orderItemId, 'orderItemId'));
   const shipments = await repository.listByOrderItemIds(uniqueIds);
   if (authContext) {
-    shipments.forEach((shipment) => assertCanAccessShop(shipment.shopId, shipmentPermissions.READ, authContext));
+    await Promise.all(shipments.map(shipment => assertCanReadShipment(shipment, authContext)));
   }
   return shipments.map(toShipmentSummaryDto);
 }
 
 async function summarizeShipments(query = {}, authContext) {
-  const scopedQuery = scopedReadQuery(query, authContext);
+  const scopedQuery = await scopedReadQuery(query, authContext);
   if (!scopedQuery) {
     return {
       total: 0,

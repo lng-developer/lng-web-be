@@ -2,6 +2,7 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { financePermissions } = require('../constants/finance.constants');
+const authPublic = require('../../auth/public');
 
 function hasGlobal(auth = {}, permission) {
   if (auth.system || auth.worker || auth.import) return true;
@@ -17,6 +18,11 @@ function scopeHas(scope, permission) {
 }
 
 function accessConditions(auth = {}, permission = financePermissions.READ) {
+  const sellerAccountId = authPublic.personalSellerAccountId?.(auth);
+  if (sellerAccountId) {
+    const allowed = (auth.permissions || []).includes(permission) || (auth.scopes || []).some(scope => scopeHas(scope, permission));
+    return allowed ? [{ sellerAccountId }] : [];
+  }
   if (hasGlobal(auth, permission)) return null;
   const conditions = (auth.scopes || []).filter((scope) => scopeHas(scope, permission)).flatMap((scope) => {
     if (scope.scopeType === 'shop' && scope.scopeId) return [{ shopId: String(scope.scopeId) }];
@@ -36,6 +42,7 @@ function scopedQuery(query = {}, auth, permission = financePermissions.READ) {
 }
 
 function settlementScopedQuery(query = {}, auth, permission = financePermissions.READ) {
+  if (authPublic.personalSellerAccountId?.(auth)) return { ...query, shopIds: [] };
   if (hasGlobal(auth, permission)) return query;
   const shopIds = (auth.scopes || [])
     .filter((scope) => scope.scopeType === 'shop' && scope.scopeId && scopeHas(scope, permission))
@@ -44,6 +51,7 @@ function settlementScopedQuery(query = {}, auth, permission = financePermissions
 }
 
 function accessibleShopIds(auth = {}, permission = financePermissions.READ) {
+  if (authPublic.personalSellerAccountId?.(auth)) return [];
   if (hasGlobal(auth, permission)) return null;
   return (auth.scopes || [])
     .filter((scope) => scope.scopeType === 'shop' && scopeHas(scope, permission) && scope.scopeId)

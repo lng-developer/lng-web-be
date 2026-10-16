@@ -1,6 +1,7 @@
 const productionTaskService = require('./services/productionTask.service');
 
 const publicPort = {
+  canReadSellerTaskAsset: productionTaskService.canReadSellerTaskAsset,
   assignCsTask: productionTaskService.assignCsTask,
   assignDesignTask: productionTaskService.assignDesignTask,
   bulkAssignDesignTasks: productionTaskService.bulkAssignDesignTasks,

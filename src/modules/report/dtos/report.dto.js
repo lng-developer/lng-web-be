@@ -198,7 +198,7 @@ function toAdsChannelPerformanceDto(row = {}) {
   const clicks = numberValue(row.clicks);
   const impressions = numberValue(row.impressions);
   const attributedOrdersCount = numberValue(row.attributedOrdersCount);
-  const newBuyerCount = numberValue(row.newBuyerCount);
+  const newBuyerCount = row.newBuyerCount === null ? null : numberValue(row.newBuyerCount);
   return {
     salesChannelCode: row.salesChannelCode || null,
     marketplaceCode: row.marketplaceCode || null,

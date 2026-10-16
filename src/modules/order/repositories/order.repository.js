@@ -398,6 +398,11 @@ function listPipeline({
     { $skip: getPaginationOffset({ page, limit }) },
     { $limit: limit },
     ...(matching.some((stage) => stage.$lookup) ? [] : [itemsLookupStage({ projectItems })]),
+    ...(employeeCode ? [{ $set: { items: { $filter: {
+      input: '$items', as: 'sellerItem', cond: { $regexMatch: {
+        input: { $ifNull: ['$$sellerItem.sku', ''] }, regex: `^${escapeRegex(employeeCode)}-`, options: 'i',
+      } },
+    } } } }] : []),
     {
       $addFields: {
         itemsCount: { $size: '$items' },

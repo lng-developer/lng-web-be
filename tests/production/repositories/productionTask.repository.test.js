@@ -10,6 +10,14 @@ const ProductionTask = require('../../../src/modules/production/models/productio
 const repository = require('../../../src/modules/production/repositories/productionTask.repository');
 
 describe('productionTask.repository', () => {
+  test('Seller asset lookup requires both an owned item and a matching input or output asset', async () => {
+    const chain = { select: jest.fn().mockReturnThis(), lean: jest.fn().mockResolvedValue(null) };
+    ProductionTask.findOne.mockReturnValueOnce(chain);
+    await expect(repository.findSellerTaskReferencingAsset('asset-a', ['item-a'])).resolves.toBeNull();
+    expect(ProductionTask.findOne).toHaveBeenCalledWith(expect.objectContaining({ orderItemId: { $in: ['item-a'] },
+      $or: expect.arrayContaining([{ 'fileChecks.inputAssetId': 'asset-a' }, { 'fileChecks.outputAssetId': 'asset-a' }]),
+    }));
+  });
   test('input lookup intersects exact asset references with current assignee', async () => {
     const chain = { select: jest.fn().mockReturnThis(), lean: jest.fn().mockResolvedValue(null) };
     ProductionTask.findOne.mockReturnValueOnce(chain);

@@ -4,6 +4,7 @@ const logger = require('../../../shared/utils/logger');
 const mediaPublic = require('../../media/public');
 const shopPublic = require('../../shop/public');
 const hrPublic = require('../../hr/public');
+const authPublic = require('../../auth/public');
 const listingRepository = require('../repositories/listing.repository');
 const listingVariantRepository = require('../repositories/listingVariant.repository');
 const productTypeGroupRepository = require('../repositories/productTypeGroup.repository');
@@ -558,10 +559,16 @@ async function exportListingsCsv(query = {}, authContext = {}) {
 }
 
 function canReadCatalogOverview(authContext = {}) {
+  if (authPublic.personalSellerAccountId?.(authContext)) return false;
   return authContext.system === true || hasGlobalPermission(authContext, CATALOG_READ);
 }
 
 async function getAssignedListingIds(authContext = {}) {
+  const sellerAccountId = authPublic.personalSellerAccountId?.(authContext);
+  if (sellerAccountId) {
+    const profile = await hrPublic.getEmployeeProfileByAccountId(sellerAccountId);
+    return listingRepository.findIdsBySellerCode(String(profile?.employeeCode || '').trim().toUpperCase());
+  }
   const accountIds = await getCatalogReadAccountIds(authContext);
   if (!accountIds.length) return [];
   const orderPublic = getOrderPublic();
@@ -657,6 +664,7 @@ async function requestListingPsd(listingId, payload = {}, authContext = {}) {
 }
 
 async function canReadListing(listing, authContext = {}) {
+  if (authPublic.personalSellerAccountId?.(authContext)) return canReadAssignedListing(listing, authContext);
   try {
     assertCanAccessShop(listing.shopId, CATALOG_READ, authContext);
     return true;
@@ -1001,7 +1009,22 @@ async function findOrCreateDraftListingForOrderItem(payload = {}, authContext = 
   }
 }
 
+async function canReadSellerAsset(assetId, authContext) {
+  const accountId = authPublic.personalSellerAccountId?.(authContext);
+  if (!accountId) return false;
+  const permissions = [...(authContext.permissions || []), ...(authContext.scopes || []).flatMap(scope => scope.permissions || [])];
+  if (!permissions.includes(CATALOG_READ) && !permissions.includes('DESIGN:PSD_REQUEST')) return false;
+  const profile = await hrPublic.getEmployeeProfileByAccountId(accountId);
+  const code = String(profile?.employeeCode || '').trim().toUpperCase();
+  if (!code) return false;
+  const ids = await listingRepository.findIdsBySellerCode(code);
+  if (!ids.length) return false;
+  return Boolean(await listingRepository.findAssetReference(assetId, ids)
+    || await listingVariantRepository.findAssetReference(assetId, ids));
+}
+
 module.exports = {
+  canReadSellerAsset,
   fillEtsyListingImage,
   assertPsdAssetShape,
   getListingOptions,

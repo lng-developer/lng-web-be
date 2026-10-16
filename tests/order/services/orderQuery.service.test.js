@@ -22,11 +22,13 @@ jest.mock('../../../src/modules/order/repositories/orderWorkbenchProjection.repo
 }));
 
 jest.mock('../../../src/modules/auth/public', () => ({
+  personalSellerAccountId: require('../../../src/modules/auth/services/sellerAccess.service').personalSellerAccountId,
   canAccessScope: jest.fn(),
   getCurrentAccount: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/hr/public', () => ({
+  getEmployeeProfileByAccountId: jest.fn(),
   listEmployeeProfilesByAccountIds: jest.fn(),
   listEmployeeProfilesByEmployeeCodes: jest.fn(),
 }));
@@ -342,6 +344,29 @@ describe('orderQuery.service summary and expanded reads', () => {
     expect(orderRepository.list).toHaveBeenCalledWith({
       assignedStaffIds: ['660000000000000000000901'],
     });
+  });
+
+  test('Seller cannot override SKU owner with another employeeCode filter', async () => {
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ employeeCode: 'J2502' });
+    const auth = { accountId: 'seller-a', scopes: [{ roles: ['SALES'], scopeType: 'team', permissions: ['ORDERS:READ'] }] };
+    await service.listOrders({ employeeCode: 'J9999' }, auth);
+    expect(orderRepository.list).toHaveBeenLastCalledWith({ employeeCode: 'J2502' });
+    await service.getOrderSummary({ employeeCode: 'J9999' }, auth);
+    expect(orderRepository.countByTabs).toHaveBeenLastCalledWith({ employeeCode: 'J2502' });
+  });
+
+  test('mixed-Seller workbench hides other SKU items and their amounts', async () => {
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ employeeCode: 'J2502' });
+    const own = { item: { sku: 'J2502-TEST', price: { itemPriceAmount: 100, itemPromotionDiscountAmount: 10 } } };
+    const other = { item: { sku: 'J9999-TEST', price: { itemPriceAmount: 500 } } };
+    orderRepository.list.mockResolvedValueOnce({ items: [{
+      order: { totalAmount: 590, itemsCount: 2, itemsSummary: [{ sku: 'J2502-TEST' }, { sku: 'J9999-TEST' }] },
+      items: [own, other],
+    }] });
+    const auth = { accountId: 'seller-a', scopes: [{ roles: ['SALES'], permissions: ['ORDERS:READ'] }] };
+    const result = await service.listOrders({}, auth);
+    expect(result.items[0].items).toEqual([own]);
+    expect(result.items[0].order).toMatchObject({ totalAmount: 90, itemsCount: 1, itemsSummary: [{ sku: 'J2502-TEST' }] });
   });
 
   test('returns expanded order items with customization dto', async () => {

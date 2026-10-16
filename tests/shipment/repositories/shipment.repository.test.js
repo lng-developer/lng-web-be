@@ -2,6 +2,11 @@ const Shipment = require('../../../src/modules/shipment/models/shipment.model');
 const repository = require('../../../src/modules/shipment/repositories/shipment.repository');
 
 describe('shipment.repository', () => {
+  test('personal SKU scope intersects a forged item ID and denies an empty owner set', () => {
+    const filter = repository.buildFilter({ orderItemId: 'other', sellerOrderItemIds: ['own'] });
+    expect(filter).toMatchObject({ orderItemId: 'other', $and: [{ orderItemId: { $in: ['own'] } }] });
+    expect(repository.buildFilter({ sellerOrderItemIds: [] })).toMatchObject({ $and: [{ orderItemId: { $in: [] } }] });
+  });
   afterEach(() => {
     jest.restoreAllMocks();
   });

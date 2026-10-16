@@ -1,4 +1,5 @@
 const AppError = require('../../../shared/errors/appError');
+const authPublic = require('../../auth/public');
 const crypto = require('crypto');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
@@ -346,6 +347,9 @@ async function receiveVendorWebhook(provider, req) {
 }
 
 async function listWebhookLogs(query = {}, authContext) {
+  if (authPublic.personalSellerAccountId?.(authContext)) {
+    throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
+  }
   if (authContext && !authContext.system && !hasReadPermission(authContext)) {
     const shopIds = scopedShopIds(authContext);
     if (!shopIds.length) return toWebhookLogPageDto({

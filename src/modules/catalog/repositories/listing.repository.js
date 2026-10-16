@@ -66,6 +66,12 @@ async function findById(listingId) {
   return Listing.findById(listingId).lean();
 }
 
+async function findIdsBySellerCode(employeeCode) {
+  if (!employeeCode) return [];
+  const escaped = String(employeeCode).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return Listing.distinct('_id', { sku: { $regex: `^${escaped}-`, $options: 'i' } });
+}
+
 async function findByIds(listingIds = []) {
   if (!listingIds.length) return [];
   return Listing.find({ _id: { $in: listingIds } }).lean();
@@ -211,7 +217,15 @@ function compareAndSetImage(listing, patch) {
   }, { $set: patch }, { returnDocument: 'after', runValidators: true }).lean();
 }
 
+function findAssetReference(assetId, listingIds) {
+  return Listing.findOne({ _id: { $in: listingIds }, $or: [
+    { defaultPsdTemplateAssetId: assetId }, { 'imageSync.mediaAssetId': assetId },
+  ] }).select('_id').lean();
+}
+
 module.exports = {
+  findAssetReference,
+  findIdsBySellerCode,
   findImageSyncCandidates,
   compareAndSetImage,
   fillEtsyListingImage,

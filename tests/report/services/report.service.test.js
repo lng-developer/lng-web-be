@@ -1,4 +1,6 @@
-jest.mock('../../../src/modules/auth/public', () => ({ canAccessScope: jest.fn() }));
+jest.mock('../../../src/modules/auth/public', () => ({ canAccessScope: jest.fn(),
+  personalSellerAccountId: require('../../../src/modules/auth/services/sellerAccess.service').personalSellerAccountId,
+}));
 
 jest.mock('../../../src/modules/finance/public', () => ({
   listFilterOptions: jest.fn(),
@@ -61,6 +63,27 @@ const auditPublic = require('../../../src/modules/audit/public');
 const service = require('../../../src/modules/report/services/report.service');
 
 describe('report.service', () => {
+  test('Seller reports and Ads stay personal even when given a team grant and a forged filter', async () => {
+    const auth = { accountId: 'seller-a', scopes: [{ roles: ['SALES'], scopeType: 'team', scopeId: 'team-a', permissions: ['REPORTS:READ'] }] };
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ employeeCode: 'J2502' });
+    await service.getFinanceDaily({ sellerAccountId: 'seller-b' }, auth);
+    expect(financePublic.summarizeDaily).toHaveBeenLastCalledWith({
+      sellerAccountId: 'seller-b', accessOr: [{ sellerAccountId: 'seller-a' }],
+    }, expect.any(Object));
+    await service.getAdsDaily({ sellerEmployeeCode: 'J9999' }, auth);
+    expect(financePublic.summarizeAdsDaily).toHaveBeenLastCalledWith({
+      sellerEmployeeCode: 'J9999', adsAccessOr: [{ sellerEmployeeCodes: ['J2502'] }],
+    }, expect.any(Object));
+    await service.getFinanceDailyProfit({}, auth);
+    expect(financePublic.summarizeDailyProfit).toHaveBeenLastCalledWith({
+      accessOr: [{ sellerAccountId: 'seller-a' }], adsAccessOr: [{ sellerEmployeeCodes: ['J2502'] }],
+    }, expect.any(Object));
+    financePublic.summarizeAdsByChannel.mockResolvedValue([{ spendAmount: 100 }]);
+    expect(await service.getAdsChannelPerformance({}, auth)).toEqual([
+      expect.objectContaining({ newBuyerCount: null, cpaAmount: null }),
+    ]);
+    expect(orderPublic.summarizeNewBuyersByChannel).not.toHaveBeenCalled();
+  });
   const shopId = '660000000000000000000201';
   const scopedAuth = {
     permissions: [],

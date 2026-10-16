@@ -39,6 +39,9 @@ const update = (id, patch) => populate(ListingVariant.findByIdAndUpdate(id, { $s
 const updateManyByIds = (ids = [], patch = {}) => ListingVariant.updateMany({ _id: { $in: ids } }, { $set: patch }, { runValidators: true });
 
 module.exports = {
+  findAssetReference: (assetId, listingIds) => ListingVariant.findOne({ listingId: { $in: listingIds },
+    $or: [{ psdTemplateAssetId: assetId }, { previewAssetId: assetId }],
+  }).select('_id').lean(),
   create,
   findById,
   findByIds,

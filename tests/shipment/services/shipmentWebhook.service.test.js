@@ -1,4 +1,5 @@
 jest.mock('../../../src/modules/auth/public', () => ({
+  personalSellerAccountId: require('../../../src/modules/auth/services/sellerAccess.service').personalSellerAccountId,
   canAccessScope: jest.fn(),
 }));
 
@@ -592,6 +593,11 @@ describe('shipmentWebhook.service', () => {
     })).resolves.toMatchObject({ items: [] });
 
     expect(webhookLogRepository.list).toHaveBeenCalledWith({ shopIds: [submission.shopId] });
+  });
+
+  test('Seller shipment read does not expose shop-wide raw webhook logs', async () => {
+    await expect(service.listWebhookLogs({}, { accountId: 'seller-a', roles: ['SALES'], permissions: ['SHIPMENTS:READ'] }))
+      .rejects.toMatchObject({ statusCode: 403 });
   });
 
   test('limits webhook logs to a scoped writer shops', async () => {

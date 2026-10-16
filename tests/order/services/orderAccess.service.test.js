@@ -1,6 +1,10 @@
 jest.mock('../../../src/modules/auth/public', () => ({
+  personalSellerAccountId: require('../../../src/modules/auth/services/sellerAccess.service').personalSellerAccountId,
   canAccessScope: jest.fn(),
 }));
+
+jest.mock('../../../src/modules/hr/public', () => ({ getEmployeeProfileByAccountId: jest.fn() }));
+jest.mock('../../../src/modules/order/repositories/orderItem.repository', () => ({ hasSellerSku: jest.fn(), findIdsBySellerCode: jest.fn() }));
 
 jest.mock('../../../src/modules/organization/public', () => ({
   listTeamMembers: jest.fn(),
@@ -12,6 +16,34 @@ const organizationPublic = require('../../../src/modules/organization/public');
 const access = require('../../../src/modules/order/services/orderAccess.service');
 
 describe('orderAccess.service', () => {
+  test('Seller tracking scope requires read permission and resolves SKU-owned item IDs', async () => {
+    const hr = require('../../../src/modules/hr/public');
+    const items = require('../../../src/modules/order/repositories/orderItem.repository');
+    hr.getEmployeeProfileByAccountId.mockResolvedValue({ employeeCode: 'J2502' });
+    items.findIdsBySellerCode.mockResolvedValue(['own-item']);
+    const auth = { accountId: 'seller-a', scopes: [{ roles: ['SALES'], permissions: ['SHIPMENTS:READ'] }] };
+    expect(await access.personalSellerItemIds(auth, 'SHIPMENTS:READ')).toEqual(['own-item']);
+    expect(await access.personalSellerItemIds(auth, 'SHIPMENTS:WRITE')).toEqual([]);
+    hr.getEmployeeProfileByAccountId.mockResolvedValue(null);
+    expect(await access.personalSellerItemIds(auth, 'SHIPMENTS:READ')).toEqual([]);
+    expect(await access.personalSellerItemIds({ system: true }, 'SHIPMENTS:READ')).toBeUndefined();
+  });
+  test('Seller access follows SKU owner rather than reassigned staff', async () => {
+    const hr = require('../../../src/modules/hr/public');
+    const items = require('../../../src/modules/order/repositories/orderItem.repository');
+    hr.getEmployeeProfileByAccountId.mockResolvedValue({ employeeCode: 'J2502' });
+    items.hasSellerSku.mockResolvedValue(false);
+    const auth = { accountId: 'seller-a', scopes: [{ roles: ['SALES'], scopeType: 'team', permissions: ['ORDERS:READ'] }] };
+    expect(await access.canReadOrder({ _id: 'order-b', assignedStaffIds: ['seller-a'] }, auth)).toBe(false);
+    expect(items.hasSellerSku).toHaveBeenCalledWith('order-b', 'J2502');
+    items.hasSellerSku.mockResolvedValue(true);
+    expect(await access.canReadOrder({ _id: 'order-a', assignedStaffIds: ['other'] }, auth)).toBe(true);
+    expect(await access.canWriteOrder({ _id: 'order-a' }, auth)).toBe(false);
+    expect(await access.canReadOrder({ _id: 'order-a' }, { ...auth, scopes: [{ roles: ['SALES'], permissions: [] }] })).toBe(false);
+    expect(await access.getOrderReadConstraint(auth)).toEqual({ shopIds: [], assignedStaffIds: [], sellerEmployeeCode: 'J2502' });
+    hr.getEmployeeProfileByAccountId.mockResolvedValue(null);
+    expect((await access.getOrderReadConstraint(auth)).sellerEmployeeCode).toBeNull();
+  });
   const shopId = '660000000000000000000201';
 
   beforeEach(() => {

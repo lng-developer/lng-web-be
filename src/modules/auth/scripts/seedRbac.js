@@ -116,6 +116,7 @@ const rolePermissions = {
   ],
   [roleCodes.DESIGN_LEADER]: [
     'PRODUCTION:SCALE_ASSIGN',
+    'PRODUCTION:QC_REVIEW',
     'CATALOG:READ',
     'MEDIA:READ',
     'DESIGN:READ',
@@ -167,6 +168,11 @@ const rolePermissions = {
     'MEDIA:READ',
   ],
   [roleCodes.SALES]: [
+    'PRODUCTION:READ',
+    'VENDOR_SUBMISSIONS:READ',
+    'SHIPMENTS:READ',
+    'FINANCE:READ',
+    'REPORTS:READ',
     'ORDERS:READ',
     'ORDERS:WRITE',
     'CATALOG:READ',

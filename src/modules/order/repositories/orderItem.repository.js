@@ -71,6 +71,13 @@ async function findIds(query = {}) {
   return OrderItem.distinct('_id', buildFilter(query));
 }
 
+async function hasSellerSku(orderId, employeeCode) {
+  if (!employeeCode) return false;
+  return Boolean(await OrderItem.findOne({ orderId: toObjectId(orderId),
+    sku: { $regex: `^${escapeRegex(employeeCode)}-`, $options: 'i' },
+  }).select('_id').lean());
+}
+
 async function findListingIdsByOrderIds(orderIds = []) {
   if (!orderIds.length) return [];
   return OrderItem.distinct('listingId', {
@@ -187,8 +194,9 @@ async function updateCsNote(orderItemId, csNote, { session } = {}) {
   ).lean();
 }
 
-async function listByOrder(orderId, { page = 1, limit = 20, status } = {}) {
+async function listByOrder(orderId, { page = 1, limit = 20, status, employeeCode } = {}) {
   const filter = { orderId };
+  if (employeeCode) filter.sku = { $regex: `^${escapeRegex(employeeCode)}-`, $options: 'i' };
 
   if (status) {
     filter.status = status;
@@ -425,7 +433,14 @@ async function summarizeSalesByAsins(asins = []) {
   ]);
 }
 
+async function findIdsBySellerCode(employeeCode) {
+  if (!employeeCode) return [];
+  return OrderItem.distinct('_id', { sku: { $regex: `^${escapeRegex(employeeCode)}-`, $options: 'i' } });
+}
+
 module.exports = {
+  findIdsBySellerCode,
+  hasSellerSku,
   attachListingImage,
   create,
   findById,

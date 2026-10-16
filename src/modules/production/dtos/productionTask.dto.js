@@ -270,12 +270,13 @@ function toAssetUseDto(check = {}) {
 
 function toPsdTemplateUseDto(task = {}, listing = null, fileChecks = []) {
   const psdCheck = fileChecks.find((check) => check.sourceType === 'PSD_TEMPLATE' || check.slotKey === 'PSD_TEMPLATE');
-  const assetId = toId(psdCheck?.inputAssetId || listing?.psdTemplateAssetId);
+  const assetId = toId(psdCheck ? psdCheck.inputAssetId : listing?.psdTemplateAssetId);
   return {
     assetId,
     assetDownloadUrl: toAssetDownloadUrl(assetId),
     fileCheckId: toId(psdCheck?._id || psdCheck?.id),
-    status: task.blockers?.includes('PSD_MISSING') ? 'MISSING' : (assetId ? 'READY' : 'UNKNOWN'),
+    status: task.blockers?.includes('PSD_MISSING') ? 'MISSING'
+      : (assetId ? 'READY' : (psdCheck?.required === false ? 'NOT_REQUIRED' : 'MISSING')),
   };
 }
 

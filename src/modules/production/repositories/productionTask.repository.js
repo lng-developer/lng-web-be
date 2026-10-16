@@ -138,9 +138,11 @@ async function listPsdBlockedByExternalOrderId(externalOrderId) {
 }
 
 function buildFilter(query = {}) {
+  if (query.sellerOrderItemIds && !query.sellerOrderItemIds.length) return { _id: null };
   const filter = {};
   if (query.designType) filter.designType = query.designType === 'UNCLASSIFIED' ? null : query.designType;
   const andClauses = [];
+  if (query.sellerOrderItemIds) andClauses.push({ orderItemId: { $in: query.sellerOrderItemIds.map(id => new mongoose.Types.ObjectId(String(id))) } });
   if (query.qcTeamAccountIds) {
     const accountIds = query.qcTeamAccountIds.map((id) => new mongoose.Types.ObjectId(String(id)));
     andClauses.push({ $or: [
@@ -577,7 +579,17 @@ function findAssignedTaskReferencingInputAsset(assetId, assignedDesignUserId) {
   }).select('_id').lean();
 }
 
+function findSellerTaskReferencingAsset(assetId, orderItemIds) {
+  return ProductionTask.findOne({ orderItemId: { $in: orderItemIds }, $or: [
+    { 'fileChecks.inputAssetId': assetId }, { 'fileChecks.outputAssetId': assetId },
+    { 'listingSnapshot.psdTemplateAssetId': assetId },
+    { 'customizationSnapshot.customerInputs.images.assetId': assetId },
+    { 'customizationSnapshot.imageAssets.assetId': assetId },
+  ] }).select('_id').lean();
+}
+
 module.exports = {
+  findSellerTaskReferencingAsset,
   findAssignedTaskReferencingInputAsset,
   findById,
   findByOrderItem,

@@ -24,6 +24,12 @@ jest.mock('../../../src/modules/auth/models/role.model', () => ({
 }));
 
 const { permissions, rolePermissions, seedRbac } = require('../../../src/modules/auth/scripts/seedRbac');
+
+test('Design leader can QC scale outputs without broad production write access', () => {
+  expect(rolePermissions[roleCodes.DESIGN_LEADER]).toContain('PRODUCTION:QC_REVIEW');
+  expect(rolePermissions[roleCodes.DESIGN_LEADER]).not.toContain('PRODUCTION:WRITE');
+  expect(rolePermissions[roleCodes.DESIGNER]).not.toContain('PRODUCTION:QC_REVIEW');
+});
 const { roleCodes } = require('../../../src/modules/auth/constants/auth.constants');
 
 const requiredHrPermissions = [

@@ -81,7 +81,7 @@ router.get(
 router.get(
   '/psd-files',
   authPublic.authenticate,
-  requireRead,
+  requirePsdRequestRead,
   asyncHandler(controller.listPsdFiles),
 );
 

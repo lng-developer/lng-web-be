@@ -1,6 +1,7 @@
 const service = require('./services/designTask.service');
 
 module.exports = {
+  canReadSellerAsset: service.canReadSellerAsset,
   createPsdTemplateTask: service.createPsdTemplateTask,
   createPsdTemplateTaskFromListing: service.createPsdTemplateTaskFromListing,
   createPsdTemplateTaskFromListingVariant: service.createPsdTemplateTaskFromListingVariant,

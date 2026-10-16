@@ -1,6 +1,14 @@
 const access = require('../../../src/modules/finance/services/financeAccess.service');
 
 describe('financeAccess.service', () => {
+  test('Sales cannot expand Finance to the team or forge a different seller filter', () => {
+    const auth = { accountId: 'seller-a', scopes: [{ roles: ['SALES'], scopeType: 'team', scopeId: 'team-a', permissions: ['FINANCE:READ'] }] };
+    expect(access.scopedQuery({ sellerAccountId: 'seller-b' }, auth)).toEqual({
+      sellerAccountId: 'seller-b', accessOr: [{ sellerAccountId: 'seller-a' }],
+    });
+    expect(() => access.assertSnapshotAccess({ sellerAccountId: 'seller-b' }, auth)).toThrow('Forbidden');
+    expect(access.settlementScopedQuery({}, auth)).toEqual({ shopIds: [] });
+  });
   const permission = 'FINANCE:READ';
 
   test('global read is unrestricted', () => {

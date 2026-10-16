@@ -2,6 +2,11 @@ const VendorSubmission = require('../../../src/modules/vendorSubmission/models/v
 const repository = require('../../../src/modules/vendorSubmission/repositories/vendorSubmission.repository');
 
 describe('vendorSubmission.repository', () => {
+  test('personal SKU scope intersects a forged item ID and denies an empty owner set', () => {
+    expect(repository.buildFilter({ orderItemId: 'other', sellerOrderItemIds: ['own'] }))
+      .toMatchObject({ orderItemId: 'other', $and: [{ orderItemId: { $in: ['own'] } }] });
+    expect(repository.buildFilter({ sellerOrderItemIds: [] })).toMatchObject({ $and: [{ orderItemId: { $in: [] } }] });
+  });
   afterEach(() => {
     jest.restoreAllMocks();
   });

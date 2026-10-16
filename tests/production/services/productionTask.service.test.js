@@ -8,6 +8,7 @@ jest.mock('mongoose', () => ({
 }));
 
 jest.mock('../../../src/modules/order/public', () => ({
+  personalSellerItemIds: jest.fn(),
   assertMarketplaceAllowsFulfillment: jest.fn(),
   appendTimeline: jest.fn(),
   deriveOrderItemWorkflow: jest.requireActual('../../../src/modules/order/services/orderWorkflow.service').deriveOrderItemWorkflow,
@@ -134,6 +135,17 @@ const repository = require('../../../src/modules/production/repositories/product
 const service = require('../../../src/modules/production/services/productionTask.service');
 
 describe('productionTask.service', () => {
+  test('Seller cannot open a production task for another SKU owner', async () => {
+    orderPublic.personalSellerItemIds.mockResolvedValue(['660000000000000000100099']);
+    repository.findById.mockResolvedValue({ _id: '660000000000000000100001', orderItemId: '660000000000000000100002' });
+    await expect(service.getTaskById('660000000000000000100001', { accountId: 'seller-a', permissions: ['PRODUCTION:READ'] })).rejects.toMatchObject({ statusCode: 403 });
+    orderPublic.findItemById.mockResolvedValue({ shopId: 'same-shop' });
+    await expect(service.getTaskByOrderItem('660000000000000000100002', { permissions: ['PRODUCTION:READ'] })).rejects.toMatchObject({ statusCode: 403 });
+    repository.findById.mockResolvedValue({ _id: '660000000000000000100001', orderItemId: 'other-item', status: 'READY_TO_SEND_VENDOR' });
+    await expect(service.getTaskById('660000000000000000100001', { permissions: ['PRODUCTION:READ', 'PRODUCTION:QC_REVIEW'] }))
+      .rejects.toMatchObject({ statusCode: 403 });
+    orderPublic.personalSellerItemIds.mockReset();
+  });
   test('input access requires design work permission and a current assignment referencing the asset', async () => {
     const context = { accountId: 'designer', scopes: [{ scopeType: 'TEAM', scopeId: 'team', permissions: ['DESIGN:WORK'] }] };
     repository.findAssignedTaskReferencingInputAsset.mockResolvedValueOnce({ _id: 'task' });
@@ -713,6 +725,10 @@ describe('productionTask.service', () => {
   });
 
   test('blocks for missing variant PSD without auto-creating a design task', async () => {
+    catalogPublic.getListingById.mockResolvedValueOnce({
+      ...listing,
+      defaultPsdTemplateAssetId: '660000000000000000129099',
+    });
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({ ...plan, listingVariantId });
     catalogPublic.getListingVariantById.mockResolvedValueOnce({
       id: listingVariantId,
@@ -2399,8 +2415,7 @@ describe('productionTask.service', () => {
     vendorSubmissionPublic.listLatestByProductionTaskIds.mockReturnValue(vendorPromise);
 
     const resultPromise = service.listTaskSummariesByOrderItemIds([orderItemId], { system: true });
-    await Promise.resolve();
-    await Promise.resolve();
+    await new Promise(resolve => setImmediate(resolve));
 
     expect(shopPublic.findByIds).toHaveBeenCalledWith([shopId]);
     expect(hrPublic.listEmployeeProfilesByAccountIds).toHaveBeenCalledWith([

@@ -13,6 +13,7 @@ const orderRecheckJobService = require('./services/orderRecheckJob.service');
 const { addressValidationStatuses } = require('./constants/orderStatuses');
 
 const publicPort = {
+  personalSellerItemIds: require('./services/orderAccess.service').personalSellerItemIds,
   assertMarketplaceAllowsFulfillment: require('./services/etsyOrderStatus.service').assertCanFulfill,
   processListingImage: require('./services/etsyListingImage.service').processListingImage,
   importExternalOrder: orderImportService.importExternalOrder,

@@ -7,6 +7,8 @@ jest.mock('../../../src/modules/catalog/repositories/productTypeGroup.repository
 }));
 
 jest.mock('../../../src/modules/catalog/repositories/listing.repository', () => ({
+  findAssetReference: jest.fn(),
+  findIdsBySellerCode: jest.fn(),
   fillEtsyListingImage: jest.fn(),
   create: jest.fn(),
   findByAsin: jest.fn(),
@@ -29,6 +31,7 @@ jest.mock('../../../src/modules/catalog/repositories/internalTemplate.repository
 }));
 
 jest.mock('../../../src/modules/catalog/repositories/listingVariant.repository', () => ({
+  findAssetReference: jest.fn(),
   summarizeByListings: jest.fn().mockResolvedValue(new Map()),
 }));
 
@@ -73,10 +76,12 @@ jest.mock('../../../src/modules/organization/public', () => ({
 }));
 
 jest.mock('../../../src/modules/auth/public', () => ({
+  personalSellerAccountId: require('../../../src/modules/auth/services/sellerAccess.service').personalSellerAccountId,
   canAccessScope: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/hr/public', () => ({
+  getEmployeeProfileByAccountId: jest.fn(),
   listEmployeeProfilesByEmployeeCodes: jest.fn(),
 }));
 
@@ -110,6 +115,28 @@ const { safeRemoteFetchStream } = require('../../../src/shared/network/safeRemot
 const service = require('../../../src/modules/catalog/services/catalog.service');
 
 describe('catalog.service', () => {
+  test('Seller can download a PSD already attached to an owned variant without a Design task', async () => {
+    const variants = require('../../../src/modules/catalog/repositories/listingVariant.repository');
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ employeeCode: 'J2502' });
+    listingRepository.findIdsBySellerCode.mockResolvedValue(['own-listing']);
+    listingRepository.findAssetReference.mockResolvedValue(null);
+    variants.findAssetReference.mockResolvedValue({ _id: 'owned-variant' });
+    const auth = { accountId: 'seller-a', roles: ['SALES'], permissions: ['CATALOG:READ'] };
+    expect(await service.canReadSellerAsset('psd', auth)).toBe(true);
+    expect(variants.findAssetReference).toHaveBeenCalledWith('psd', ['own-listing']);
+    variants.findAssetReference.mockResolvedValue(null);
+    expect(await service.canReadSellerAsset('other-psd', auth)).toBe(false);
+  });
+  test('Seller sees SKU-owned listings even before any order is assigned', async () => {
+    const auth = { accountId: 'seller-a', scopes: [{ roles: ['SALES'], scopeType: 'team', permissions: ['CATALOG:READ'] }] };
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ employeeCode: 'J2502' });
+    listingRepository.findIdsBySellerCode.mockResolvedValue(['660000000000000000000901']);
+    listingRepository.list.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
+    await service.listListings({}, auth);
+    expect(listingRepository.findIdsBySellerCode).toHaveBeenCalledWith('J2502');
+    expect(listingRepository.list).toHaveBeenCalledWith({ listingIds: ['660000000000000000000901'] });
+    expect(orderPublic.findAssignedOrderIds).not.toHaveBeenCalled();
+  });
   const shopId = '660000000000000000000201';
   const otherShopId = '660000000000000000000202';
   const listingId = '660000000000000000000401';

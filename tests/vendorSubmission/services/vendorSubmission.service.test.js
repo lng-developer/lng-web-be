@@ -9,6 +9,7 @@ jest.mock('../../../src/modules/auth/public', () => ({
 }));
 
 jest.mock('../../../src/modules/order/public', () => ({
+  personalSellerItemIds: jest.fn(),
   assertMarketplaceAllowsFulfillment: jest.fn(),
   findById: jest.fn(),
 }));
@@ -69,6 +70,12 @@ const submitRegistry = require('../../../src/modules/vendorSubmission/services/s
 const service = require('../../../src/modules/vendorSubmission/services/vendorSubmission.service');
 
 describe('vendorSubmission.service', () => {
+  test('Seller cannot open another SKU owner submission with a global read grant', async () => {
+    orderPublic.personalSellerItemIds.mockResolvedValue(['own-item']);
+    repository.findById.mockResolvedValue({ _id: '660000000000000000120001', orderItemId: 'other-item', shopId: 'same-shop' });
+    await expect(service.getSubmission('660000000000000000120001', { permissions: ['VENDOR_SUBMISSIONS:READ'] })).rejects.toMatchObject({ statusCode: 403 });
+    orderPublic.personalSellerItemIds.mockReset();
+  });
   const submissionId = '660000000000000000120001';
   const productionTaskId = '660000000000000000120002';
   const orderId = '660000000000000000120003';

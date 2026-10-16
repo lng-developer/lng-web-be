@@ -3,6 +3,23 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const authPublic = require('../../auth/public');
 const organizationPublic = require('../../organization/public');
+const hrPublic = require('../../hr/public');
+const orderItemRepository = require('../repositories/orderItem.repository');
+
+async function personalSellerCode(auth = {}) {
+  const accountId = authPublic.personalSellerAccountId?.(auth);
+  if (!accountId) return undefined;
+  const profile = await hrPublic.getEmployeeProfileByAccountId(accountId);
+  return String(profile?.employeeCode || '').trim().toUpperCase() || null;
+}
+
+async function personalSellerItemIds(auth = {}, permission) {
+  if (!authPublic.personalSellerAccountId?.(auth)) return undefined;
+  const permissions = [...(auth.permissions || []), ...(auth.scopes || []).flatMap(scope => scope.permissions || [])];
+  if (!permissions.includes(permission)) return [];
+  const code = await personalSellerCode(auth);
+  return code ? orderItemRepository.findIdsBySellerCode(code) : [];
+}
 
 const ORDER_READ_PERMISSION = 'ORDERS:READ';
 const ORDER_WRITE_PERMISSION = 'ORDERS:WRITE';
@@ -31,6 +48,11 @@ function scopeIncludesPermission(scope = {}, permission) {
   const permissions = scope.permissions || [];
   return permissions.includes(permission)
     || (permission === ORDER_READ_PERMISSION && permissions.includes(ORDER_WRITE_PERMISSION));
+}
+
+function hasSellerPermission(authContext, permission) {
+  return hasGlobal(authContext, permission)
+    || (authContext.scopes || []).some((scope) => scopeIncludesPermission(scope, permission));
 }
 
 function getTeamScopeIds(authContext = {}, permission) {
@@ -80,11 +102,17 @@ async function canAccessAssignedOrder(order = {}, authContext = {}, permission) 
 }
 
 async function canReadOrder(order = {}, authContext = {}) {
+  const sellerCode = await personalSellerCode(authContext);
+  if (sellerCode !== undefined) return hasSellerPermission(authContext, ORDER_READ_PERMISSION)
+    && orderItemRepository.hasSellerSku(order._id || order.id, sellerCode);
   if (canReadShop(order.shopId, authContext)) return true;
   return canAccessAssignedOrder(order, authContext, ORDER_READ_PERMISSION);
 }
 
 async function canWriteOrder(order = {}, authContext = {}) {
+  const sellerCode = await personalSellerCode(authContext);
+  if (sellerCode !== undefined) return hasSellerPermission(authContext, ORDER_WRITE_PERMISSION)
+    && orderItemRepository.hasSellerSku(order._id || order.id, sellerCode);
   if (canWriteShop(order.shopId, authContext)) return true;
   return canAccessAssignedOrder(order, authContext, ORDER_WRITE_PERMISSION);
 }
@@ -127,6 +155,11 @@ function hasOwnOrderPermission(authContext = {}, permission) {
 }
 
 async function getOrderReadConstraint(authContext = {}) {
+  const sellerCode = await personalSellerCode(authContext);
+  if (sellerCode !== undefined) return {
+    shopIds: [], assignedStaffIds: [],
+    sellerEmployeeCode: hasSellerPermission(authContext, ORDER_READ_PERMISSION) ? sellerCode : null,
+  };
   const shopIds = getReadableShopIds(authContext);
   if (shopIds === null || shopIds.length) return { shopIds, assignedStaffIds: null };
 
@@ -144,6 +177,8 @@ async function getOrderReadConstraint(authContext = {}) {
 }
 
 module.exports = {
+  personalSellerItemIds,
+  personalSellerCode,
   canReadOrder,
   canWriteOrder,
   canReadShop,

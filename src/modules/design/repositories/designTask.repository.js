@@ -26,6 +26,10 @@ function endOfDay(value) {
 
 function buildFilter(query = {}) {
   const filter = {};
+  if (query.sellerRequestedByAccountId) filter.$and = [{ $or: [
+    { requestedByAccountId: toObjectId(query.sellerRequestedByAccountId) },
+    { listingId: { $in: (query.sellerListingIds || []).map(toObjectId) } },
+  ] }];
   if (query.status) filter.status = query.status;
   if (query.salesChannelCode) filter['listingSnapshot.salesChannelCode'] = query.salesChannelCode;
   if (query.taskType) filter.taskType = query.taskType;
@@ -233,6 +237,7 @@ async function countActiveByDesigner(query = {}) {
 async function listPsdFileLinks(query = {}) {
   const { page, limit } = normalizePagination(query, { defaultLimit: 20, maxLimit: 100 });
   const taskMatch = {
+    ...(query.sellerRequestedByAccountId ? { $and: buildFilter(query).$and } : {}),
     taskType: designTaskTypes.PSD_TEMPLATE,
     ...(query.shopId ? { shopId: toObjectId(query.shopId) } : {}),
     ...(query.shopIds ? { shopId: { $in: query.shopIds.map(toObjectId) } } : {}),
@@ -388,7 +393,17 @@ function listApprovedForWorkScore(limit) {
     .sort({ _id: 1 }).limit(limit).lean();
 }
 
+function findTaskReferencingAsset(assetId, query) {
+  const filter = buildFilter(query);
+  return DesignTask.findOne({ ...filter, $and: [...(filter.$and || []), { $or: [
+    { referenceAssetIds: toObjectId(assetId) }, { submittedAssetIds: toObjectId(assetId) },
+    { approvedAssetId: toObjectId(assetId) }, { 'submissions.assetIds': toObjectId(assetId) },
+    { 'submissions.approvedAssetId': toObjectId(assetId) },
+  ] }] }).select('_id').lean();
+}
+
 module.exports = {
+  findTaskReferencingAsset,
   buildFilter,
   buildSort,
   countActiveByDesigner,

@@ -1,4 +1,5 @@
 const authenticate = require('./middlewares/authenticate');
+const { personalSellerAccountId } = require('./services/sellerAccess.service');
 const {
   authorizePermissions,
   authorizeScopedPermission,
@@ -14,6 +15,7 @@ const authMigration = require('./services/authMigration.service');
 const extensionToken = require('./services/extensionToken.service');
 
 const publicPort = {
+  personalSellerAccountId,
   authenticate,
   authorizePermissions,
   authorizeScopedPermission,

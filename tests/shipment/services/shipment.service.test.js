@@ -9,6 +9,7 @@ jest.mock('../../../src/modules/vendor/public', () => ({
 }));
 
 jest.mock('../../../src/modules/order/public', () => ({
+  personalSellerItemIds: jest.fn(),
   appendTimeline: jest.fn(),
   appendTimelineOnce: jest.fn(),
   findById: jest.fn(),
@@ -65,6 +66,15 @@ const { getTrackingAdapter } = require('../../../src/modules/shipment/services/v
 const service = require('../../../src/modules/shipment/services/shipment.service');
 
 describe('shipment.service', () => {
+  test('Seller reads own shipment but not another item in the same shop', async () => {
+    orderPublic.personalSellerItemIds.mockResolvedValue(['660000000000000000130004']);
+    repository.findById.mockResolvedValue({ _id: '660000000000000000130001', orderItemId: '660000000000000000130004', shopId: 'same-shop' });
+    const auth = { accountId: 'seller-a', permissions: ['SHIPMENTS:READ'] };
+    expect(await service.getShipment('660000000000000000130001', auth)).toMatchObject({ orderItemId: '660000000000000000130004' });
+    repository.findById.mockResolvedValue({ _id: '660000000000000000130001', orderItemId: 'other-item', shopId: 'same-shop' });
+    await expect(service.getShipment('660000000000000000130001', auth)).rejects.toMatchObject({ statusCode: 403 });
+    orderPublic.personalSellerItemIds.mockReset();
+  });
   const shipmentId = '660000000000000000130001';
   const vendorSubmissionId = '660000000000000000130002';
   const orderId = '660000000000000000130003';

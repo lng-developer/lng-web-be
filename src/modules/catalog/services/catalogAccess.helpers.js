@@ -23,6 +23,7 @@ function hasScopedPermission(scope = {}, permission) {
 }
 
 function getScopedShopIds(authContext = {}, permission) {
+  if (authPublic.personalSellerAccountId?.(authContext)) return [];
   return [...new Set((authContext.scopes || [])
     .filter((scope) => (
       scope.scopeType === SHOP_SCOPE_TYPE

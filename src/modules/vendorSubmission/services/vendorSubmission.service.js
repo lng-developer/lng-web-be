@@ -236,7 +236,7 @@ async function loadSubmission(submissionId) {
 }
 
 async function listSubmissions(query = {}, authContext) {
-  const scopedQuery = authContext ? scopedReadQuery(query, authContext) : query;
+  const scopedQuery = authContext ? await scopedReadQuery(query, authContext) : query;
   if (!scopedQuery) {
     return toPaginatedResponse({
       items: [],
@@ -314,7 +314,18 @@ async function listSubmittedForTracking(query = {}, authContext) {
   }));
 }
 
-function scopedReadQuery(query = {}, authContext = {}) {
+async function assertCanReadSubmission(submission, authContext) {
+  const ids = await orderPublic.personalSellerItemIds?.(authContext, vendorSubmissionPermissions.READ);
+  if (ids !== undefined) {
+    if (!ids.map(String).includes(String(submission.orderItemId))) throw forbidden();
+    return;
+  }
+  assertCanAccessShop(submission.shopId, vendorSubmissionPermissions.READ, authContext);
+}
+
+async function scopedReadQuery(query = {}, authContext = {}) {
+  const sellerOrderItemIds = await orderPublic.personalSellerItemIds?.(authContext, vendorSubmissionPermissions.READ);
+  if (sellerOrderItemIds !== undefined) return { ...query, sellerOrderItemIds };
   if (authContext?.system) return query;
   if (query.shopId) {
     assertCanAccessShop(query.shopId, vendorSubmissionPermissions.READ, authContext);
@@ -326,7 +337,7 @@ function scopedReadQuery(query = {}, authContext = {}) {
 }
 
 async function summarizeSubmissions(query = {}, authContext) {
-  const scopedQuery = scopedReadQuery(query, authContext);
+  const scopedQuery = await scopedReadQuery(query, authContext);
   if (!scopedQuery) {
     return {
       total: 0,
@@ -362,7 +373,7 @@ async function summarizePerformancePage(query = {}) {
 
 async function getSubmission(submissionId, authContext) {
   const submission = await loadSubmission(submissionId);
-  assertCanAccessShop(submission.shopId, vendorSubmissionPermissions.READ, authContext);
+  await assertCanReadSubmission(submission, authContext);
   return toVendorSubmissionDto(submission, { detail: true });
 }
 
@@ -480,7 +491,7 @@ async function recheckReadyProductionTasks(query = {}, authContext) {
 
 async function getPayloadPreview(submissionId, authContext) {
   const submission = await loadSubmission(submissionId);
-  assertCanAccessShop(submission.shopId, vendorSubmissionPermissions.READ, authContext);
+  await assertCanReadSubmission(submission, authContext);
   return toPayloadPreviewDto(submission.payloadSnapshot || {});
 }
 
@@ -768,11 +779,7 @@ async function listLatestByProductionTaskIds(productionTaskIds = [], authContext
   ids.forEach((id) => assertValidObjectId(id, 'productionTaskId'));
   const submissions = await repository.listLatestByProductionTaskIds(ids);
   if (authContext) {
-    submissions.forEach((submission) => assertCanAccessShop(
-      submission.shopId,
-      vendorSubmissionPermissions.READ,
-      authContext,
-    ));
+    await Promise.all(submissions.map(submission => assertCanReadSubmission(submission, authContext)));
   }
   return submissions.map((submission) => toVendorSubmissionDto(submission, { detail: true }));
 }

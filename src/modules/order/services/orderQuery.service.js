@@ -38,8 +38,29 @@ function notFound(message) {
   return new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
 }
 
+function sellerItems(items, code) {
+  return (items || []).filter(entry => parseEmployeeCodeFromSku((entry.item || entry).sku) === code);
+}
+
+function sellerPage(page, code) {
+  return { ...page, items: (page.items || []).map(order => {
+    if (!Array.isArray(order.items)) return order;
+    const items = sellerItems(order.items, code);
+    if (!order.order) return { ...order, items };
+    const totalAmount = items.reduce((total, entry) => {
+      const price = (entry.item || entry).price || {};
+      return total + ['itemPriceAmount', 'itemTaxAmount', 'shippingPriceAmount', 'shippingTaxAmount', 'giftWrapPriceAmount', 'giftWrapTaxAmount']
+        .reduce((amount, key) => amount + Number(price[key] || 0), 0)
+        - Number(price.itemPromotionDiscountAmount || 0) - Number(price.shipPromotionDiscountAmount || 0);
+    }, 0);
+    return { ...order, items, order: { ...order.order, totalAmount, itemsCount: items.length,
+      itemsSummary: (order.order.itemsSummary || []).filter(item => parseEmployeeCodeFromSku(item.sku) === code) } };
+  }) };
+}
+
 async function listOrders(query = {}, authContext = {}) {
-  const { shopIds: scopedShopIds, assignedStaffIds } = await orderAccess.getOrderReadConstraint(authContext);
+  const { shopIds: scopedShopIds, assignedStaffIds, sellerEmployeeCode } = await orderAccess.getOrderReadConstraint(authContext);
+  if (sellerEmployeeCode) return sellerPage(await orderRepository.list({ ...query, employeeCode: sellerEmployeeCode }), sellerEmployeeCode);
   if (scopedShopIds === null) {
     return orderRepository.list(query);
   }
@@ -63,7 +84,8 @@ async function listOrders(query = {}, authContext = {}) {
 }
 
 async function listWorkbenchOrders(query = {}, authContext = {}) {
-  const { shopIds: scopedShopIds, assignedStaffIds } = await orderAccess.getOrderReadConstraint(authContext);
+  const { shopIds: scopedShopIds, assignedStaffIds, sellerEmployeeCode } = await orderAccess.getOrderReadConstraint(authContext);
+  if (sellerEmployeeCode) return sellerPage(await orderRepository.listWorkbench({ ...query, employeeCode: sellerEmployeeCode }), sellerEmployeeCode);
   if (scopedShopIds === null) {
     return orderRepository.listWorkbench(query);
   }
@@ -87,7 +109,8 @@ async function listWorkbenchOrders(query = {}, authContext = {}) {
 }
 
 async function listWorkbenchProjections(query = {}, authContext = {}) {
-  const { shopIds: scopedShopIds, assignedStaffIds } = await orderAccess.getOrderReadConstraint(authContext);
+  const { shopIds: scopedShopIds, assignedStaffIds, sellerEmployeeCode } = await orderAccess.getOrderReadConstraint(authContext);
+  if (sellerEmployeeCode) return sellerPage(await orderWorkbenchProjectionRepository.findPage({ ...query, employeeCode: sellerEmployeeCode }), sellerEmployeeCode);
   if (scopedShopIds === null) return orderWorkbenchProjectionRepository.findPage(query);
   if (assignedStaffIds?.length) return orderWorkbenchProjectionRepository.findPage({ ...query, assignedStaffIds });
   if (scopedShopIds.length === 0) return emptyPaginatedResult(query);
@@ -109,7 +132,8 @@ async function getOrderSummary(query = {}, authContext = {}) {
     warnIfSummarySlow(startedAt, { projectionRead });
     return { tabCounts };
   };
-  const { shopIds: scopedShopIds, assignedStaffIds } = await orderAccess.getOrderReadConstraint(authContext);
+  const { shopIds: scopedShopIds, assignedStaffIds, sellerEmployeeCode } = await orderAccess.getOrderReadConstraint(authContext);
+  if (sellerEmployeeCode) return readSummary({ ...query, employeeCode: sellerEmployeeCode });
   if (scopedShopIds === null) {
     return readSummary(query);
   }
@@ -498,7 +522,9 @@ async function enrichTimelineActors(result = {}) {
 async function getExpandedOrder(orderId, authContext = {}) {
   const startedAt = Date.now();
   const order = await getOrder(orderId, authContext);
-  const orderItems = await orderItemRepository.listAllByOrder(orderId);
+  const rawItems = await orderItemRepository.listAllByOrder(orderId);
+  const sellerCode = await orderAccess.personalSellerCode(authContext);
+  const orderItems = sellerCode !== undefined ? sellerItems(rawItems, sellerCode) : rawItems;
   const orderItemIds = (orderItems || []).map((item) => String(item._id || item.id));
   const [customizationByItemId, fulfillmentPlanByItemId, productionByItemId, listingById, shipmentByItemId] = await Promise.all([
     listItemCustomizations(orderItemIds, authContext),
@@ -658,6 +684,8 @@ async function listCustomerExceptionCandidates(query = {}, authContext = {}) {
 
 async function listOrderItems(orderId, query = {}, authContext = {}) {
   await getOrder(orderId, authContext);
+  const sellerCode = await orderAccess.personalSellerCode(authContext);
+  if (sellerCode) return orderItemRepository.listByOrder(orderId, { ...query, employeeCode: sellerCode });
   return orderItemRepository.listByOrder(orderId, query);
 }
 
@@ -670,6 +698,10 @@ async function getOrderItem(orderItemId, authContext = {}) {
   }
 
   await getOrder(item.orderId, authContext);
+  const sellerCode = await orderAccess.personalSellerCode(authContext);
+  if (sellerCode !== undefined && parseEmployeeCodeFromSku(item.sku) !== sellerCode) {
+    throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
+  }
   return item;
 }
 

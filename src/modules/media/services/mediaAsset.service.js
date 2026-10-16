@@ -400,6 +400,18 @@ async function canReadProductionTaskAsset(asset, authContext = {}) {
 
 async function assertAssetReadAccess(asset, authContext = {}) {
   const ownerType = String(asset.ownerType || '').toUpperCase();
+  if (authPublic.personalSellerAccountId?.(authContext) && (
+    ['DESIGN', 'DESIGN_TASK', 'PRODUCTION', 'PRODUCTION_TASK', 'CATALOG', 'CATALOG_LISTING', 'CATALOG_LISTING_VARIANT', 'CUSTOMIZATION', 'CUSTOMIZATION_PAYLOAD'].includes(ownerType)
+    || asset.metadata?.source === 'DESIGN_SUBMISSION'
+  )) {
+    const design = require('../../design/public');
+    const production = require('../../production/public');
+    const catalog = require('../../catalog/public');
+    if (await design.canReadSellerAsset(toId(asset._id), authContext)
+      || await production.canReadSellerTaskAsset(toId(asset._id), authContext)
+      || await catalog.canReadSellerAsset(toId(asset._id), authContext)) return;
+    throw new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
+  }
   if (ownerType === 'CHAT' && asset.ownerId) {
     const chatPublic = require('../../chat/public');
     if (await chatPublic.canReadConversation(String(asset.ownerId), authContext)) return;

@@ -5,6 +5,16 @@ const {
 } = require('../../../src/modules/production/dtos/productionTask.dto');
 
 describe('productionTask.dto', () => {
+  test('does not replace a missing task source with a different listing source', () => {
+    const dto = toProductionTaskSummaryDto({
+      _id: '660000000000000000100001',
+      listingSnapshot: { psdTemplateAssetId: '660000000000000000000901' },
+      fileChecks: [{ sourceType: 'PSD_TEMPLATE', required: true, inputAssetId: null }],
+    });
+    expect(dto.scaleContext.use.psdTemplate).toMatchObject({
+      assetId: null, assetDownloadUrl: null, status: 'MISSING',
+    });
+  });
   test('adds media download URLs for file check assets', () => {
     const dto = toFileCheckDto({
       _id: '660000000000000000100003',

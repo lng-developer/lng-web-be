@@ -28,10 +28,17 @@ const {
 const SHOP_SCOPE_TYPE = 'shop';
 
 function hasGlobalReportRead(authContext = {}) {
+  if (authPublic.personalSellerAccountId?.(authContext)) return false;
   return (authContext.permissions || []).includes(reportPermissions.READ);
 }
 
 function reportAccessConditions(authContext = {}) {
+  const sellerAccountId = authPublic.personalSellerAccountId?.(authContext);
+  if (sellerAccountId) {
+    const allowed = (authContext.permissions || []).includes(reportPermissions.READ)
+      || (authContext.scopes || []).some(scope => (scope.permissions || []).includes(reportPermissions.READ));
+    return allowed ? [{ sellerAccountId }] : [];
+  }
   return (authContext.scopes || [])
     .filter((scope) => (scope.permissions || []).includes(reportPermissions.READ))
     .flatMap((scope) => {
@@ -291,23 +298,25 @@ function channelKey(row = {}) {
 }
 
 async function getAdsChannelPerformance(query = {}, authContext) {
-  const scopedQuery = applyReportScope(query, authContext);
+  const reportQuery = applyReportScope(query, authContext, { financeDimensions: true });
+  const scopedQuery = await resolveScopedAdsQuery(reportQuery, authContext);
   if (!scopedQuery) {
     return [];
   }
   const [adsRows, buyerRows] = await Promise.all([
     financePublic.summarizeAdsByChannel(scopedQuery, systemContext(authContext)),
-    orderPublic.summarizeNewBuyersByChannel(scopedQuery, systemContext(authContext)),
+    reportQuery.accessOr ? Promise.resolve([]) : orderPublic.summarizeNewBuyersByChannel(scopedQuery, systemContext(authContext)),
   ]);
   const buyersByChannel = new Map((buyerRows || []).map((row) => [channelKey(row), Number(row.newBuyerCount || 0)]));
   const result = (adsRows || []).map((row) =>
-    toAdsChannelPerformanceDto({ ...row, newBuyerCount: buyersByChannel.get(channelKey(row)) || 0 }),
+    // shortcut: buyer acquisition is not SKU-attributed yet; keep it unavailable for Seller scopes.
+    toAdsChannelPerformanceDto({ ...row, newBuyerCount: reportQuery.accessOr ? null : buyersByChannel.get(channelKey(row)) || 0 }),
   );
   return result;
 }
 
 async function getAdsSellerAttribution(query = {}, authContext) {
-  const scopedQuery = applyReportScope(query, authContext);
+  const scopedQuery = await resolveScopedAdsQuery(applyReportScope(query, authContext, { financeDimensions: true }), authContext);
   const result = scopedQuery
     ? (await financePublic.summarizeAdsBySeller(scopedQuery, systemContext(authContext))).map(toAdsSellerAttributionDto)
     : [];
@@ -315,7 +324,7 @@ async function getAdsSellerAttribution(query = {}, authContext) {
 }
 
 async function getAdsDaily(query = {}, authContext) {
-  const scopedQuery = applyReportScope(query, authContext);
+  const scopedQuery = await resolveScopedAdsQuery(applyReportScope(query, authContext, { financeDimensions: true }), authContext);
   const result = scopedQuery
     ? (await financePublic.summarizeAdsDaily(scopedQuery, systemContext(authContext))).map(toAdsDailyDto)
     : [];
@@ -338,7 +347,9 @@ async function getAdsSellerDaily(query = {}, authContext) {
 }
 
 async function getFinanceDailyProfit(query = {}, authContext) {
-  const scopedQuery = applyReportScope(query, authContext);
+  const reportQuery = applyReportScope(query, authContext, { financeDimensions: true });
+  const adsQuery = await resolveScopedAdsQuery(reportQuery, authContext);
+  const scopedQuery = reportQuery && adsQuery ? { ...reportQuery, ...adsQuery } : null;
   const result = scopedQuery
     ? (await financePublic.summarizeDailyProfit(scopedQuery, systemContext(authContext))).map(toFinanceDailyProfitDto)
     : [];

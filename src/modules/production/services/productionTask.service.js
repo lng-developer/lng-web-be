@@ -370,6 +370,8 @@ function emptyQueueCounts() {
 }
 
 async function applyReadScope(query, authContext) {
+  const sellerOrderItemIds = await orderPublic.personalSellerItemIds?.(authContext, productionPermissions.READ);
+  if (sellerOrderItemIds !== undefined) return { ...query, sellerOrderItemIds };
   if (isSystemContext(authContext) || hasAnyGlobalPermission(authContext, [productionPermissions.WRITE])) {
     return query;
   }
@@ -704,8 +706,9 @@ function baseFileCheck({
 function buildFileChecks({ listing, template, customization }) {
   const images = customerImages(customization);
   const psdReadiness = listing?.psdReadiness || null;
-  const psdAssetId = psdReadiness?.effectivePsdAssetId
-    || listing?.psdTemplateAssetId
+  const psdAssetId = psdReadiness && Object.hasOwn(psdReadiness, 'effectivePsdAssetId')
+    ? psdReadiness.effectivePsdAssetId
+    : listing?.psdTemplateAssetId
     || listing?.defaultPsdTemplateAssetId
     || firstDesignAsset(template, 'PSD_TEMPLATE')?.mediaAssetId
     || null;
@@ -1426,7 +1429,10 @@ async function getTaskByOrderItem(orderItemId, authContext) {
   assertValidObjectId(orderItemId, 'orderItemId');
   const item = await orderPublic.findItemById(orderItemId);
   if (!item) throw notFound('Order item not found');
-  assertCanAccessShop(item.shopId, productionPermissions.READ, authContext);
+  const sellerIds = await orderPublic.personalSellerItemIds?.(authContext, productionPermissions.READ);
+  if (sellerIds !== undefined) {
+    if (!sellerIds.map(String).includes(String(orderItemId))) throw forbidden();
+  } else assertCanAccessShop(item.shopId, productionPermissions.READ, authContext);
   const [task] = await attachVendorSubmissions(await attachProductionUsers(await attachShops([
     ...(await attachOrderSnapshots([
       await attachCustomizationSnapshot(await repository.findByOrderItem(orderItemId), authContext),
@@ -1564,7 +1570,7 @@ async function recheckPsdBlockedTasksByListing(listingId, authContext = {}) {
 async function getTaskById(taskId, authContext) {
   const task = await loadTask(taskId);
   const scopedQuery = await readScopeForTask(task, authContext);
-  const canReadCompletedTask = hasAnyGlobalPermission(authContext, [
+  const canReadCompletedTask = !scopedQuery?.sellerOrderItemIds && hasAnyGlobalPermission(authContext, [
     productionPermissions.SCALE_ASSIGN,
     productionPermissions.QC_REVIEW,
   ]) && [
@@ -1581,6 +1587,7 @@ async function getTaskById(taskId, authContext) {
 }
 
 function taskMatchesScopedReadQuery(task = {}, query = {}) {
+  if (query.sellerOrderItemIds && !query.sellerOrderItemIds.map(String).includes(toId(task.orderItemId))) return false;
   if (query.qcTeamAccountIds) {
     const contributors = [task.assignedDesignUserId, task.csAssigneeId,
       ...(task.fileChecks || []).map((check) => check.outputWorkerId)].map(toId).filter(Boolean);
@@ -1631,6 +1638,7 @@ async function canReadAssignedTaskInputAsset(assetId, authContext = {}) {
 
 async function readScopeForTask(task, authContext) {
   const query = await applyReadScope({}, authContext);
+  if (query?.sellerOrderItemIds) return query;
   if (query && taskMatchesScopedReadQuery(task, query)) return query;
   if ([productionQcStatuses.PENDING, productionQcStatuses.PASSED, productionQcStatuses.REJECTED].includes(task.qcStatus)) {
     return applyReadScope({ view: 'QC' }, authContext);
@@ -2682,7 +2690,7 @@ async function listTaskSummariesByOrderItemIds(orderItemIds = [], authContext) {
   const uniqueIds = unique(orderItemIds.map(toId));
   uniqueIds.forEach((orderItemId) => assertValidObjectId(orderItemId, 'orderItemId'));
   const tasks = await attachOrderSnapshots(await repository.listSummariesByOrderItemIds(uniqueIds));
-  tasks.forEach((task) => assertCanAccessShop(task.shopId, productionPermissions.READ, authContext));
+  await assertCanReadTasks(tasks, authContext);
   const [withShops, withUsers, withVendorSubmissions] = await Promise.all([
     attachShops(tasks),
     attachProductionUsers(tasks),
@@ -2704,7 +2712,7 @@ async function listWorkbenchTaskSummariesByOrderItemIds(orderItemIds = [], authC
   const uniqueIds = unique(orderItemIds.map(toId));
   uniqueIds.forEach((orderItemId) => assertValidObjectId(orderItemId, 'orderItemId'));
   const tasks = await repository.listSummariesByOrderItemIds(uniqueIds);
-  tasks.forEach((task) => assertCanAccessShop(task.shopId, productionPermissions.READ, authContext));
+  await assertCanReadTasks(tasks, authContext);
   const userIds = unique(tasks.flatMap((task) => [task.assignedDesignUserId, task.qcBy].filter(Boolean).map(toId)));
   const profiles = userIds.length ? await hrPublic.listEmployeeProfilesByAccountIds(userIds) : [];
   const profileById = new Map((profiles || []).map((profile) => [toId(profile.accountId), profile]));
@@ -2796,4 +2804,20 @@ if (process.env.NODE_ENV === 'test') {
   productionTaskService.__clearListEnrichmentCachesForTest = clearListEnrichmentCachesForTest;
 }
 
+async function canReadSellerTaskAsset(assetId, authContext) {
+  const ids = await orderPublic.personalSellerItemIds?.(authContext, productionPermissions.READ);
+  return Boolean(ids?.length && await repository.findSellerTaskReferencingAsset(assetId, ids));
+}
+
+async function assertCanReadTasks(tasks, authContext) {
+  const ids = await orderPublic.personalSellerItemIds?.(authContext, productionPermissions.READ);
+  if (ids !== undefined) {
+    const allowed = new Set(ids.map(String));
+    if (tasks.some(task => !allowed.has(toId(task.orderItemId)))) throw forbidden();
+    return;
+  }
+  tasks.forEach(task => assertCanAccessShop(task.shopId, productionPermissions.READ, authContext));
+}
+
+productionTaskService.canReadSellerTaskAsset = canReadSellerTaskAsset;
 module.exports = productionTaskService;

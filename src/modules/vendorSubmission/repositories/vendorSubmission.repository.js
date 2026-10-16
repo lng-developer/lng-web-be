@@ -10,6 +10,7 @@ function toObjectId(value) {
 
 function buildFilter(query = {}) {
   const filter = {};
+  if (query.sellerOrderItemIds) filter.$and = [{ orderItemId: { $in: query.sellerOrderItemIds.map(toObjectId) } }];
   if (query.id) filter._id = toObjectId(query.id);
   if (query.status) filter.status = query.status;
   if (query.productionTaskId) filter.productionTaskId = toObjectId(query.productionTaskId);

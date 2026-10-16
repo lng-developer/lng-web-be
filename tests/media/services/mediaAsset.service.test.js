@@ -22,6 +22,7 @@ jest.mock('https', () => ({
 }));
 
 jest.mock('../../../src/modules/auth/public', () => ({
+  personalSellerAccountId: require('../../../src/modules/auth/services/sellerAccess.service').personalSellerAccountId,
   canAccessScope: jest.fn(),
 }));
 
@@ -30,9 +31,13 @@ jest.mock('../../../src/modules/chat/public', () => ({
 }));
 
 jest.mock('../../../src/modules/production/public', () => ({
+  canReadSellerTaskAsset: jest.fn(),
   canReadTaskById: jest.fn(),
   canReadAssignedTaskInputAsset: jest.fn(),
 }));
+
+jest.mock('../../../src/modules/design/public', () => ({ canReadSellerAsset: jest.fn() }));
+jest.mock('../../../src/modules/catalog/public', () => ({ canReadSellerAsset: jest.fn() }));
 
 const EventEmitter = require('events');
 const fs = require('fs');
@@ -52,6 +57,18 @@ const {
 } = require('../../../src/shared/network/safeRemoteFetchStream');
 
 describe('mediaAsset.service', () => {
+  test('Seller file download needs an owned task reference, not only global media read', async () => {
+    const design = require('../../../src/modules/design/public');
+    const asset = { _id: '660000000000000000000901', metadata: { source: 'DESIGN_SUBMISSION' } };
+    repository.findById.mockResolvedValue(asset);
+    authPublic.canAccessScope.mockReturnValue(true);
+    const auth = { accountId: 'seller-a', roles: ['SALES'], permissions: ['MEDIA:READ'] };
+    design.canReadSellerAsset.mockResolvedValue(false);
+    productionPublic.canReadSellerTaskAsset.mockResolvedValue(false);
+    await expect(service.getAuthorizedAsset('660000000000000000000901', auth)).rejects.toMatchObject({ statusCode: 403 });
+    design.canReadSellerAsset.mockResolvedValue(true);
+    expect(await service.getAuthorizedAsset('660000000000000000000901', auth)).toMatchObject({ _id: asset._id });
+  });
   let root;
   let previousRoot;
 

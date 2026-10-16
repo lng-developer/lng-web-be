@@ -10,6 +10,11 @@ const mongoose = require('mongoose');
 const repository = require('../../../src/modules/design/repositories/designTask.repository');
 
 describe('designTask.repository', () => {
+  test('PSD ownership remains an AND constraint when search targets another listing', () => {
+    const filter = repository.buildFilter({ search: 'OTHER', sellerRequestedByAccountId: 'seller-a', sellerListingIds: ['listing-a'] });
+    expect(filter.$and).toEqual([{ $or: [{ requestedByAccountId: 'seller-a' }, { listingId: { $in: ['listing-a'] } }] }]);
+    expect(filter.$or).toBeDefined();
+  });
   beforeEach(() => {
     jest.clearAllMocks();
   });
