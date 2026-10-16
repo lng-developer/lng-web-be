@@ -103,6 +103,16 @@ async function persistAddressValidation(order, patch, authContext, skippedValida
     ...(updated.shippingAddress ? { 'order.shippingAddress': updated.shippingAddress } : {}),
   }, { source: 'ORDER_ADDRESS_VALIDATION' });
   if (!skippedValidation) {
+    if (updated.addressValidationStatus === addressValidationStatuses.VALID) {
+      const orderCaseService = require('./orderCase.service');
+      const resolvedCase = await orderCaseService.resolveOpenOrderCaseByType({
+        orderId: updated._id,
+        caseType: orderCaseTypes.ADDRESS,
+        resolutionNote: 'Address successfully validated by Smarty.',
+      }, authContext || {});
+      if (resolvedCase) return orderRepository.findById(updated._id);
+      return updated;
+    }
     await ensureAddressCase(updated, updated.externalData?.addressValidation?.reason);
   }
   return updated;
