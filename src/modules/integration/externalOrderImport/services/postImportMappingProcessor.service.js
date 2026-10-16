@@ -1,6 +1,8 @@
 const { randomUUID } = require("crypto");
 const mappingPublic = require("../../../mapping/public");
 const productionPublic = require("../../../production/public");
+const listingImageSync = require("../../listingImageSync/public");
+const logger = require("../../../../shared/utils/logger");
 const rawRecordRepository = require("../repositories/externalOrderRawRecord.repository");
 const issueRepository = require("../repositories/externalOrderImportIssue.repository");
 const {
@@ -56,6 +58,27 @@ async function createFailureIssue(payload, error) {
   });
 }
 
+async function enqueueImagesWhenImportJobIsReady(importJobId, shopId) {
+  if (!importJobId || !shopId) return;
+
+  try {
+    const rawRecords = await rawRecordRepository.listAllByJob(importJobId, {
+      importStatus: "IMPORTED",
+    });
+    if (!rawRecords.length || rawRecords.some((record) => ![
+      externalOrderPostImportStatuses.COMPLETED,
+      externalOrderPostImportStatuses.SKIPPED,
+    ].includes(record.postImportStatus))) return;
+
+    const asins = [...new Set(rawRecords
+      .map((record) => String(record.asin || "").trim().toUpperCase())
+      .filter(Boolean))];
+    if (asins.length) await listingImageSync.enqueueImportedOrderImages({ shopId, asins });
+  } catch (error) {
+    logger.warn("listing_image_sync_enqueue_failed", { importJobId, shopId, error });
+  }
+}
+
 async function processPostImportMapping(
   payload = {},
   { isFinalAttempt = false } = {},
@@ -92,6 +115,7 @@ async function processPostImportMapping(
       postImportErrorCode: null,
       postImportErrorMessage: null,
     });
+    await enqueueImagesWhenImportJobIsReady(payload.importJobId, result?.shopId);
     return { skipped: false, result };
   } catch (error) {
     await updatePayloadRawRecords(payload, leaseToken, {
@@ -108,5 +132,6 @@ async function processPostImportMapping(
 
 module.exports = {
   LEASE_MS,
+  enqueueImagesWhenImportJobIsReady,
   processPostImportMapping,
 };

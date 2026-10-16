@@ -37,8 +37,9 @@ async function upsertSchedule(agentId, { enabled }, auth) {
   if (enabled && !agent.listingImageSync) throw conflict('AGENT_UNSUPPORTED');
   return scheduleDto(await repository.upsertSchedule(agent, enabled, new Date()));
 }
-async function enqueue(agent, manual, now, asins) {
-  const candidates = await catalog.findImageSyncCandidates({ shopId: agent.shopId, now, manual, asins });
+async function enqueue(agent, manual, now, asins, skipSynced = false) {
+  const candidates = (await catalog.findImageSyncCandidates({ shopId: agent.shopId, now, manual, asins }))
+    .filter((candidate) => !skipSynced || candidate.imageSync?.source !== 'AMAZON_SYNC');
   if (candidates.length > 10000) throw conflict('JOB_TOO_LARGE: image sync supports at most 10000 listings per job');
   if (!candidates.length) {
     if (manual) throw conflict('NO_ELIGIBLE_LISTINGS');
@@ -55,6 +56,38 @@ async function createJob({ shopId, agentId, asins }, auth) {
   const job = await enqueue(agent, true, new Date(), asins);
   await dispatchJob(job._id);
   return jobDto(await repository.findJob(job._id));
+}
+async function enqueueImportedOrderImages({ shopId, asins = [] }) {
+  const uniqueAsins = [...new Set(asins.map((asin) => String(asin || '').trim().toUpperCase()).filter(Boolean))];
+  if (!shopId || !uniqueAsins.length) return null;
+
+  const now = new Date();
+  const agent = (await commands.listAgents({ shopIds: [shopId], onlineSince: new Date(now.getTime() - 90000) }))
+    .find((candidate) => candidate.listingImageSync === true);
+  if (!agent) return null;
+
+  try {
+    const job = await enqueue(agent, true, now, uniqueAsins, true);
+    if (!job) return null;
+    await dispatchJob(job._id, now);
+    return jobDto(await repository.findJob(job._id));
+  } catch (error) {
+    if (error.code === errorCodes.CONFLICT_ERROR) {
+      const activeJob = await repository.findActiveJobByShop(shopId);
+      if (!activeJob) return null;
+      const candidates = (await catalog.findImageSyncCandidates({ shopId, now, manual: true, asins: uniqueAsins }))
+        .filter((candidate) => candidate.imageSync?.source !== 'AMAZON_SYNC');
+      const existingListingIds = new Set(activeJob.items.map((item) => String(item.listingId)));
+      const missingCandidates = candidates.filter((candidate) => !existingListingIds.has(String(candidate._id)));
+      const mergedJob = missingCandidates.length
+        ? await repository.appendCandidates(activeJob._id, missingCandidates)
+        : activeJob;
+      if (!mergedJob) return null;
+      await dispatchJob(mergedJob._id, now);
+      return jobDto(mergedJob);
+    }
+    throw error;
+  }
 }
 async function dispatchJob(jobId, now = new Date()) {
   const token = randomUUID();
@@ -82,15 +115,6 @@ async function dispatchJob(jobId, now = new Date()) {
   } finally { await repository.releaseDispatch(jobId, token); }
 }
 async function dispatch(now = new Date()) {
-  for (const schedule of await repository.dueSchedules(now)) {
-    if (!await repository.claimSchedule(schedule._id, now)) continue;
-    try {
-      const agent = await commands.findAgentById(schedule.agentId);
-      assertSupported(agent, now);
-      if (String(agent.shopId) !== String(schedule.shopId)) throw forbidden();
-      await enqueue(agent, false, now);
-    } catch (error) { await repository.scheduleError(schedule._id, String(error.message).slice(0, 1000)); }
-  }
   for (const job of await repository.listActiveJobs()) {
     try { await dispatchJob(job._id, now); }
     catch (error) { logger.error('listing_image_sync_dispatch_failed', { jobId: String(job._id), error }); }
@@ -179,4 +203,4 @@ async function processImage({ commandId, item, input, file, auth, job }) {
   if (updated) await order.syncOrderWorkbenchListingImage(updated._id || updated.id, updated.productImageUrl);
   return { status: updated ? status : 'SKIPPED' };
 }
-module.exports = { createJob, listJobs, listSchedules, upsertSchedule, changeJob, dispatch, dispatchJob, getCommandItems, recordResult, pauseCommand };
+module.exports = { createJob, enqueueImportedOrderImages, listJobs, listSchedules, upsertSchedule, changeJob, dispatch, dispatchJob, getCommandItems, recordResult, pauseCommand };

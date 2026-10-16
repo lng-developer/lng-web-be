@@ -6,6 +6,14 @@ async function createJob({ shopId, agentId, candidates }) {
   return (await Job.create({ shopId, agentId, activeShopKey: String(shopId), items: candidates.map((row) => ({ listingId: row._id, asin: row.asin, marketplaceCode: row.marketplaceCode })) })).toObject();
 }
 function findJob(id) { return Job.findById(id).lean(); }
+function findActiveJobByShop(shopId) { return Job.findOne({ activeShopKey: String(shopId) }).lean(); }
+function appendCandidates(jobId, candidates) {
+  return Job.findOneAndUpdate(
+    { _id: jobId, status: { $in: ['QUEUED', 'RUNNING', 'PAUSED'] } },
+    { $push: { items: { $each: candidates.map((row) => ({ listingId: row._id, asin: row.asin, marketplaceCode: row.marketplaceCode })) } } },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
 async function listJobs({ shopIds, shopId, page = 1, limit = 20 }) {
   const filter = { shopId: shopId ? { $in: shopIds.filter((id) => String(id) === String(shopId)) } : { $in: shopIds } };
   const [items, total] = await Promise.all([Job.find(filter).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit).lean(), Job.countDocuments(filter)]);
@@ -61,4 +69,4 @@ function upsertSchedule(agent, enabled, now) { return Schedule.findOneAndUpdate(
 function dueSchedules(now) { return Schedule.find({ enabled: true, nextRunAt: { $lte: now } }).lean(); }
 function claimSchedule(id, now) { return Schedule.findOneAndUpdate({ _id: id, enabled: true, nextRunAt: { $lte: now } }, { $set: { nextRunAt: new Date(now.getTime() + 86400000), lastError: null } }, { returnDocument: 'after' }).lean(); }
 function scheduleError(id, message) { return Schedule.updateOne({ _id: id }, { $set: { lastError: message } }); }
-module.exports = { acquireItem, releaseItem, createJob, findJob, listJobs, listActiveJobs, acquireDispatch, releaseDispatch, reserveBatch, clearBatch, finishJob, acknowledge, changeJob, listSchedules, upsertSchedule, dueSchedules, claimSchedule, scheduleError };
+module.exports = { acquireItem, releaseItem, createJob, findJob, findActiveJobByShop, appendCandidates, listJobs, listActiveJobs, acquireDispatch, releaseDispatch, reserveBatch, clearBatch, finishJob, acknowledge, changeJob, listSchedules, upsertSchedule, dueSchedules, claimSchedule, scheduleError };

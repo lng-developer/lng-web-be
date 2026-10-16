@@ -91,6 +91,40 @@ test('manual ASIN allowlist cannot include other listings from the same shop', a
   expect((await claim()).batch.items.map(item => item.asin).sort()).toEqual([...asins].sort());
 });
 
+test('imported ASINs create one 100-item job and dispatch its first batch of 25', async () => {
+  const asins = Array.from({ length: 100 }, (_, index) => `B${String(index).padStart(9, '0')}`);
+  for (const asin of asins) await listing({ asin, createdAt: new Date() });
+
+  const job = await sync.enqueueImportedOrderImages({ shopId: String(shopId), asins });
+
+  expect(job).toMatchObject({ total: 100 });
+  expect((await claim()).batch.items).toHaveLength(25);
+  expect(await Command.countDocuments({ type: 'SYNC_LISTING_IMAGES' })).toBe(1);
+});
+
+test('a later import appends new ASINs to the active shop job instead of dropping them', async () => {
+  const first = await listing({ asin: 'B000000001', createdAt: new Date() });
+  const second = await listing({ asin: 'B000000002', createdAt: new Date() });
+
+  const active = await sync.enqueueImportedOrderImages({ shopId: String(shopId), asins: [first.asin] });
+  const merged = await sync.enqueueImportedOrderImages({ shopId: String(shopId), asins: [second.asin] });
+
+  expect(merged).toMatchObject({ id: active.id, total: 2 });
+  expect(await Command.countDocuments({ type: 'SYNC_LISTING_IMAGES' })).toBe(1);
+});
+
+test('reimporting an ASIN with a successful Amazon image does not create another sync job', async () => {
+  const row = await listing({ asin: 'B000000001', createdAt: new Date() });
+  await sync.enqueueImportedOrderImages({ shopId: String(shopId), asins: [row.asin] });
+  const batch = await claim();
+  await acknowledge(batch, batch.batch.items[0]);
+  await extension.completeCommand(batch.commandId, { ...batch.lease, success: true }, extAuth);
+  await sync.dispatch();
+
+  expect(await sync.enqueueImportedOrderImages({ shopId: String(shopId), asins: [row.asin] })).toBeNull();
+  expect(await Command.countDocuments({ type: 'SYNC_LISTING_IMAGES' })).toBe(1);
+});
+
 test('legacy Amazon seller-import images can refresh, but explicit manual and unrelated URLs stay protected', async () => {
   const legacyUrl = 'https://m.media-amazon.com/images/S/gestalt-seller-images-prod-us-east-1/market/seller/image.png';
   const row = await listing({ asin: 'B0HDSWTSPD', productImageUrl: legacyUrl });
@@ -110,15 +144,15 @@ test.each([[[]], [['invalid']], [['B0HDSWTSPD', 'B0HDSWTSPD']]])('rejects invali
   expect(schema.validate({ shopId: String(shopId), agentId: String(agent._id), asins }, { stripUnknown: true }).error).toBeDefined();
 });
 
-test('automatic discovery includes exact seven-day boundary and excludes recently checked and manual images', async () => {
+test('candidate lookup no longer delays a valid listing for seven days', async () => {
   const now = new Date('2026-09-17T00:00:00Z');
   const boundary = await listing({ createdAt: new Date('2026-09-10T00:00:00Z') });
-  await listing({ createdAt: new Date('2026-09-10T00:00:00.001Z') });
-  await listing({ imageSync: { lastCheckedAt: new Date('2026-09-10T00:00:00.001Z') } });
+  const newListing = await listing({ createdAt: new Date('2026-09-10T00:00:00.001Z') });
+  const recentlyChecked = await listing({ imageSync: { lastCheckedAt: new Date('2026-09-10T00:00:00.001Z') } });
   await listing({ productImageUrl: sourceUrl, imageSync: { source: 'MANUAL' } });
   await listing({ productImageUrl: 'https://example.com/legacy.jpg' });
   const imported = await listing({ productImageUrl: sourceUrl, imageSync: { lastCheckedAt: new Date('2026-09-10T00:00:00Z') } });
-  expect((await catalog.findImageSyncCandidates({ shopId, now })).map((x) => String(x._id))).toEqual([String(imported._id), String(boundary._id)]);
+  expect((await catalog.findImageSyncCandidates({ shopId, now })).map((x) => String(x._id)).sort()).toEqual([boundary, newListing, recentlyChecked, imported].map((x) => String(x._id)).sort());
 });
 test('request now bypasses time gates; batches at most 25, concurrency creates one active shop job', async () => {
   for (let index = 0; index < 27; index++) await listing({ createdAt: new Date() });
@@ -313,14 +347,10 @@ test('catalog manual editing the same URL or clearing it opts out of future sync
   expect((await Listing.findById(row._id).lean()).productImageUrl).toBeNull();
   expect(await catalog.findImageSyncCandidates({ shopId, manual: true })).toHaveLength(0);
 });
-test('daily schedule advances exactly one day and disabling preserves the active job', async () => {
+test('a legacy daily schedule cannot create a recurring image-sync job', async () => {
   await listing(); await sync.upsertSchedule(String(agent._id), { enabled: true }, admin);
   const now = new Date(); await sync.dispatch(now);
-  expect((await sync.listSchedules(admin)).items[0].nextRunAt.getTime()).toBe(now.getTime() + 86400000);
-  const job = (await sync.listJobs({ page: 1, limit: 20 }, admin)).items[0];
-  await sync.upsertSchedule(String(agent._id), { enabled: false }, admin);
-  expect((await sync.listJobs({ page: 1, limit: 20 }, admin)).items[0].id).toBe(job.id);
-  expect((await sync.listJobs({ page: 1, limit: 20 }, { scopes: [{ scopeType: 'shop', scopeId: String(oid()), permissions: ['CATALOG:READ'] }] })).total).toBe(0);
+  expect((await sync.listJobs({ page: 1, limit: 20 }, admin)).total).toBe(0);
 });
 test.each([{ http_code: 400 }, { code: 'ETIMEDOUT' }])('Cloudinary rejection or network failure is durable FAILED until explicit retry', async (failure) => {
   await listing(); await request(); const batch = await claim();

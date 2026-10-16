@@ -3,6 +3,7 @@ jest.mock(
   () => ({
     claimPostImportRecords: jest.fn(),
     updatePostImportResultForLease: jest.fn(),
+    listAllByJob: jest.fn(),
   }),
 );
 
@@ -21,10 +22,15 @@ jest.mock("../../../../src/modules/production/public", () => ({
   createOrRecheckTaskForOrderItem: jest.fn(),
 }));
 
+jest.mock("../../../../src/modules/integration/listingImageSync/public", () => ({
+  enqueueImportedOrderImages: jest.fn(),
+}));
+
 const rawRecordRepository = require("../../../../src/modules/integration/externalOrderImport/repositories/externalOrderRawRecord.repository");
 const issueRepository = require("../../../../src/modules/integration/externalOrderImport/repositories/externalOrderImportIssue.repository");
 const mappingPublic = require("../../../../src/modules/mapping/public");
 const productionPublic = require("../../../../src/modules/production/public");
+const listingImageSync = require("../../../../src/modules/integration/listingImageSync/public");
 const {
   processPostImportMappingJob,
 } = require("../../../../src/modules/integration/externalOrderImport/workers/postImportMapping.worker");
@@ -38,12 +44,14 @@ describe("postImportMapping.worker", () => {
     orderItemId: "660000000000000000000401",
     externalOrderId: "113-1",
     externalItemId: "ITEM-1",
+    asin: "B012345678",
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
     rawRecordRepository.claimPostImportRecords.mockResolvedValue(true);
     rawRecordRepository.updatePostImportResultForLease.mockResolvedValue({});
+    rawRecordRepository.listAllByJob.mockResolvedValue([]);
     issueRepository.create.mockResolvedValue({});
     mappingPublic.recheckFulfillmentPlan.mockResolvedValue({
       status: "BLOCKED",
@@ -51,6 +59,7 @@ describe("postImportMapping.worker", () => {
     productionPublic.createOrRecheckTaskForOrderItem.mockResolvedValue({
       id: "660000000000000000000701",
     });
+    listingImageSync.enqueueImportedOrderImages.mockResolvedValue(null);
   });
 
   test("runs mapping recheck and marks all raw records completed", async () => {
@@ -130,6 +139,39 @@ describe("postImportMapping.worker", () => {
         source: "EXTERNAL_ORDER_IMPORT",
       }),
     );
+  });
+
+  test("queues one deduplicated ASIN batch only after the import job has finished post-import mapping", async () => {
+    mappingPublic.recheckFulfillmentPlan.mockResolvedValue({ status: "BLOCKED", shopId: "660000000000000000000201" });
+    rawRecordRepository.listAllByJob.mockResolvedValue([
+      { importStatus: "IMPORTED", postImportStatus: "COMPLETED", asin: "B012345678" },
+      { importStatus: "IMPORTED", postImportStatus: "COMPLETED", asin: "b098765432" },
+      { importStatus: "IMPORTED", postImportStatus: "COMPLETED", asin: "B012345678" },
+    ]);
+
+    await processPostImportMappingJob({ data: payload });
+
+    expect(listingImageSync.enqueueImportedOrderImages).toHaveBeenCalledWith({
+      shopId: "660000000000000000000201",
+      asins: ["B012345678", "B098765432"],
+    });
+    expect(rawRecordRepository.updatePostImportResultForLease).toHaveBeenCalledWith(
+      payload.rawRecordId,
+      expect.any(String),
+      expect.objectContaining({ postImportStatus: "COMPLETED" }),
+    );
+  });
+
+  test("does not queue images while another imported record is still pending", async () => {
+    mappingPublic.recheckFulfillmentPlan.mockResolvedValue({ status: "BLOCKED", shopId: "660000000000000000000201" });
+    rawRecordRepository.listAllByJob.mockResolvedValue([
+      { importStatus: "IMPORTED", postImportStatus: "COMPLETED", asin: "B012345678" },
+      { importStatus: "IMPORTED", postImportStatus: "QUEUED", asin: "B098765432" },
+    ]);
+
+    await processPostImportMappingJob({ data: payload });
+
+    expect(listingImageSync.enqueueImportedOrderImages).not.toHaveBeenCalled();
   });
 
   test("skips mapping when another worker already owns the lease", async () => {
