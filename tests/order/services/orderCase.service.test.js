@@ -213,6 +213,39 @@ describe('orderCase.service', () => {
     );
   });
 
+  test('resolving ADDRESS by type preserves other cases and is a no-op when repeated', async () => {
+    const addressCase = {
+      _id: caseId, orderId, shopId, caseType: 'ADDRESS', status: 'OPEN',
+    };
+    orderRepository.findById.mockResolvedValue({
+      _id: orderId, shopId, addressValidationStatus: 'VALID',
+    });
+    repository.findOpenByOrderAndType.mockResolvedValueOnce(addressCase).mockResolvedValueOnce(null);
+    repository.findById.mockResolvedValueOnce(addressCase);
+    repository.countOpenByOrder.mockResolvedValueOnce(1);
+    repository.listLatestOpenByOrderIds.mockResolvedValueOnce([{
+      _id: '660000000000000000000702', orderId, status: 'OPEN', caseType: 'OTHER',
+    }]);
+    const payload = { orderId, caseType: 'ADDRESS', resolutionNote: 'Smarty validated' };
+
+    const first = await service.resolveOpenOrderCaseByType(payload);
+    const repeated = await service.resolveOpenOrderCaseByType(payload);
+
+    expect(first.status).toBe('RESOLVED');
+    expect(repeated).toBeNull();
+    expect(repository.findOpenByOrderAndType).toHaveBeenCalledWith(orderId, 'ADDRESS');
+    expect(repository.update).toHaveBeenCalledTimes(1);
+    expect(repository.update).toHaveBeenCalledWith(caseId, expect.objectContaining({
+      status: 'RESOLVED',
+    }), { session: mockSession, expectedStatus: 'OPEN' });
+    expect(projectionService.updateOrderWorkbenchOrder).toHaveBeenCalledWith(orderId,
+      expect.objectContaining({ caseStatus: 'OPEN', case: expect.objectContaining({ caseType: 'OTHER' }) }),
+      expect.any(Object));
+    expect(orderTimelineService.appendTimeline).toHaveBeenCalledTimes(1);
+    expect(auditPublic.record).toHaveBeenCalledTimes(1);
+    expect(orderProductionRecheckService.recheckProductionForOrder).toHaveBeenCalledTimes(1);
+  });
+
   test('cancel keeps order open when another open case remains', async () => {
     repository.countOpenByOrder.mockResolvedValueOnce(1);
 

@@ -53,6 +53,8 @@ describe('orderAddressValidation.service', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    orderRepository.findById.mockReset();
+    orderCaseService.resolveOpenOrderCaseByType.mockReset();
     orderRepository.findById.mockResolvedValue({
       _id: orderId,
       shopId: '660000000000000000000201',
@@ -149,6 +151,7 @@ describe('orderAddressValidation.service', () => {
 
     expect(smartyClient.validateUsStreetAddress).not.toHaveBeenCalled();
     expect(result.addressValidationStatus).toBe('NOT_CHECKED');
+    expect(orderCaseService.resolveOpenOrderCaseByType).not.toHaveBeenCalled();
     expect(productionPublic.syncOrderAddressSnapshot).toHaveBeenCalledWith(
       expect.objectContaining({ addressValidationStatus: 'NOT_CHECKED' }),
     );
@@ -165,6 +168,63 @@ describe('orderAddressValidation.service', () => {
     await expect(service.validateAddress(orderId)).rejects.toMatchObject({ statusCode: 409 });
     expect(auditPublic.record).not.toHaveBeenCalled();
     expect(productionPublic.syncOrderAddressSnapshot).not.toHaveBeenCalled();
+    expect(orderCaseService.resolveOpenOrderCaseByType).not.toHaveBeenCalled();
+  });
+
+  test('valid validation resolves only ADDRESS and returns refreshed case state', async () => {
+    smartyClient.validateUsStreetAddress.mockResolvedValueOnce([
+      { analysis: { enhanced_match: 'postal-match' } },
+    ]);
+    const original = await orderRepository.findById(orderId);
+    orderRepository.findById.mockResolvedValueOnce(original).mockResolvedValueOnce({
+      ...original, addressValidationStatus: 'VALID', caseStatus: 'NONE',
+    });
+    orderCaseService.resolveOpenOrderCaseByType.mockResolvedValueOnce({ id: 'case-1' });
+
+    const result = await service.validateAddress(orderId);
+
+    expect(orderCaseService.resolveOpenOrderCaseByType).toHaveBeenCalledTimes(1);
+    expect(orderCaseService.resolveOpenOrderCaseByType).toHaveBeenCalledWith({
+      orderId, caseType: 'ADDRESS', resolutionNote: expect.any(String),
+    }, {});
+    expect(orderRepository.updateAddressValidation.mock.invocationCallOrder[0])
+      .toBeLessThan(orderCaseService.resolveOpenOrderCaseByType.mock.invocationCallOrder[0]);
+    expect(result).toMatchObject({ addressValidationStatus: 'VALID', caseStatus: 'NONE' });
+    expect(orderCaseService.ensureOpenOrderCase).not.toHaveBeenCalled();
+    expect(orderProductionRecheckService.recheckProductionForOrder).not.toHaveBeenCalled();
+  });
+
+  test('valid validation without an open address case does not trigger extra production rechecks', async () => {
+    smartyClient.validateUsStreetAddress.mockResolvedValue([
+      { analysis: { enhanced_match: 'postal-match' } },
+    ]);
+    orderCaseService.resolveOpenOrderCaseByType.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+
+    await service.validateAddress(orderId);
+    const result = await service.validateAddress(orderId);
+
+    expect(result.addressValidationStatus).toBe('VALID');
+    expect(orderCaseService.resolveOpenOrderCaseByType).toHaveBeenCalledTimes(2);
+    expect(orderProductionRecheckService.recheckProductionForOrder).not.toHaveBeenCalled();
+    expect(orderCaseService.ensureOpenOrderCase).not.toHaveBeenCalled();
+  });
+
+  test('Smarty failure leaves address cases untouched', async () => {
+    smartyClient.validateUsStreetAddress.mockRejectedValueOnce(new Error('Smarty returned HTTP 402'));
+
+    await expect(service.validateAddress(orderId)).rejects.toThrow('Smarty returned HTTP 402');
+
+    expect(orderRepository.updateAddressValidation).not.toHaveBeenCalled();
+    expect(orderCaseService.resolveOpenOrderCaseByType).not.toHaveBeenCalled();
+  });
+
+  test('case resolution failure is surfaced so validation can be retried', async () => {
+    smartyClient.validateUsStreetAddress.mockResolvedValueOnce([
+      { analysis: { enhanced_match: 'postal-match' } },
+    ]);
+    orderCaseService.resolveOpenOrderCaseByType.mockRejectedValueOnce(new Error('Case write failed'));
+
+    await expect(service.validateAddress(orderId)).rejects.toThrow('Case write failed');
   });
 
   test('missing secondary marks warning and keeps original shipping address', async () => {
@@ -177,6 +237,8 @@ describe('orderAddressValidation.service', () => {
     ]);
 
     await service.validateAddress(orderId);
+
+    expect(orderCaseService.resolveOpenOrderCaseByType).not.toHaveBeenCalled();
 
     expect(orderRepository.updateAddressValidation.mock.calls[0][1]).toEqual(expect.objectContaining({
       addressValidationStatus: 'WARNING',
@@ -193,6 +255,8 @@ describe('orderAddressValidation.service', () => {
     smartyClient.validateUsStreetAddress.mockResolvedValue([]);
 
     await service.validateAddress(orderId);
+
+    expect(orderCaseService.resolveOpenOrderCaseByType).not.toHaveBeenCalled();
 
     expect(orderRepository.updateAddressValidation.mock.calls[0][1]).toEqual(expect.objectContaining({
       addressValidationStatus: 'INVALID',
