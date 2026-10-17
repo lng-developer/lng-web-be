@@ -93,7 +93,7 @@ async function syncWorkbenchFulfillmentPlan(plan) {
     fulfillmentPlan,
     listingVariant,
   };
-  if (fulfillmentPlan.listing) {
+  if (fulfillmentPlan.listing?.id) {
     patch.listing = {
       ...fulfillmentPlan.listing,
       productImageUrl: catalogListing?.productImageUrl || fulfillmentPlan.listing.productImageUrl || null,
@@ -1422,7 +1422,9 @@ function snapshotFrom({
       title: preview.item.title || null,
       quantity: preview.item.quantity || null,
     },
-    listing: { ...compactListing(preview.listing), printMethod: preview.printMethod || null },
+    listing: preview.listing
+      ? { ...compactListing(preview.listing), printMethod: preview.printMethod || null }
+      : null,
     internalTemplate: compactTemplate(preview.internalTemplate),
     vendor: compactVendor(vendor),
     vendorProduct: compactVendorProduct(vendorProductSnapshotSource),
