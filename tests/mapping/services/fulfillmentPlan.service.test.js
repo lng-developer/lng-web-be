@@ -1361,6 +1361,25 @@ describe('fulfillmentPlan.service', () => {
     );
   });
 
+  test('does not overwrite existing workbench listing when fulfillment plan has no listing', async () => {
+    orderPublic.findItemById.mockResolvedValue({
+      ...item,
+      sku: 'UNKNOWN-SKU-WITHOUT-LISTING',
+      asin: 'B0UNKNOWN',
+    });
+    catalogPublic.findListingBySku.mockResolvedValue(null);
+    catalogPublic.findListingForOrderItem = jest.fn().mockResolvedValue(null);
+
+    await service.recheckFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
+
+    const updateCalls = orderPublic.updateOrderWorkbenchItem.mock.calls.filter(([callOrderId, callItemId]) => (
+      callOrderId === orderId && callItemId === orderItemId
+    ));
+    expect(updateCalls.length).toBeGreaterThan(0);
+    const lastUpdateCall = updateCalls[updateCalls.length - 1];
+    expect(lastUpdateCall[2]).not.toHaveProperty('listing');
+  });
+
   test('manual select persists a vendor choice when SKU config is ambiguous and listing is missing', async () => {
     orderPublic.findItemById.mockResolvedValue({
       ...item,

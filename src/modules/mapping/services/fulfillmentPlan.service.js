@@ -89,17 +89,20 @@ async function syncWorkbenchFulfillmentPlan(plan) {
       ? catalogPublic.getListingVariantById(fulfillmentPlan.listingVariantId)
       : null,
   ]);
+  const patch = {
+    fulfillmentPlan,
+    listingVariant,
+  };
+  if (fulfillmentPlan.listing) {
+    patch.listing = {
+      ...fulfillmentPlan.listing,
+      productImageUrl: catalogListing?.productImageUrl || fulfillmentPlan.listing.productImageUrl || null,
+    };
+  }
   await orderPublic.updateOrderWorkbenchItem(
     fulfillmentPlan.orderId,
     fulfillmentPlan.orderItemId,
-    {
-      fulfillmentPlan,
-      listing: fulfillmentPlan.listing ? {
-        ...fulfillmentPlan.listing,
-        productImageUrl: catalogListing?.productImageUrl || fulfillmentPlan.listing.productImageUrl || null,
-      } : null,
-      listingVariant,
-    },
+    patch,
     { source: 'MAPPING' },
   );
 }
