@@ -107,6 +107,7 @@ jest.mock('../../../src/modules/production/repositories/productionTask.repositor
   listPsdBlockedByListingId: jest.fn(),
   listPsdBlockedByOrderItemIds: jest.fn(),
   listSummariesByOrderItemIds: jest.fn(),
+  listQcPassedForWorkScore: jest.fn(),
   summarize: jest.fn(),
   summarizeQueueCounts: jest.fn(),
   appendFileCheckIfMutable: jest.fn(),
@@ -3728,6 +3729,63 @@ describe('productionTask.service', () => {
         contextSnapshot: expect.objectContaining({ scaleDifficultyLevel: 'HARD' }),
       })),
     }));
+  });
+
+  test('QC pass records score for scaled output even when check was required=false', async () => {
+    catalogPublic.getListingVariantById.mockResolvedValueOnce({ scaleDifficulty: { level: 'NORMAL' } });
+    const checks = [{
+      _id: '660000000000000000100099',
+      slotKey: 'FRONT',
+      required: false,
+      sourceType: 'CUSTOMER_IMAGE',
+      outputAssetId: '660000000000000000200099',
+      outputWorkerId: designerId,
+      qcStatus: 'NOT_READY',
+      blockers: [],
+    }];
+    mockTaskUpdate({ _id: taskId, shopId, orderItemId, listingVariantId, fileChecks: checks });
+
+    await service.submitQc(taskId, { decision: 'PASSED' }, { permissions: ['PRODUCTION:WRITE'], accountId: qcUserId });
+
+    expect(workScorePublic.recordProductionScaleScores).toHaveBeenCalledWith(expect.objectContaining({
+      productionTaskId: taskId,
+      outputs: [expect.objectContaining({
+        fileCheckId: checks[0]._id,
+        assetId: checks[0].outputAssetId,
+        workerId: designerId,
+      })],
+    }));
+  });
+
+  test('listWorkScoreCandidates includes scaled outputs with required=false', async () => {
+    catalogPublic.getListingVariantById.mockResolvedValueOnce({ scaleDifficulty: { level: 'NORMAL' } });
+    repository.listQcPassedForWorkScore.mockResolvedValueOnce([{
+      _id: taskId,
+      shopId,
+      orderItemId,
+      listingVariantId,
+      fileChecks: [{
+        _id: fileCheckId,
+        slotKey: 'FRONT',
+        slotLabel: 'Front',
+        required: false,
+        sourceType: 'CUSTOMER_IMAGE',
+        outputAssetId,
+        outputWorkerId: designerId,
+        scaleStatus: 'SCALED',
+        qcStatus: 'PASSED',
+      }],
+      qcAt: new Date('2026-10-20T10:00:00.000Z'),
+    }]);
+
+    const candidates = await service.listWorkScoreCandidates({ limit: 10 });
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].outputs).toHaveLength(1);
+    expect(candidates[0].outputs[0]).toMatchObject({
+      fileCheckId,
+      assetId: outputAssetId,
+      workerId: designerId,
+    });
   });
 
   test('QC pass remains successful when scoring fails', async () => {

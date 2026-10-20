@@ -366,7 +366,7 @@ function emptyTaskSummary() {
 }
 
 function emptyQueueCounts() {
-  return { blocked: 0, scaleQueue: 0, qcQueue: 0 };
+  return { total: 0, blocked: 0, scaleQueue: 0, needScale: 0, qcRejected: 0, qcPending: 0, qcQueue: 0, ready: 0, sent: 0, cancelled: 0, unclassified: 0 };
 }
 
 async function applyReadScope(query, authContext) {
@@ -753,6 +753,12 @@ function hardBlockers(fileChecks = [], extra = []) {
 
 function requiresScaledOutput(check = {}) {
   return check.required && check.sourceType !== productionSourceTypes.PSD_TEMPLATE;
+}
+
+function isScoredScaleOutput(check = {}) {
+  return check.sourceType !== productionSourceTypes.PSD_TEMPLATE
+    && check.qcStatus === productionQcStatuses.PASSED
+    && Boolean(check.outputAssetId);
 }
 
 function preserveExistingScaledOutputs(fileChecks = [], existingFileChecks = []) {
@@ -2314,7 +2320,9 @@ async function submitQc(taskId, payload = {}, authContext) {
   if (isOutputWorker || isLegacyAssignee) throw forbidden('You cannot review your own production output');
   const fileDecisions = Array.isArray(payload.fileDecisions) ? payload.fileDecisions : [];
   const decisionByFileCheckId = new Map(fileDecisions.map((item) => [toId(item.fileCheckId), item]));
-  const reviewableChecks = (task.fileChecks || []).filter(requiresScaledOutput);
+  const reviewableChecks = (task.fileChecks || []).filter(
+    (check) => requiresScaledOutput(check) || Boolean(check.outputAssetId),
+  );
   if (fileDecisions.length) {
     const knownIds = new Set((task.fileChecks || []).map((check) => toId(check)));
     if (decisionByFileCheckId.size !== fileDecisions.length
@@ -2374,7 +2382,7 @@ async function submitQc(taskId, payload = {}, authContext) {
     throw conflict('QC decision must be PASSED or REJECTED', { field: 'decision' });
   }
 
-  const requiredChecks = reviewableChecks;
+  const requiredChecks = reviewableChecks.filter(requiresScaledOutput);
   if (requiredChecks.some((check) => !check.outputAssetId)) {
     throw conflict('Scaled output is required before QC pass', {
       blockingReasons: [productionBlockers.SCALED_OUTPUT_MISSING],
@@ -2384,7 +2392,9 @@ async function submitQc(taskId, payload = {}, authContext) {
   const now = new Date();
   const fileChecks = (task.fileChecks || []).map((check) => {
     const fileDecision = decisionByFileCheckId.get(toId(check));
-    const passed = fileDecisions.length ? fileDecision?.decision === 'PASSED' : check.required;
+    const passed = fileDecisions.length
+      ? fileDecision?.decision === 'PASSED'
+      : (check.required || Boolean(check.outputAssetId));
     return {
       ...check,
       qcStatus: passed ? productionQcStatuses.PASSED : check.qcStatus,
@@ -2412,20 +2422,19 @@ async function submitQc(taskId, payload = {}, authContext) {
   let scoreWarning = null;
   const scaleDifficultyLevel = await currentScaleDifficultyLevel(updated);
   const scoreOutputs = (updated.fileChecks || [])
-    .filter((check) => requiresScaledOutput(check)
-      && check.qcStatus === productionQcStatuses.PASSED
-      && check.outputAssetId)
+    .filter(isScoredScaleOutput)
     .map((check) => ({
       fileCheckId: toId(check),
       assetId: toId(check.outputAssetId),
-      workerId: toId(check.outputWorkerId),
+      workerId: toId(check.outputWorkerId) || toId(updated.assignedDesignUserId) || toId(authContext?.accountId),
       contextSnapshot: {
         slotKey: check.slotKey,
         slotLabel: check.slotLabel || null,
         scaleDifficultyLevel,
       },
       scoredAt: now,
-    }));
+    }))
+    .filter((output) => output.workerId);
   if (scoreOutputs.length) {
     try {
       await workScorePublic.recordProductionScaleScores({
@@ -2448,7 +2457,9 @@ async function submitQc(taskId, payload = {}, authContext) {
       scoreWarning = { code: 'SCORE_CREATION_FAILED' };
     }
   }
-  await triggerVendorSubmissionForReadyTask(taskId, authContext);
+  const fulfillmentPlatformPublic = require('../../integration/fulfillmentPlatform/public');
+  const handoff = await fulfillmentPlatformPublic.queueOrderIfReady(updated.orderId);
+  if (!handoff.routed) await triggerVendorSubmissionForReadyTask(taskId, authContext);
   const dto = toProductionTaskDto(updated);
   if (scoreWarning) dto.warnings = [scoreWarning];
   return dto;
@@ -2456,26 +2467,34 @@ async function submitQc(taskId, payload = {}, authContext) {
 
 async function listWorkScoreCandidates({ limit = 100 } = {}) {
   const tasks = await repository.listQcPassedForWorkScore(limit);
-  return tasks.map((task) => ({
-    productionTaskId: toId(task),
-    shopId: toId(task.shopId),
-    contextSnapshot: {
-      orderItemId: toId(task.orderItemId),
-      externalOrderId: task.orderSnapshot?.externalOrderId || null,
-      sku: task.orderItemSnapshot?.sku || null,
-      title: task.orderItemSnapshot?.title || null,
-    },
-    outputs: (task.fileChecks || [])
-      .filter((check) => requiresScaledOutput(check)
-        && check.qcStatus === productionQcStatuses.PASSED
-        && check.outputAssetId && check.outputWorkerId)
-      .map((check) => ({
-        fileCheckId: toId(check),
-        assetId: toId(check.outputAssetId),
-        workerId: toId(check.outputWorkerId),
-        contextSnapshot: { slotKey: check.slotKey, slotLabel: check.slotLabel || null },
-        scoredAt: task.qcAt,
-      })),
+  return Promise.all(tasks.map(async (task) => {
+    const scaleDifficultyLevel = await currentScaleDifficultyLevel(task);
+    return {
+      productionTaskId: toId(task),
+      shopId: toId(task.shopId),
+      contextSnapshot: {
+        orderItemId: toId(task.orderItemId),
+        externalOrderId: task.orderSnapshot?.externalOrderId || null,
+        sku: task.orderItemSnapshot?.sku || null,
+        title: task.orderItemSnapshot?.title || null,
+        productImageUrl: taskProductImageUrl(task),
+        scaleDifficultyLevel,
+      },
+      outputs: (task.fileChecks || [])
+        .filter(isScoredScaleOutput)
+        .map((check) => ({
+          fileCheckId: toId(check),
+          assetId: toId(check.outputAssetId),
+          workerId: toId(check.outputWorkerId) || toId(task.assignedDesignUserId),
+          contextSnapshot: {
+            slotKey: check.slotKey,
+            slotLabel: check.slotLabel || null,
+            scaleDifficultyLevel,
+          },
+          scoredAt: task.qcAt || task.updatedAt,
+        }))
+        .filter((output) => output.workerId),
+    };
   }));
 }
 

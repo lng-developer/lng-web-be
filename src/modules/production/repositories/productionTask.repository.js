@@ -430,6 +430,44 @@ async function summarizeQueueCounts(query = {}) {
             }, 1, 0],
           },
         },
+        needScale: {
+          $sum: {
+            $cond: [{
+              $and: [
+                psdReady,
+                { $eq: ['$designType', 'NORMAL'] },
+                { $eq: ['$status', productionTaskStatuses.NEED_SCALE] },
+              ],
+            }, 1, 0],
+          },
+        },
+        qcRejected: {
+          $sum: {
+            $cond: [{
+              $and: [
+                psdReady,
+                { $eq: ['$designType', 'NORMAL'] },
+                { $eq: ['$status', productionTaskStatuses.QC_REJECTED] },
+              ],
+            }, 1, 0],
+          },
+        },
+        qcPending: {
+          $sum: {
+            $cond: [{ $eq: ['$status', productionTaskStatuses.QC_PENDING] }, 1, 0],
+          },
+        },
+        unclassified: {
+          $sum: {
+            $cond: [{
+              $and: [
+                psdReady,
+                { $eq: [{ $ifNull: ['$designType', null] }, null] },
+                { $in: ['$status', [productionTaskStatuses.NEED_SCALE, productionTaskStatuses.QC_REJECTED]] },
+              ],
+            }, 1, 0],
+          },
+        },
         qcQueue: {
           $sum: {
             $cond: [{ $and: [psdReady, { $eq: ['$qcStatus', productionQcStatuses.PENDING] }] }, 1, 0],
@@ -445,10 +483,14 @@ async function summarizeQueueCounts(query = {}) {
     total: result.total || 0,
     blocked: result.blocked || 0,
     scaleQueue: result.scaleQueue || 0,
+    needScale: result.needScale || 0,
+    qcRejected: result.qcRejected || 0,
+    qcPending: result.qcPending || 0,
     qcQueue: result.qcQueue || 0,
     ready: result.ready || 0,
     sent: result.sent || 0,
     cancelled: result.cancelled || 0,
+    unclassified: result.unclassified || 0,
   };
 }
 
@@ -589,6 +631,10 @@ function listQcPassedForWorkScore(limit) {
     .sort({ _id: 1 }).limit(limit).lean();
 }
 
+function listByOrderId(orderId) {
+  return ProductionTask.find({ orderId }).sort({ createdAt: 1, _id: 1 }).lean();
+}
+
 function findAssignedTaskReferencingInputAsset(assetId, assignedDesignUserId) {
   return ProductionTask.findOne({
     assignedDesignUserId,
@@ -618,6 +664,7 @@ module.exports = {
   list,
   listForExport,
   listQcPassedForWorkScore,
+  listByOrderId,
   listPsdBlockedByListingId,
   listPsdBlockedByOrderItemIds,
   listPsdBlockedByExternalOrderId,
