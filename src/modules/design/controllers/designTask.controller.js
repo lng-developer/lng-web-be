@@ -16,6 +16,7 @@ const {
   overrideSubmissionScoreSchema,
   psdFilesQuerySchema,
   rejectTaskSchema,
+  reopenTaskSchema,
   removeSubmissionParamsSchema,
   scoreSummaryQuerySchema,
   submissionScoresQuerySchema,
@@ -168,6 +169,14 @@ async function rejectTask(req, res) {
   });
 }
 
+async function reopenTask(req, res) {
+  const payload = assertValid(reopenTaskSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.reopenTask(req.params.taskId, payload, req.auth),
+  });
+}
+
 async function cancelTask(req, res) {
   const payload = assertValid(cancelTaskSchema, req.body || {});
   res.status(httpStatus.OK).json({
@@ -251,6 +260,7 @@ module.exports = {
   overrideSubmissionScore,
   removeSubmission,
   rejectTask,
+  reopenTask,
   startTask,
   submitTask,
   summarizeScores,

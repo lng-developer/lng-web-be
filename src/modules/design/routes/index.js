@@ -205,6 +205,13 @@ router.patch(
 );
 
 router.patch(
+  '/tasks/:taskId/reopen',
+  authPublic.authenticate,
+  requireReview,
+  asyncHandler(controller.reopenTask),
+);
+
+router.patch(
   '/tasks/:taskId/cancel',
   authPublic.authenticate,
   requireWrite,

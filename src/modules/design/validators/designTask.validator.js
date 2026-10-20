@@ -179,6 +179,10 @@ const rejectTaskSchema = Joi.object({
   version: Joi.number().integer().min(1),
 }).nand('submissionId', 'version');
 
+const reopenTaskSchema = Joi.object({
+  reason: Joi.string().trim().min(1).max(1000).required(),
+});
+
 const removeSubmissionParamsSchema = Joi.object({
   taskId: objectId.required(),
   submissionId: objectId.required(),
@@ -278,6 +282,7 @@ module.exports = {
   psdFilesQuerySchema,
   psdTemplateCandidatesQuerySchema,
   rejectTaskSchema,
+  reopenTaskSchema,
   removeSubmissionParamsSchema,
   scoreSummaryQuerySchema,
   submissionScoresQuerySchema,

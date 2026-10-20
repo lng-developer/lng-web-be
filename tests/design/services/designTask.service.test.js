@@ -1274,6 +1274,36 @@ describe('designTask.service', () => {
     expect(result.status).toBe('REJECTED');
   });
 
+  test('reviewer can reopen an approved task without replacing its approved submission history', async () => {
+    repository.findById.mockResolvedValueOnce({
+      ...openTask,
+      status: 'APPROVED',
+      assignedDesignerId: accountId,
+      approvedAssetId: assetId,
+      submissions: [{ _id: '660000000000000000510022', version: 1, status: 'APPROVED', assetIds: [assetId] }],
+    });
+
+    const result = await service.reopenTask(taskId, { reason: 'Update customer wording' }, {
+      permissions: ['DESIGN:REVIEW'],
+      accountId: managerId,
+    });
+
+    expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
+      status: 'REJECTED',
+      approvedAssetId: null,
+      rejectReason: 'Update customer wording',
+    }));
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'DESIGN_TASK_REOPENED',
+      entityId: taskId,
+    }));
+    expect(notificationPublic.notify).toHaveBeenCalledWith(expect.objectContaining({
+      recipientAccountId: accountId,
+      type: 'DESIGN_TASK_REOPENED',
+    }));
+    expect(result.status).toBe('REJECTED');
+  });
+
   test('removeSubmission marks unapproved submission as removed and rejects approved removal', async () => {
     const submissionId = '660000000000000000510022';
     repository.findById.mockResolvedValueOnce({

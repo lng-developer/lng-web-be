@@ -1426,6 +1426,47 @@ async function rejectTask(taskId, payload = {}, authContext) {
   return toDesignTaskDto(updated, { detail: true });
 }
 
+async function reopenTask(taskId, payload = {}, authContext) {
+  const reason = String(payload.reason || '').trim();
+  if (!reason) throw validationError('reason is required');
+  const task = await loadTask(taskId);
+  if (!hasPermission(authContext, designPermissions.REVIEW)) throw forbidden();
+  assertCanAccessShopAny(task.shopId, [designPermissions.REVIEW, designPermissions.WRITE], authContext);
+  assertStatus(task, [designTaskStatuses.APPROVED], 'reopened');
+
+  const reopenedAt = new Date();
+  const updated = await repository.updateById(taskId, {
+    approvedAssetId: null,
+    approvedBy: null,
+    approvedAt: null,
+    submittedAssetIds: [],
+    submittedBy: null,
+    submittedAt: null,
+    rejectedBy: authContext?.accountId || null,
+    rejectedAt: reopenedAt,
+    rejectReason: reason,
+    status: designTaskStatuses.REJECTED,
+  });
+  await recordDesignOperation({
+    action: 'DESIGN_TASK_REOPENED',
+    entityId: taskId,
+    shopId: task.shopId,
+    authContext,
+    changes: { status: { from: task.status, to: designTaskStatuses.REJECTED } },
+    metadata: { reasonProvided: true },
+  });
+  await designNotificationService.notifyAccount({
+    recipientAccountId: task.assignedDesignerId,
+    actorAccountId: authContext?.accountId || null,
+    task: updated,
+    type: 'DESIGN_TASK_REOPENED',
+    title: 'Design task reopened',
+    message: 'Your approved design needs a revised submission.',
+    deduplicationScope: reopenedAt.toISOString(),
+  });
+  return toDesignTaskDto(updated, { detail: true });
+}
+
 async function removeSubmission(taskId, submissionId, authContext) {
   assertValidObjectId(submissionId, 'submissionId');
   const task = await loadTask(taskId);
@@ -1519,6 +1560,7 @@ module.exports = {
   listTasks,
   removeSubmission,
   rejectTask,
+  reopenTask,
   resolveActivePsdTaskForListing,
   startTask,
   submitTask,
