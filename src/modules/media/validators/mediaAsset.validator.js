@@ -14,7 +14,7 @@ const listSchema = Joi.object({
 });
 
 const initiateMultipartSchema = Joi.object({
-  filename: Joi.string().trim().max(255).pattern(/\.(psd|zip)$/i).required(),
+  filename: Joi.string().trim().max(255).pattern(/\.(psd|zip|rar)$/i).required(),
   mimeType: Joi.string().trim().max(120).default('application/octet-stream'),
   size: Joi.number().integer().min(1).max(2 * 1024 * 1024 * 1024).required(),
   assetPurpose: Joi.string().uppercase().valid('PSD_TEMPLATE', 'DESIGN_PACKAGE', 'PRINT_READY').required(),

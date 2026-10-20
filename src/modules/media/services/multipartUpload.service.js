@@ -6,7 +6,7 @@ const config = require('../../../config');
 const repository = require('../repositories/mediaAsset.repository');
 const wasabi = require('./wasabiStorage.service');
 
-const PACKAGE_EXTENSIONS = new Set(['.psd', '.zip']);
+const PACKAGE_EXTENSIONS = new Set(['.psd', '.zip', '.rar']);
 const ALLOWED_PURPOSES = new Set(['PSD_TEMPLATE', 'DESIGN_PACKAGE', 'PRINT_READY']);
 
 function fail(message, statusCode, code) {
@@ -116,6 +116,10 @@ function hasValidSignature(filename, bytes) {
   if (extension === '.zip') {
     const signature = bytes.subarray(0, 4).toString('hex');
     return ['504b0304', '504b0506', '504b0708'].includes(signature);
+  }
+  if (extension === '.rar') {
+    return bytes.subarray(0, 7).equals(Buffer.from([0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00]))
+      || bytes.subarray(0, 8).equals(Buffer.from([0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x01, 0x00]));
   }
   if (['.jpg', '.jpeg', '.jfif'].includes(extension)) {
     return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;

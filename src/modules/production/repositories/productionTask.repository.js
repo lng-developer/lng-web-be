@@ -316,6 +316,8 @@ async function summarize(query = {}) {
               scaleQueue: { $sum: { $cond: [{ $in: ['$status', [productionTaskStatuses.NEED_SCALE, productionTaskStatuses.QC_REJECTED]] }, 1, 0] } },
               qcQueue: { $sum: { $cond: [{ $eq: ['$qcStatus', productionQcStatuses.PENDING] }, 1, 0] } },
               readyToSendVendor: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.READY_TO_SEND_VENDOR] }, 1, 0] } },
+              sentToVendor: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.SENT_TO_VENDOR] }, 1, 0] } },
+              cancelled: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.CANCELLED] }, 1, 0] } },
               addressInvalid: { $sum: { $cond: [{ $eq: ['$orderSnapshot.addressValidationStatus', 'INVALID'] }, 1, 0] } },
               failed: { $sum: { $cond: [{ $or: [
                 { $eq: ['$status', productionTaskStatuses.QC_REJECTED] },
@@ -373,6 +375,8 @@ async function summarize(query = {}) {
     scaleQueue: totals.scaleQueue || 0,
     qcQueue: totals.qcQueue || 0,
     readyToSendVendor: totals.readyToSendVendor || 0,
+    sentToVendor: totals.sentToVendor || 0,
+    cancelled: totals.cancelled || 0,
     addressInvalid: totals.addressInvalid || 0,
     failed: totals.failed || 0,
     csUnassigned: totals.csUnassigned || 0,
@@ -413,6 +417,7 @@ async function summarizeQueueCounts(query = {}) {
     {
       $group: {
         _id: null,
+        total: { $sum: 1 },
         blocked: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.BLOCKED] }, 1, 0] } },
         scaleQueue: {
           $sum: {
@@ -430,13 +435,20 @@ async function summarizeQueueCounts(query = {}) {
             $cond: [{ $and: [psdReady, { $eq: ['$qcStatus', productionQcStatuses.PENDING] }] }, 1, 0],
           },
         },
+        ready: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.READY_TO_SEND_VENDOR] }, 1, 0] } },
+        sent: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.SENT_TO_VENDOR] }, 1, 0] } },
+        cancelled: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.CANCELLED] }, 1, 0] } },
       },
     },
   ]);
   return {
+    total: result.total || 0,
     blocked: result.blocked || 0,
     scaleQueue: result.scaleQueue || 0,
     qcQueue: result.qcQueue || 0,
+    ready: result.ready || 0,
+    sent: result.sent || 0,
+    cancelled: result.cancelled || 0,
   };
 }
 

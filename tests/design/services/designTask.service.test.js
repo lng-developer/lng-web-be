@@ -519,6 +519,7 @@ describe('designTask.service', () => {
     repository.findById.mockResolvedValueOnce({
       ...openTask,
       status: 'IN_PROGRESS',
+      assignedDesignerId: accountId,
       submissions: [{ version: 1, status: 'REJECTED', assetIds: ['660000000000000000510099'] }],
     });
 
@@ -552,6 +553,24 @@ describe('designTask.service', () => {
       entityId: taskId,
     }));
     expect(result.status).toBe('SUBMITTED');
+  });
+
+  test('does not let a design writer submit another designer\'s task', async () => {
+    repository.findById.mockResolvedValueOnce({
+      ...openTask,
+      status: 'IN_PROGRESS',
+      assignedDesignerId: accountId,
+    });
+
+    await expect(service.submitTask(taskId, {
+      submittedAssetIds: [assetId],
+    }, {
+      permissions: ['DESIGN:WRITE'],
+      accountId: managerId,
+    })).rejects.toMatchObject({ statusCode: 403 });
+
+    expect(mediaPublic.assertMediaAssetReady).not.toHaveBeenCalled();
+    expect(repository.updateById).not.toHaveBeenCalled();
   });
 
   test('same recipient is a no-op without audit or notifications', async () => {

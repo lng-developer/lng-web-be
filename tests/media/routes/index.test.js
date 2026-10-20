@@ -221,7 +221,7 @@ describe('media routes', () => {
       assetId: '660000000000000000000902', partSize: 67108864, totalParts: 2,
     });
     const rawBody = JSON.stringify({
-      filename: 'package.zip', mimeType: 'application/zip', size: 104857600,
+      filename: 'package.rar', mimeType: 'application/vnd.rar', size: 104857600,
       assetPurpose: 'DESIGN_PACKAGE',
     });
 

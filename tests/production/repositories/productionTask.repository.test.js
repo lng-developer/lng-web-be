@@ -368,14 +368,18 @@ describe('productionTask.repository', () => {
   });
 
   test('summarizeQueueCounts returns canonical scale, QC, and blocked totals in one aggregation', async () => {
-    ProductionTask.aggregate.mockResolvedValueOnce([{ blocked: 3, scaleQueue: 5, qcQueue: 2 }]);
+    ProductionTask.aggregate.mockResolvedValueOnce([
+      { total: 10, blocked: 3, scaleQueue: 5, qcQueue: 2, ready: 1, sent: 2, cancelled: 1 },
+    ]);
 
     const result = await repository.summarizeQueueCounts({ salesChannelCode: 'AMAZON' });
 
     expect(ProductionTask.aggregate).toHaveBeenCalledWith(expect.arrayContaining([
       { $match: expect.objectContaining({ 'orderItemSnapshot.salesChannelCode': 'AMAZON' }) },
     ]));
-    expect(result).toEqual({ blocked: 3, scaleQueue: 5, qcQueue: 2 });
+    expect(result).toEqual({
+      total: 10, blocked: 3, scaleQueue: 5, qcQueue: 2, ready: 1, sent: 2, cancelled: 1,
+    });
   });
 
   test('list can hide tasks without a PSD template input', async () => {
