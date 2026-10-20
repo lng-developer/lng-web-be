@@ -177,6 +177,13 @@ async function reopenTask(req, res) {
   });
 }
 
+async function deleteTask(req, res) {
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.deleteTask(req.params.taskId, req.auth),
+  });
+}
+
 async function cancelTask(req, res) {
   const payload = assertValid(cancelTaskSchema, req.body || {});
   res.status(httpStatus.OK).json({
@@ -249,6 +256,7 @@ module.exports = {
   cancelTask,
   createPsdTemplateTaskFromListingVariant,
   createTask,
+  deleteTask,
   exportTasksCsv,
   getAssignees,
   getTask,

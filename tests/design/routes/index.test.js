@@ -486,6 +486,28 @@ describe('design routes', () => {
     });
   });
 
+  test('DELETE /tasks/:taskId requires DESIGN:WRITE', async () => {
+    service.deleteTask.mockResolvedValue({ id: taskId, deleted: true });
+
+    const forbidden = await request(createServer(), {
+      method: 'DELETE',
+      path: `/tasks/${taskId}`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WORK'] }) },
+    });
+    expect(forbidden.statusCode).toBe(403);
+
+    const allowed = await request(createServer(), {
+      method: 'DELETE',
+      path: `/tasks/${taskId}`,
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:WRITE'], accountId: '660000000000000000510006' }) },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(service.deleteTask).toHaveBeenCalledWith(taskId, {
+      permissions: ['DESIGN:WRITE'],
+      accountId: '660000000000000000510006',
+    });
+  });
+
   test('GET /score-summary requires read permission, rejects invalid dates, and passes filters', async () => {
     scoreService.summarizeScores.mockResolvedValue({ total: 1 });
 

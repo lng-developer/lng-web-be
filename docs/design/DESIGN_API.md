@@ -402,6 +402,16 @@ Body:
 }
 ```
 
+### Delete Task
+
+```http
+DELETE /api/design/tasks/:taskId
+```
+
+Requires `DESIGN:WRITE` for the task Shop. This permanently removes only a task
+that has never had an approved PSD submission. It does not delete uploaded media
+assets. Use cancel for an approved task that is no longer needed.
+
 ### Remove Submission
 
 ```http

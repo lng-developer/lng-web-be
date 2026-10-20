@@ -52,6 +52,7 @@ jest.mock('../../../src/modules/shop/public', () => ({
 
 jest.mock('../../../src/modules/design/repositories/designTask.repository', () => ({
   create: jest.fn(),
+  deleteById: jest.fn(),
   findActiveByListingAndType: jest.fn(),
   findActiveByListingVariantAndType: jest.fn(),
   findActiveListingIdsByType: jest.fn(),
@@ -1302,6 +1303,31 @@ describe('designTask.service', () => {
       type: 'DESIGN_TASK_REOPENED',
     }));
     expect(result.status).toBe('REJECTED');
+  });
+
+  test('writer deletes an unapproved task but preserves approved PSD history', async () => {
+    repository.findById.mockResolvedValueOnce({ ...openTask, status: 'REJECTED' });
+    repository.deleteById.mockResolvedValueOnce({ ...openTask, status: 'REJECTED' });
+
+    await expect(service.deleteTask(taskId, {
+      permissions: ['DESIGN:WRITE'],
+      accountId: managerId,
+    })).resolves.toEqual({ id: taskId, deleted: true });
+    expect(repository.deleteById).toHaveBeenCalledWith(taskId);
+    expect(auditPublic.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'DESIGN_TASK_DELETED',
+      entityId: taskId,
+    }));
+
+    repository.findById.mockResolvedValueOnce({
+      ...openTask,
+      status: 'APPROVED',
+      approvedAssetId: assetId,
+    });
+    await expect(service.deleteTask(taskId, {
+      permissions: ['DESIGN:WRITE'],
+      accountId: managerId,
+    })).rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT_ERROR' });
   });
 
   test('removeSubmission marks unapproved submission as removed and rejects approved removal', async () => {

@@ -96,6 +96,10 @@ async function findById(taskId) {
   return DesignTask.findById(taskId).lean();
 }
 
+async function deleteById(taskId) {
+  return DesignTask.findByIdAndDelete(taskId).lean();
+}
+
 async function findActiveByListingAndType(listingId, taskType) {
   return DesignTask.findOne({
     listingId,
@@ -408,6 +412,7 @@ module.exports = {
   buildSort,
   countActiveByDesigner,
   create,
+  deleteById,
   findActiveByListingAndType,
   findActiveByListingVariantAndType,
   findActiveListingIdsByType,

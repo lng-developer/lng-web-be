@@ -77,6 +77,7 @@ jest.mock('../../src/modules/design/controllers/designTask.controller', () => ({
   rejectTask: makeHandler(200),
   reopenTask: makeHandler(200),
   cancelTask: makeHandler(200),
+  deleteTask: makeHandler(200),
   removeSubmission: makeHandler(200),
   overrideSubmissionScore: makeHandler(200),
   voidSubmissionScore: makeHandler(200),

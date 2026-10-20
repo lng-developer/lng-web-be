@@ -1467,6 +1467,29 @@ async function reopenTask(taskId, payload = {}, authContext) {
   return toDesignTaskDto(updated, { detail: true });
 }
 
+async function deleteTask(taskId, authContext) {
+  const task = await loadTask(taskId);
+  assertCanAccessShop(task.shopId, designPermissions.WRITE, authContext);
+
+  if (task.approvedAssetId || getSubmissions(task).some((submission) => (
+    submission.status === designTaskSubmissionStatuses.APPROVED
+  ))) {
+    throw conflict('Task with an approved PSD cannot be deleted');
+  }
+
+  const deleted = await repository.deleteById(taskId);
+  if (!deleted) throw notFound('Design task not found');
+
+  await recordDesignOperation({
+    action: 'DESIGN_TASK_DELETED',
+    entityId: taskId,
+    shopId: task.shopId,
+    authContext,
+    metadata: { taskType: task.taskType, status: task.status },
+  });
+  return { id: String(taskId), deleted: true };
+}
+
 async function removeSubmission(taskId, submissionId, authContext) {
   assertValidObjectId(submissionId, 'submissionId');
   const task = await loadTask(taskId);
@@ -1548,6 +1571,7 @@ module.exports = {
   createPsdTemplateTaskFromListing,
   createPsdTemplateTaskFromListingVariant,
   createTask,
+  deleteTask,
   exportTasksCsv,
   getAssignees,
   getTask,

@@ -219,6 +219,13 @@ router.patch(
 );
 
 router.delete(
+  '/tasks/:taskId',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(controller.deleteTask),
+);
+
+router.delete(
   '/tasks/:taskId/submissions/:submissionId',
   authPublic.authenticate,
   requireWrite,

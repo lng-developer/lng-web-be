@@ -1,6 +1,6 @@
 const { buildCollection } = require('../../../tools/api-contract/buildFulfillmentPostmanCollections');
 
-const expectedCounts = { design: 26, production: 27, vendorSubmission: 15, shipment: 18 };
+const expectedCounts = { design: 27, production: 27, vendorSubmission: 15, shipment: 18 };
 const requests = (collection) => collection.item.flatMap((folder) => folder.item);
 
 describe('fulfillment Postman collections', () => {

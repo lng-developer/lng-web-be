@@ -3958,6 +3958,42 @@
               }
             },
             {
+              "name": "DELETE /api/design/tasks/:taskId",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE. Deletes only tasks without an approved PSD submission.",
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/design/tasks/{{taskId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "design",
+                    "tasks",
+                    "{{taskId}}"
+                  ],
+                  "variable": [
+                    {
+                      "key": "taskId",
+                      "value": "{{taskId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
               "name": "PATCH /api/design/tasks/:taskId/priority",
               "request": {
                 "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE.",
@@ -4037,6 +4073,57 @@
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"rejectReason\": \"Please correct the safe print area.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "PATCH /api/design/tasks/:taskId/reopen",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE, DESIGN:REVIEW.",
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/design/tasks/{{taskId}}/reopen",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "design",
+                    "tasks",
+                    "{{taskId}}",
+                    "reopen"
+                  ],
+                  "variable": [
+                    {
+                      "key": "taskId",
+                      "value": "{{taskId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"Customer changed the personalization text.\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
