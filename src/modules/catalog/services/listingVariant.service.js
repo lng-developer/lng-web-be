@@ -132,9 +132,18 @@ async function recheckBlockedPlansForVariant(variant, authContext = {}) {
   }
   try {
     const orderPublic = require('../../order/public');
-    if (typeof orderPublic.updatePsdStatusesForListing === 'function') {
-      await orderPublic.updatePsdStatusesForListing(listingId);
-    }
+    await Promise.all([
+      typeof orderPublic.updatePsdStatusesForListing === 'function'
+        ? orderPublic.updatePsdStatusesForListing(listingId)
+        : Promise.resolve(),
+      typeof orderPublic.syncOrderWorkbenchListingVariantPsd === 'function'
+        ? orderPublic.syncOrderWorkbenchListingVariantPsd(
+          toPlainId(variant),
+          toPlainId(variant?.psdTemplateAssetId),
+          variant?.psdReadiness || null,
+        )
+        : Promise.resolve(),
+    ]);
   } catch (error) {
     logger.warn('Catalog variant order PSD status sync skipped', { listingId, productTypeGroupId, error });
   }
@@ -168,8 +177,9 @@ async function setListingVariantPsdTemplateAsset(variantId, mediaAssetId) {
   await mediaPublic.assertMediaAssetReady(mediaAssetId);
   assertPsdAssetShape(await mediaPublic.getAsset(mediaAssetId) || {});
   const updated = await repository.update(variantId, { psdTemplateAssetId: mediaAssetId });
-  await recheckBlockedPlansForVariant(updated);
-  return toDetail(updated);
+  const detail = await toDetail(updated);
+  await recheckBlockedPlansForVariant({ ...updated, psdReadiness: detail.psdReadiness });
+  return detail;
 }
 
 async function applyListingVariantPsdToCompatible(listingId, variantId, payload = {}, authContext) {

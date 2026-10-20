@@ -152,6 +152,14 @@ async function syncOrderWorkbenchListingImage(listingId, productImageUrl) {
   return repository.setListingImageByListingId(listingId, productImageUrl);
 }
 
+async function syncOrderWorkbenchListingPsd(listingId, defaultPsdTemplateAssetId) {
+  return repository.setListingPsdTemplateAssetByListingId(listingId, defaultPsdTemplateAssetId);
+}
+
+async function syncOrderWorkbenchListingVariantPsd(variantId, psdTemplateAssetId, psdReadiness) {
+  return repository.setListingVariantPsdById(variantId, psdTemplateAssetId, psdReadiness);
+}
+
 module.exports = {
   upsertOrderWorkbenchBase,
   upsertOrderWorkbenchRow,
@@ -159,4 +167,6 @@ module.exports = {
   updateOrderWorkbenchOrder,
   updateOrderWorkbenchItem,
   syncOrderWorkbenchListingImage,
+  syncOrderWorkbenchListingPsd,
+  syncOrderWorkbenchListingVariantPsd,
 };

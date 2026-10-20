@@ -126,6 +126,16 @@ async function listPsdBlockedByListingId(listingId) {
     .lean();
 }
 
+async function listPsdBlockedByOrderItemIds(orderItemIds = []) {
+  if (!orderItemIds.length) return [];
+  return ProductionTask.find({
+    blockers: 'PSD_MISSING',
+    orderItemId: { $in: orderItemIds },
+  })
+    .select('_id orderItemId shopId blockers orderItemSnapshot listingSnapshot')
+    .lean();
+}
+
 async function listPsdBlockedByExternalOrderId(externalOrderId) {
   const search = normalizeSearchTerm(externalOrderId);
   if (!search) return [];
@@ -597,6 +607,7 @@ module.exports = {
   listForExport,
   listQcPassedForWorkScore,
   listPsdBlockedByListingId,
+  listPsdBlockedByOrderItemIds,
   listPsdBlockedByExternalOrderId,
   listByOrderItemIds,
   listSummariesByOrderItemIds,

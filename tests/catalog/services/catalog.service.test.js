@@ -69,6 +69,7 @@ jest.mock('../../../src/modules/order/public', () => ({
   summarizeSalesByListingIds: jest.fn(),
   listTopSalesByListing: jest.fn(),
   updatePsdStatusesForListing: jest.fn(),
+  syncOrderWorkbenchListingPsd: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/organization/public', () => ({
@@ -861,6 +862,7 @@ describe('catalog.service', () => {
       defaultPsdTemplateAssetId: psdAssetId,
     });
     expect(orderPublic.updatePsdStatusesForListing).toHaveBeenCalledWith(listingId);
+    expect(orderPublic.syncOrderWorkbenchListingPsd).toHaveBeenCalledWith(listingId, psdAssetId);
     expect(productionPublic.recheckPsdBlockedTasksByListing).toHaveBeenCalledWith(
       listingId,
       expect.objectContaining({ system: true, source: 'CATALOG_LISTING_PSD' }),

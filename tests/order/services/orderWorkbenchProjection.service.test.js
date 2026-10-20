@@ -4,6 +4,8 @@ jest.mock('../../../src/modules/order/repositories/orderWorkbenchProjection.repo
   setOrderFields: jest.fn(),
   setItemFields: jest.fn(),
   setListingImageByListingId: jest.fn(),
+  setListingPsdTemplateAssetByListingId: jest.fn(),
+  setListingVariantPsdById: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/shop/public', () => ({
@@ -94,6 +96,32 @@ describe('orderWorkbenchProjection.service', () => {
     expect(repository.setListingImageByListingId).toHaveBeenCalledWith(
       '660000000000000000000003',
       'https://res.cloudinary.com/example/listing.jpg',
+    );
+  });
+
+  test('updates only the listing PSD snapshot for projections linked to a listing', async () => {
+    await service.syncOrderWorkbenchListingPsd(
+      '660000000000000000000003',
+      '660000000000000000000901',
+    );
+
+    expect(repository.setListingPsdTemplateAssetByListingId).toHaveBeenCalledWith(
+      '660000000000000000000003',
+      '660000000000000000000901',
+    );
+  });
+
+  test('updates only the variant PSD snapshot for projections linked to a variant', async () => {
+    await service.syncOrderWorkbenchListingVariantPsd(
+      '660000000000000000000004',
+      '660000000000000000000901',
+      { status: 'PRESENT' },
+    );
+
+    expect(repository.setListingVariantPsdById).toHaveBeenCalledWith(
+      '660000000000000000000004',
+      '660000000000000000000901',
+      { status: 'PRESENT' },
     );
   });
 

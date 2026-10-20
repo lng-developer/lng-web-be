@@ -456,6 +456,20 @@ describe('productionTask.repository', () => {
     expect(result).toEqual([{ _id: 'task-1' }]);
   });
 
+  test('listPsdBlockedByOrderItemIds returns compact tasks for stale listing snapshots', async () => {
+    const chain = mockFind([{ _id: 'task-1' }]);
+    const orderItemIds = ['660000000000000000000401'];
+
+    const result = await repository.listPsdBlockedByOrderItemIds(orderItemIds);
+
+    expect(ProductionTask.find).toHaveBeenCalledWith({
+      blockers: 'PSD_MISSING',
+      orderItemId: { $in: orderItemIds },
+    });
+    expect(chain.select).toHaveBeenCalledWith('_id orderItemId shopId blockers orderItemSnapshot listingSnapshot');
+    expect(result).toEqual([{ _id: 'task-1' }]);
+  });
+
   test('lists only QC-passed tasks for score recovery', async () => {
     const chain = mockFind([{ _id: 'task-1' }]);
 

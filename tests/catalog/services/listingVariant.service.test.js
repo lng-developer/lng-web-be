@@ -47,6 +47,7 @@ jest.mock('../../../src/modules/order/public', () => ({
   summarizeSalesByAsins: jest.fn(),
   summarizeSalesByListingIds: jest.fn(),
   updatePsdStatusesForListing: jest.fn(),
+  syncOrderWorkbenchListingVariantPsd: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/organization/public', () => ({
@@ -194,6 +195,11 @@ describe('listingVariant.service resolveListingVariant', () => {
       psdTemplateAssetId: assetId,
       psdReadiness: { status: 'PRESENT', source: 'LISTING_VARIANT' },
     });
+    expect(orderPublic.syncOrderWorkbenchListingVariantPsd).toHaveBeenCalledWith(
+      variantId,
+      assetId,
+      expect.objectContaining({ status: 'PRESENT' }),
+    );
     expect(mediaPublic.assertMediaAssetReady).toHaveBeenCalledWith(assetId);
     expect(variantRepository.update).toHaveBeenCalledWith(variantId, { psdTemplateAssetId: assetId });
     expect(listingRepository.update).not.toHaveBeenCalled();

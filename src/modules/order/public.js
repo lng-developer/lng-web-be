@@ -64,6 +64,8 @@ const publicPort = {
   updateOrderWorkbenchOrder: orderWorkbenchProjectionService.updateOrderWorkbenchOrder,
   updateOrderWorkbenchItem: orderWorkbenchProjectionService.updateOrderWorkbenchItem,
   syncOrderWorkbenchListingImage: orderWorkbenchProjectionService.syncOrderWorkbenchListingImage,
+  syncOrderWorkbenchListingPsd: orderWorkbenchProjectionService.syncOrderWorkbenchListingPsd,
+  syncOrderWorkbenchListingVariantPsd: orderWorkbenchProjectionService.syncOrderWorkbenchListingVariantPsd,
   requestRecheckJob: orderRecheckJobService.requestRecheckJob,
   getRecheckJob: orderRecheckJobService.getRecheckJob,
   addressValidationStatuses,

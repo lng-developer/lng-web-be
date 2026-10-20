@@ -723,12 +723,15 @@ async function updateListing(listingId, patch, authContext = {}) {
   }
 }
 
-async function recheckAfterListingPsdUpdate(listingId, authContext = {}) {
+async function recheckAfterListingPsdUpdate(listingId, defaultPsdTemplateAssetId, authContext = {}) {
   const orderPublic = require('../../order/public');
   const productionPublic = require('../../production/public');
   await Promise.all([
     typeof orderPublic.updatePsdStatusesForListing === 'function'
       ? orderPublic.updatePsdStatusesForListing(listingId)
+      : Promise.resolve(),
+    typeof orderPublic.syncOrderWorkbenchListingPsd === 'function'
+      ? orderPublic.syncOrderWorkbenchListingPsd(listingId, defaultPsdTemplateAssetId)
       : Promise.resolve(),
     typeof productionPublic.recheckPsdBlockedTasksByListing === 'function'
       ? productionPublic.recheckPsdBlockedTasksByListing(listingId, {
@@ -747,7 +750,7 @@ async function setListingPsdTemplateAsset(listingId, mediaAssetId, authContext =
   if (!existing) throw notFound('Listing not found');
   await assertReadyPsdAsset(mediaAssetId);
   const updated = await listingRepository.update(listingId, { defaultPsdTemplateAssetId: mediaAssetId });
-  await recheckAfterListingPsdUpdate(listingId, authContext);
+  await recheckAfterListingPsdUpdate(listingId, updated.defaultPsdTemplateAssetId, authContext);
   return listingDetailResponseWithoutSales(updated);
 }
 

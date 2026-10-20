@@ -22,6 +22,7 @@ jest.mock('../../../src/modules/order/public', () => ({
   findById: jest.fn(),
   findOrdersByIds: jest.fn(),
   findItemById: jest.fn(),
+  findItemIds: jest.fn(),
   transitionItemStatus: jest.fn(),
   updateOrderWorkbenchItem: jest.fn(),
 }));
@@ -104,6 +105,7 @@ jest.mock('../../../src/modules/production/repositories/productionTask.repositor
   listByOrderItemIds: jest.fn(),
   listPsdBlockedByExternalOrderId: jest.fn(),
   listPsdBlockedByListingId: jest.fn(),
+  listPsdBlockedByOrderItemIds: jest.fn(),
   listSummariesByOrderItemIds: jest.fn(),
   summarize: jest.fn(),
   summarizeQueueCounts: jest.fn(),
@@ -334,6 +336,8 @@ describe('productionTask.service', () => {
     repository.findByOrderItem.mockResolvedValue(null);
     repository.list.mockResolvedValue({ items: [], total: 0, page: 1, limit: 50 });
     repository.listPsdBlockedByListingId.mockResolvedValue([]);
+    repository.listPsdBlockedByOrderItemIds.mockResolvedValue([]);
+    orderPublic.findItemIds.mockResolvedValue([]);
     repository.summarize.mockResolvedValue({
       total: 0,
       unassigned: 0,
@@ -656,6 +660,21 @@ describe('productionTask.service', () => {
     expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(
       orderItemId, 'NEED_PRODUCTION', expect.objectContaining({ source: 'PRODUCTION' }),
     );
+  });
+
+  test('uses the order item listing when an old fulfillment plan has no listing snapshot', async () => {
+    orderPublic.findItemById.mockResolvedValueOnce({ ...item, listingId: listing.id });
+    mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({ ...plan, listing: null });
+
+    const result = await service.createOrRecheckTaskForOrderItem(orderItemId, {
+      permissions: ['PRODUCTION:WRITE'],
+    });
+
+    expect(catalogPublic.getListingById).toHaveBeenCalledWith(listing.id);
+    expect(result.blockers).not.toContain('PSD_MISSING');
+    expect(repository.upsertByOrderItemWithResult).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      listingSnapshot: expect.objectContaining({ id: listing.id }),
+    }), expect.anything());
   });
 
   test('creates task from the listing variant stored on the fulfillment plan', async () => {
@@ -2225,6 +2244,24 @@ describe('productionTask.service', () => {
       shopId,
       blockers: ['PSD_MISSING'],
     }]);
+  });
+
+  test('finds PSD-blocked tasks whose old listing snapshot is missing', async () => {
+    orderPublic.findItemIds.mockResolvedValueOnce([orderItemId]);
+    repository.listPsdBlockedByOrderItemIds.mockResolvedValueOnce([{
+      _id: taskId,
+      orderItemId,
+      shopId,
+      blockers: ['PSD_MISSING'],
+      orderItemSnapshot: { externalOrderId: item.externalOrderId },
+      listingSnapshot: null,
+    }]);
+
+    const result = await service.listPsdBlockedTasksByListing(listing.id);
+
+    expect(orderPublic.findItemIds).toHaveBeenCalledWith({ listingId: listing.id });
+    expect(repository.listPsdBlockedByOrderItemIds).toHaveBeenCalledWith([orderItemId]);
+    expect(result).toEqual([expect.objectContaining({ id: taskId, listingId: listing.id })]);
   });
 
   test('lists PSD-blocked tasks by external order id for design filters', async () => {

@@ -57,6 +57,37 @@ describe('orderWorkbenchProjection.repository', () => {
     );
   });
 
+  test('syncs the PSD asset into listing snapshots linked to a listing', async () => {
+    OrderWorkbenchProjection.updateMany.mockResolvedValue({ modifiedCount: 1 });
+
+    await repository.setListingPsdTemplateAssetByListingId(
+      '660000000000000000000003',
+      '660000000000000000000901',
+    );
+
+    expect(OrderWorkbenchProjection.updateMany).toHaveBeenCalledWith(
+      { 'items.item.listingId': expect.anything() },
+      [expect.objectContaining({ $set: expect.objectContaining({ items: expect.objectContaining({ $map: expect.any(Object) }) }) })],
+      expect.objectContaining({ runValidators: true, updatePipeline: true }),
+    );
+  });
+
+  test('syncs the PSD state into variant snapshots linked to a variant', async () => {
+    OrderWorkbenchProjection.updateMany.mockResolvedValue({ modifiedCount: 1 });
+
+    await repository.setListingVariantPsdById(
+      '660000000000000000000004',
+      '660000000000000000000901',
+      { status: 'PRESENT' },
+    );
+
+    expect(OrderWorkbenchProjection.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ $or: expect.any(Array) }),
+      [expect.objectContaining({ $set: expect.objectContaining({ items: expect.objectContaining({ $map: expect.any(Object) }) }) })],
+      expect.objectContaining({ runValidators: true, updatePipeline: true }),
+    );
+  });
+
   test('image patch cannot attach to a projection refreshed with another source', async () => {
     await repository.setItemFields('order-1', 'item-1', { 'item.listingImageAssetId': 'asset' }, { expectedListingImageUrl: 'https://i.etsystatic.com/old.jpg' });
     expect(OrderWorkbenchProjection.findOneAndUpdate).toHaveBeenCalledWith(

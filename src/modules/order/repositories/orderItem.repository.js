@@ -18,6 +18,7 @@ function buildFilter({
   status,
   salesChannelCode,
   marketplaceCode,
+  listingId,
   externalOrderId,
   q,
   dateFrom,
@@ -32,6 +33,7 @@ function buildFilter({
   if (status) filter.status = status;
   if (salesChannelCode) filter.salesChannelCode = salesChannelCode;
   if (marketplaceCode) filter.marketplaceCode = marketplaceCode;
+  if (listingId) filter.listingId = toObjectId(listingId);
   if (externalOrderId) filter.externalOrderId = { $regex: escapeRegex(externalOrderId), $options: 'i' };
   if (q) {
     const search = { $regex: escapeRegex(q), $options: 'i' };

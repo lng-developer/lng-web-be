@@ -272,6 +272,101 @@ async function setListingImageByListingId(listingId, productImageUrl) {
   );
 }
 
+async function setListingPsdTemplateAssetByListingId(listingId, defaultPsdTemplateAssetId) {
+  if (!listingId) return { modifiedCount: 0 };
+  const normalizedListingId = toObjectId(listingId);
+  return OrderWorkbenchProjection.updateMany(
+    { 'items.item.listingId': normalizedListingId },
+    [{
+      $set: {
+        items: {
+          $map: {
+            input: '$items',
+            as: 'entry',
+            in: {
+              $cond: [
+                { $eq: ['$$entry.item.listingId', normalizedListingId] },
+                {
+                  $mergeObjects: [
+                    '$$entry',
+                    {
+                      listing: {
+                        $mergeObjects: [
+                          { $ifNull: ['$$entry.listing', {}] },
+                          { defaultPsdTemplateAssetId: { $literal: defaultPsdTemplateAssetId || null } },
+                        ],
+                      },
+                    },
+                  ],
+                },
+                '$$entry',
+              ],
+            },
+          },
+        },
+      },
+    }],
+    {
+      runValidators: true,
+      updatePipeline: true,
+    },
+  );
+}
+
+async function setListingVariantPsdById(variantId, psdTemplateAssetId, psdReadiness) {
+  if (!variantId) return { modifiedCount: 0 };
+  const normalizedVariantId = toObjectId(variantId);
+  return OrderWorkbenchProjection.updateMany(
+    {
+      $or: [
+        { 'items.listingVariant.id': String(variantId) },
+        { 'items.listingVariant._id': normalizedVariantId },
+      ],
+    },
+    [{
+      $set: {
+        items: {
+          $map: {
+            input: '$items',
+            as: 'entry',
+            in: {
+              $cond: [
+                {
+                  $or: [
+                    { $eq: ['$$entry.listingVariant.id', String(variantId)] },
+                    { $eq: ['$$entry.listingVariant._id', normalizedVariantId] },
+                  ],
+                },
+                {
+                  $mergeObjects: [
+                    '$$entry',
+                    {
+                      listingVariant: {
+                        $mergeObjects: [
+                          { $ifNull: ['$$entry.listingVariant', {}] },
+                          {
+                            psdTemplateAssetId: { $literal: psdTemplateAssetId || null },
+                            psdReadiness: { $literal: psdReadiness || null },
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                },
+                '$$entry',
+              ],
+            },
+          },
+        },
+      },
+    }],
+    {
+      runValidators: true,
+      updatePipeline: true,
+    },
+  );
+}
+
 async function findPage({ page = 1, limit = 20, tab = orderListTabs.ALL, sort, search, employeeCode, vendorId, ...query } = {}) {
   const filter = applyTabFilter(buildFilter(query), tab);
   appendSearchFilters(filter, { search, employeeCode, vendorId });
@@ -307,4 +402,6 @@ module.exports = {
   setOrderFields,
   setItemFields,
   setListingImageByListingId,
+  setListingPsdTemplateAssetByListingId,
+  setListingVariantPsdById,
 };

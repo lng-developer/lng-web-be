@@ -1282,13 +1282,14 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
   const order = item.orderId ? await orderPublic.findById(item.orderId) : null;
 
   const plan = await loadReadyPlan(orderItemId, authContext);
-  const baseListing = plan.listing?.id ? await catalogPublic.getListingById(plan.listing.id) : null;
+  const listingId = plan.listing?.id || plan.listingId || item.listingId || null;
+  const baseListing = listingId ? await catalogPublic.getListingById(listingId) : null;
   const variant = plan.listingVariantId && typeof catalogPublic.getListingVariantById === 'function'
     ? await catalogPublic.getListingVariantById(plan.listingVariantId)
     : null;
   if (plan.listingVariantId && (
     !variant
-    || String(variant.listingId) !== String(plan.listing?.id || '')
+    || String(variant.listingId) !== String(listingId || '')
   )) {
     throw conflict('Listing variant from fulfillment plan is unavailable', {
       blockingReasons: ['LISTING_VARIANT_NOT_FOUND'],
@@ -1443,16 +1444,28 @@ async function getTaskByOrderItem(orderItemId, authContext) {
 
 async function listPsdBlockedTasksByListing(listingId) {
   assertValidObjectId(listingId, 'listingId');
-  const tasks = await repository.listPsdBlockedByListingId(listingId);
+  const tasks = await findPsdBlockedTasksByListing(listingId);
   return (tasks || []).map((task) => ({
     id: toId(task),
     orderItemId: toId(task.orderItemId),
     externalOrderId: task.orderItemSnapshot?.externalOrderId || null,
-    listingId: toId(task.listingSnapshot?.id || task.listingSnapshot?._id),
+    listingId: toId(task.listingSnapshot?.id || task.listingSnapshot?._id) || String(listingId),
     productImageUrl: taskProductImageUrl(task),
     shopId: toId(task.shopId),
     blockers: task.blockers || [],
   }));
+}
+
+async function findPsdBlockedTasksByListing(listingId) {
+  const [tasksBySnapshot, orderItemIds] = await Promise.all([
+    repository.listPsdBlockedByListingId(listingId),
+    orderPublic.findItemIds({ listingId }),
+  ]);
+  const tasksByOrderItem = await repository.listPsdBlockedByOrderItemIds(orderItemIds || []);
+  return [...new Map(
+    [...(tasksBySnapshot || []), ...(tasksByOrderItem || [])]
+      .map((task) => [toId(task), task]),
+  ).values()];
 }
 
 async function listPsdBlockedTasksByExternalOrderId(externalOrderId) {
@@ -1537,7 +1550,7 @@ async function recheckPsdBlockedTasks(payload = {}, authContext = {}) {
 
 async function recheckPsdBlockedTasksByListing(listingId, authContext = {}) {
   assertValidObjectId(listingId, 'listingId');
-  const tasks = await repository.listPsdBlockedByListingId(listingId);
+  const tasks = await findPsdBlockedTasksByListing(listingId);
   const items = [];
 
   for (const task of tasks || []) {
