@@ -15,6 +15,7 @@ const listQuerySchema = Joi.object({
   shopId: objectId,
   workerId: objectId,
   taskType: Joi.string().trim().uppercase().max(100),
+  scaleDifficultyLevel: Joi.string().trim().uppercase().valid('NORMAL', 'HARD', 'SPECIAL'),
   scoreLevel: Joi.string().trim().uppercase().valid(...Object.values(workScoreLevels)),
   scoreStatus: Joi.string().trim().uppercase().valid(...Object.values(workScoreStatuses), 'ALL'),
   dateFrom: Joi.date().iso(),

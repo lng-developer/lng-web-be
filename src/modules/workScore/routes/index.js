@@ -9,6 +9,8 @@ const requireRead = authPublic.authorizeAnyPermission(
   workScorePermissions.READ,
   workScorePermissions.ADJUST,
   'DESIGN:WORK',
+  'PRODUCTION:SCALE_WORK',
+  'PRODUCTION:READ',
 );
 const requireAdjust = authPublic.authorizeAnyPermission(workScorePermissions.ADJUST);
 

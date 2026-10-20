@@ -265,12 +265,13 @@ async function buildReadQuery(query = {}, auth = {}) {
     ...scopedShopIds(auth, 'WORK_SCORES:READ'),
     ...scopedShopIds(auth, 'WORK_SCORES:ADJUST'),
   ])];
-  const selfRead = hasGlobal(auth, 'DESIGN:WORK')
-    || hasTeamScope(auth, 'DESIGN:WORK')
-    || scopedShopIds(auth, 'DESIGN:WORK').length > 0;
+  const selfPermissions = ['DESIGN:WORK', 'PRODUCTION:SCALE_WORK', 'PRODUCTION:READ'];
+  const hasSelfGlobalOrTeam = selfPermissions.some((perm) => hasGlobal(auth, perm) || hasTeamScope(auth, perm));
+  const selfShopIds = [...new Set(selfPermissions.flatMap((perm) => scopedShopIds(auth, perm)))];
+  const selfRead = hasSelfGlobalOrTeam || selfShopIds.length > 0;
   const shopIds = managerShopIds.length
     ? managerShopIds
-    : (hasGlobal(auth, 'DESIGN:WORK') || hasTeamScope(auth, 'DESIGN:WORK') ? null : scopedShopIds(auth, 'DESIGN:WORK'));
+    : (hasSelfGlobalOrTeam ? null : selfShopIds);
   if (!managerShopIds.length && !selfRead) forbidden();
   if (query.shopId && shopIds && !shopIds.includes(String(query.shopId))) forbidden();
   return {
@@ -283,8 +284,12 @@ async function buildReadQuery(query = {}, auth = {}) {
 function assertRowAccess(score, auth, permission, allowSelf = false) {
   if (hasGlobal(auth, permission)) return;
   if (authPublic.canAccessScope(auth, permission, { scopeType: 'shop', scopeId: score.shopId })) return;
-  if (allowSelf && String(score.workerId) === String(auth.accountId)
-    && authPublic.canAccessScope(auth, 'DESIGN:WORK', { scopeType: 'shop', scopeId: score.shopId })) return;
+  if (allowSelf && String(score.workerId) === String(auth.accountId)) {
+    const selfPermissions = ['DESIGN:WORK', 'PRODUCTION:SCALE_WORK', 'PRODUCTION:READ'];
+    if (selfPermissions.some((perm) => hasGlobal(auth, perm) || authPublic.canAccessScope(auth, perm, { scopeType: 'shop', scopeId: score.shopId }))) {
+      return;
+    }
+  }
   forbidden();
 }
 

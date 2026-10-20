@@ -54,6 +54,24 @@ describe('workScore authorization', () => {
     expect(mockRepository.summarize).toHaveBeenCalledWith({ workerId: worker });
   });
 
+  test('team-scoped PRODUCTION:SCALE_WORK is self-only across all shops', async () => {
+    const auth = {
+      accountId: worker,
+      scopes: [{ scopeType: 'team', scopeId: '660000000000000000000004', permissions: ['PRODUCTION:SCALE_WORK'] }],
+    };
+    await service.summarizeScores({}, auth);
+    expect(mockRepository.summarize).toHaveBeenCalledWith({ workerId: worker });
+  });
+
+  test('team-scoped PRODUCTION:READ is self-only across all shops', async () => {
+    const auth = {
+      accountId: worker,
+      scopes: [{ scopeType: 'team', scopeId: '660000000000000000000004', permissions: ['PRODUCTION:READ'] }],
+    };
+    await service.summarizeScores({}, auth);
+    expect(mockRepository.summarize).toHaveBeenCalledWith({ workerId: worker });
+  });
+
   test('team-scoped WORK_SCORES:READ reads scores for team members only', async () => {
     const auth = {
       accountId: worker,

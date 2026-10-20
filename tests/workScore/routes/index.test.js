@@ -36,8 +36,8 @@ describe('workScore routes', () => {
   });
 
   test('normalizes filters and validates versioned adjustments', () => {
-    expect(listQuerySchema.validate({ sourceType: 'production_scale', page: '2' }).value)
-      .toMatchObject({ sourceType: 'PRODUCTION_SCALE', page: 2 });
+    expect(listQuerySchema.validate({ sourceType: 'production_scale', scaleDifficultyLevel: 'hard', page: '2' }).value)
+      .toMatchObject({ sourceType: 'PRODUCTION_SCALE', scaleDifficultyLevel: 'HARD', page: 2 });
     expect(overrideSchema.validate({ points: -1, reason: 'x', expectedVersion: 0 }).error).toBeTruthy();
     expect(voidSchema.validate({ reason: 'Duplicate', expectedVersion: 2 }).error).toBeFalsy();
   });

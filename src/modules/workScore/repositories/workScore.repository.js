@@ -25,6 +25,7 @@ function buildMatch(query = {}) {
     if (query[field]) match[field] = ['workerId', 'sourceTaskId'].includes(field) ? toObjectId(query[field]) : query[field];
   }
   if (query.taskType) match['contextSnapshot.taskType'] = query.taskType;
+  if (query.scaleDifficultyLevel) match['contextSnapshot.scaleDifficultyLevel'] = query.scaleDifficultyLevel;
   const search = buildCaseInsensitiveContainsRegex(query.search);
   if (search) {
     match.$or = [
@@ -102,6 +103,7 @@ async function summarize(query = {}) {
           { $limit: 20 },
         ],
         byTaskType: [{ $group: { _id: '$contextSnapshot.taskType', totalPoints: { $sum: '$finalPoints' }, totalFiles: { $sum: 1 } } }],
+        byDifficulty: [{ $group: { _id: '$contextSnapshot.scaleDifficultyLevel', totalPoints: { $sum: '$finalPoints' }, totalFiles: { $sum: 1 } } }],
       },
     },
   ]);
@@ -112,6 +114,7 @@ async function summarize(query = {}) {
     bySourceType: summary.bySourceType || [],
     byWorker: summary.byWorker || [],
     byTaskType: summary.byTaskType || [],
+    byDifficulty: summary.byDifficulty || [],
   };
 }
 
