@@ -83,6 +83,28 @@ function buildSubmissions(task = {}) {
   }];
 }
 
+function buildHistory(task = {}, submissions = []) {
+  const history = [
+    { action: 'Created', at: task.createdAt || null },
+    { action: 'Assigned', at: task.assignedAt || null },
+    { action: 'Started', at: task.startedAt || null },
+    { action: 'Cancelled', at: task.cancelledAt || null },
+  ];
+
+  submissions.forEach((submission) => {
+    history.push(
+      { action: `Submitted (v${submission.version || 1})`, at: submission.submittedAt || null },
+      { action: `Approved (v${submission.version || 1})`, at: submission.approvedAt || null },
+      { action: `Rejected (v${submission.version || 1})`, at: submission.rejectedAt || null },
+      { action: `Submission removed (v${submission.version || 1})`, at: submission.removedAt || null },
+    );
+  });
+
+  return history
+    .filter((entry) => entry.at)
+    .sort((left, right) => new Date(right.at).getTime() - new Date(left.at).getTime());
+}
+
 function toSubmissionDto(submission = {}, assetsById = {}, scoresBySubmissionId = {}, includeScores = false) {
   const assetIds = (submission.assetIds || []).map(toId);
   const submissionId = toId(submission._id || submission.id);
@@ -174,6 +196,7 @@ function toDesignTaskDto(task, {
     hasActivePsdTask: task.taskType === designTaskTypes.PSD_TEMPLATE
       && activeDesignTaskStatuses.includes(task.status),
     note: task.note || null,
+    history: buildHistory(task, submissions),
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
   };

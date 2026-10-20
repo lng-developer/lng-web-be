@@ -18,7 +18,7 @@ describe('multipartUpload service', () => {
     process.env.WASABI_SECRET_ACCESS_KEY = 'test-secret';
   });
 
-  test.each(['template.psd', 'package.zip'])('initiates %s without receiving file bytes', async (filename) => {
+  test.each(['template.psd', 'package.zip', 'package.rar'])('initiates %s without receiving file bytes', async (filename) => {
     wasabi.createMultipartUpload.mockResolvedValue({ uploadId: 'upload-1' });
     repository.create.mockImplementation(async (asset) => ({ _id: 'asset-1', ...asset }));
 
@@ -52,7 +52,7 @@ describe('multipartUpload service', () => {
   );
 
   test.each([
-    [{ filename: 'template.rar', size: 100 }, 'MEDIA_FILE_TYPE_INVALID'],
+    [{ filename: 'template.7z', size: 100 }, 'MEDIA_FILE_TYPE_INVALID'],
     [{ filename: 'template.psd', size: 0 }, 'MEDIA_FILE_TOO_LARGE'],
     [{ filename: 'template.psd', size: (2 * 1024 * 1024 * 1024) + 1 }, 'MEDIA_FILE_TOO_LARGE'],
   ])('rejects invalid initiate input %#', async (input, code) => {
@@ -86,6 +86,8 @@ describe('multipartUpload service', () => {
   test.each([
     ['template.psd', Buffer.from([0x38, 0x42, 0x50, 0x53])],
     ['package.zip', Buffer.from([0x50, 0x4b, 0x03, 0x04])],
+    ['package.rar', Buffer.from([0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00])],
+    ['package-rar5.rar', Buffer.from([0x52, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x01, 0x00])],
     ['scaled.jpg', Buffer.from([0xff, 0xd8, 0xff, 0xdb])],
     ['scaled.png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])],
     ['scaled.webp', Buffer.from('RIFF0000WEBP')],

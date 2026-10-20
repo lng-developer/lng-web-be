@@ -194,11 +194,12 @@ async function assertCanReadTask(task, authContext = {}) {
 }
 
 function assertCanWorkTask(task, authContext = {}) {
+  if (!isAssignedToActor(task, authContext)) throw forbidden();
   if (hasPermission(authContext, designPermissions.WRITE)) {
     assertCanAccessShopAny(task.shopId, [designPermissions.WRITE], authContext);
     return;
   }
-  if (hasPermission(authContext, designPermissions.WORK) && isAssignedToActor(task, authContext)) {
+  if (hasPermission(authContext, designPermissions.WORK)) {
     return;
   }
   throw forbidden();
