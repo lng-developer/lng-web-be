@@ -725,6 +725,57 @@
           }
         },
         {
+          "name": "PATCH /api/design/tasks/:taskId/reopen",
+          "request": {
+            "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE, DESIGN:REVIEW.",
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/tasks/{{taskId}}/reopen",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "design",
+                "tasks",
+                "{{taskId}}",
+                "reopen"
+              ],
+              "variable": [
+                {
+                  "key": "taskId",
+                  "value": "{{taskId}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Customer changed the personalization text.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "PATCH /api/design/tasks/:taskId/start",
           "request": {
             "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE, DESIGN:WORK.",
