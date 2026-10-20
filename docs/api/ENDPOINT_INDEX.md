@@ -1,6 +1,6 @@
 # Backend endpoint index
 
-Total: **495 endpoints** across **23 modules**.
+Total: **496 endpoints** across **23 modules**.
 
 | Module | Endpoints | Postman collection |
 | --- | ---: | --- |
