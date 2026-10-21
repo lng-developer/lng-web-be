@@ -23,6 +23,11 @@ describe('vendorSubmission.repository', () => {
     expect(filter.vendorExternalOrderId).toEqual(/MZ-ORDER-1/i);
   });
 
+  test('hides cancelled history from the default operator list while allowing an explicit status filter', () => {
+    expect(repository.buildFilter({}).status).toEqual({ $ne: 'CANCELLED' });
+    expect(repository.buildFilter({ status: 'CANCELLED' }).status).toBe('CANCELLED');
+  });
+
   test('atomically increments the persisted mutation version on update', async () => {
     const submissionId = '660000000000000000120001';
     const lean = jest.fn().mockResolvedValue({ _id: submissionId, __v: 6 });

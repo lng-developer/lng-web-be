@@ -13,6 +13,7 @@ function buildFilter(query = {}) {
   if (query.sellerOrderItemIds) filter.$and = [{ orderItemId: { $in: query.sellerOrderItemIds.map(toObjectId) } }];
   if (query.id) filter._id = toObjectId(query.id);
   if (query.status) filter.status = query.status;
+  else filter.status = { $ne: vendorSubmissionStatuses.CANCELLED };
   if (query.productionTaskId) filter.productionTaskId = toObjectId(query.productionTaskId);
   if (query.orderId) filter.orderId = toObjectId(query.orderId);
   if (query.orderItemId) filter.orderItemId = toObjectId(query.orderItemId);
