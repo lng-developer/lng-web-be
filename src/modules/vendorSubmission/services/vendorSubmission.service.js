@@ -602,6 +602,24 @@ async function buildFulfillmentOrder(order, items, tasks) {
   };
 }
 
+async function refreshLngFulfillmentOrder(submission, authContext) {
+  const vendorProduct = submission.payloadSnapshot?.vendorProduct
+    || submission.payloadSnapshot?.vendorProductSnapshot;
+  const provider = vendorCode({ vendorProduct });
+  if (provider !== 'LNG_GROUP' || !submission.productionTaskId) return null;
+
+  const [order, items, tasks] = await Promise.all([
+    orderPublic.findById(submission.orderId),
+    orderPublic.listItemsByOrder(submission.orderId),
+    productionPublic.getTasksByOrderId(submission.orderId, { ...(authContext || {}), system: true }),
+  ]);
+  if (!order || !Array.isArray(items) || !items.length || !Array.isArray(tasks) || !tasks.length) {
+    return null;
+  }
+
+  return buildFulfillmentOrder(order, items, tasks);
+}
+
 async function createAndSubmitFulfillmentOrderFromProductionTask(productionTaskId, authContext) {
   // Resolve at call time because production triggers vendor submission.
   const productionPort = require('../../production/public');
@@ -715,10 +733,17 @@ async function retry(submissionId, payload = {}, authContext) {
     throw conflict('Only failed vendor submissions can be retried', { status: submission.status });
   }
   const reason = payload.reason ? String(payload.reason).trim() : null;
+  const fulfillmentOrder = await refreshLngFulfillmentOrder(submission, authContext);
   const updated = await repository.updateById(submissionId, {
     status: vendorSubmissionStatuses.READY,
     failedAt: submission.failedAt || null,
     failureReason: submission.failureReason || null,
+    ...(fulfillmentOrder ? {
+      payloadSnapshot: {
+        ...(submission.payloadSnapshot || {}),
+        fulfillmentOrder,
+      },
+    } : {}),
     statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.READY, authContext, reason),
   });
   await recordSubmissionOperation({
