@@ -758,7 +758,7 @@ async function retry(submissionId, payload = {}, authContext) {
 
 async function submitToVendor(submissionId, payload = {}, authContext) {
   const dryRun = payload.dryRun !== false;
-  const submission = await loadSubmission(submissionId);
+  let submission = await loadSubmission(submissionId);
   assertCanAccessShop(submission.shopId, vendorSubmissionPermissions.WRITE, authContext);
   await orderPublic.assertMarketplaceAllowsFulfillment(submission.orderId, submission.orderItemId);
 
@@ -787,6 +787,16 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
 
   if (submission.status !== vendorSubmissionStatuses.READY) {
     throw conflict('Vendor submission is not ready to submit', { status: submission.status });
+  }
+
+  const fulfillmentOrder = await refreshLngFulfillmentOrder(submission, authContext);
+  if (fulfillmentOrder) {
+    submission = await repository.updateById(submissionId, {
+      payloadSnapshot: {
+        ...(submission.payloadSnapshot || {}),
+        fulfillmentOrder,
+      },
+    });
   }
 
   const operationKey = `vendor-submission:${submissionId}`;
