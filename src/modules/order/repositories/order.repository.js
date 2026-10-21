@@ -552,9 +552,16 @@ async function updateFromExternalImport(orderId, payload) {
   ).lean();
 }
 
-async function updateAddressValidation(orderId, patch, { session, expectedUpdatedAt } = {}) {
+async function updateAddressValidation(orderId, patch, {
+  session, expectedShippingAddress, expectedAddressValidationStatus,
+}) {
   return Order.findOneAndUpdate(
-    { _id: orderId, ...(expectedUpdatedAt ? { updatedAt: expectedUpdatedAt } : {}) },
+    // Unrelated order updates must not invalidate a pending Smarty response.
+    {
+      _id: orderId,
+      shippingAddress: expectedShippingAddress,
+      addressValidationStatus: expectedAddressValidationStatus,
+    },
     { $set: patch },
     { returnDocument: 'after', runValidators: true, session },
   ).lean();

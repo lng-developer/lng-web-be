@@ -1137,6 +1137,12 @@ async function triggerVendorSubmissionForReadyTask(taskId, authContext) {
   try {
     // ponytail: inline V1 trigger; move to a queue when retries/throughput matter.
     const vendorSubmissionPublic = require('../../vendorSubmission/public');
+    const fulfillmentSubmission = await vendorSubmissionPublic.createAndSubmitFulfillmentOrderFromProductionTask?.(taskId, {
+      ...(authContext || {}),
+      system: true,
+      source: 'PRODUCTION',
+    });
+    if (fulfillmentSubmission) return;
     if (typeof vendorSubmissionPublic.createAndSubmitFromProductionTask === 'function') {
       await vendorSubmissionPublic.createAndSubmitFromProductionTask(taskId, {
         ...(authContext || {}),
@@ -1603,6 +1609,15 @@ async function getTaskById(taskId, authContext) {
     ])),
   ])));
   return toProductionTaskDto(enrichedTask);
+}
+
+async function getTasksByOrderId(orderId, authContext) {
+  const tasks = await repository.listByOrderId(orderId);
+  if (!tasks.length) return [];
+  if (!authContext?.system) {
+    await Promise.all(tasks.map((task) => assertCanAccessShop(task.shopId, productionPermissions.READ, authContext)));
+  }
+  return tasks;
 }
 
 function taskMatchesScopedReadQuery(task = {}, query = {}) {
@@ -2457,9 +2472,7 @@ async function submitQc(taskId, payload = {}, authContext) {
       scoreWarning = { code: 'SCORE_CREATION_FAILED' };
     }
   }
-  const fulfillmentPlatformPublic = require('../../integration/fulfillmentPlatform/public');
-  const handoff = await fulfillmentPlatformPublic.queueOrderIfReady(updated.orderId);
-  if (!handoff.routed) await triggerVendorSubmissionForReadyTask(taskId, authContext);
+  await triggerVendorSubmissionForReadyTask(taskId, authContext);
   const dto = toProductionTaskDto(updated);
   if (scoreWarning) dto.warnings = [scoreWarning];
   return dto;
@@ -2807,6 +2820,7 @@ const productionTaskService = {
   exportQcTasksExcel,
   getCsAssignees,
   getTaskById,
+  getTasksByOrderId,
   getTaskByOrderItem,
   getScaleAssignees,
   listPsdBlockedTasksByListing,

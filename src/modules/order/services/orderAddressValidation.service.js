@@ -89,7 +89,8 @@ async function persistAddressValidation(order, patch, authContext, skippedValida
   const updated = await withOrderOperation(async (session) => {
     const persisted = await orderRepository.updateAddressValidation(order._id, patch, {
       session,
-      expectedUpdatedAt: order.updatedAt,
+      expectedShippingAddress: order.shippingAddress ?? null,
+      expectedAddressValidationStatus: order.addressValidationStatus ?? null,
     });
     if (!persisted) throw conflict();
     await appendAddressTimeline(persisted, orderTimelineEventTypes.ADDRESS_VALIDATED, authContext, session);

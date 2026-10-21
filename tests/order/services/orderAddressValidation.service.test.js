@@ -68,6 +68,7 @@ describe('orderAddressValidation.service', () => {
         countryCode: 'US',
       },
       externalData: {},
+      addressValidationStatus: 'NOT_CHECKED',
       updatedAt,
     });
     orderRepository.updateAddressValidation.mockImplementation(async (id, patch) => ({
@@ -118,7 +119,11 @@ describe('orderAddressValidation.service', () => {
         provider: 'smarty',
         status: 'VALID',
       }),
-    }), { session: mockSession, expectedUpdatedAt: updatedAt });
+    }), {
+      session: mockSession,
+      expectedShippingAddress: expect.objectContaining({ addressLine1: '102 BLUEBONNET CIR' }),
+      expectedAddressValidationStatus: 'NOT_CHECKED',
+    });
     expect(result.addressValidationStatus).toBe('VALID');
     expect(orderTimelineService.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
       orderId,
@@ -169,6 +174,47 @@ describe('orderAddressValidation.service', () => {
     expect(auditPublic.record).not.toHaveBeenCalled();
     expect(productionPublic.syncOrderAddressSnapshot).not.toHaveBeenCalled();
     expect(orderCaseService.resolveOpenOrderCaseByType).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['unrelated order status update', false, false, true],
+    ['shipping address update', true, false, false],
+    ['manual validation override', false, true, false],
+  ])('validation handles concurrent %s', async (_label, addressChanged, overridden, succeeds) => {
+    const original = await orderRepository.findById(orderId);
+    const current = {
+      ...original,
+      updatedAt: new Date(updatedAt.getTime() + 1000),
+      shippingAddress: {
+        ...original.shippingAddress,
+        ...(addressChanged ? { city: 'Austin' } : {}),
+      },
+      addressValidationStatus: overridden ? 'OVERRIDDEN' : original.addressValidationStatus,
+    };
+    smartyClient.validateUsStreetAddress.mockResolvedValueOnce([
+      { analysis: { enhanced_match: 'postal-match' } },
+    ]);
+    // Exercise the actual repository filter through the service's persistence path.
+    const Order = require('../../../src/modules/order/models/order.model');
+    const actualRepository = jest.requireActual('../../../src/modules/order/repositories/order.repository');
+    const { isDeepStrictEqual } = require('node:util');
+    const write = jest.spyOn(Order, 'findOneAndUpdate').mockImplementation((filter, update) => ({
+      lean: async () => Object.entries(filter).every(([key, value]) => (
+        isDeepStrictEqual(current[key] ?? null, value)
+      )) ? { ...current, ...update.$set } : null,
+    }));
+    orderRepository.updateAddressValidation.mockImplementationOnce(actualRepository.updateAddressValidation);
+    try {
+      if (succeeds) {
+        await expect(service.validateAddress(orderId)).resolves.toMatchObject({ addressValidationStatus: 'VALID' });
+      } else {
+        await expect(service.validateAddress(orderId)).rejects.toMatchObject({ statusCode: 409 });
+        expect(orderTimelineService.appendTimeline).not.toHaveBeenCalled();
+        expect(orderCaseService.resolveOpenOrderCaseByType).not.toHaveBeenCalled();
+      }
+    } finally {
+      write.mockRestore();
+    }
   });
 
   test('valid validation resolves only ADDRESS and returns refreshed case state', async () => {
@@ -315,7 +361,11 @@ describe('orderAddressValidation.service', () => {
         status: 'OVERRIDDEN',
         reason: 'CS approved address',
       }),
-    }), { session: mockSession, expectedUpdatedAt: updatedAt });
+    }), {
+      session: mockSession,
+      expectedShippingAddress: expect.objectContaining({ addressLine1: '102 BLUEBONNET CIR' }),
+      expectedAddressValidationStatus: 'NOT_CHECKED',
+    });
     expect(productionPublic.syncOrderAddressSnapshot).toHaveBeenCalledWith(expect.objectContaining({
       _id: orderId,
       addressValidationStatus: 'OVERRIDDEN',

@@ -526,6 +526,102 @@ async function createAndSubmitFromProductionTask(productionTaskId, authContext) 
   return submitToVendor(submission.id, { dryRun: false }, authContext);
 }
 
+function isActiveOrderItem(item) {
+  return !['CANCELLED', 'REFUNDED'].includes(String(item?.status || '').toUpperCase());
+}
+
+function vendorCode(task = {}) {
+  return String(
+    task.vendorProduct?.vendor?.code
+    || task.vendorProductSnapshot?.vendor?.code
+    || task.vendorProduct?.vendorCode
+    || task.vendorProductSnapshot?.vendorCode
+    || '',
+  ).trim().toUpperCase();
+}
+
+async function buildFulfillmentOrder(order, items, tasks) {
+  const taskByItemId = new Map(tasks.map((task) => [String(task.orderItemId), task]));
+  const activeItems = items.filter(isActiveOrderItem);
+  const snapshots = await Promise.all(activeItems.map(async (item) => {
+    const task = taskByItemId.get(String(item._id || item.id));
+    const snapshot = await snapshotFromTask(task);
+    return {
+      externalItemId: item.externalItemId,
+      sku: item.sku || null,
+      title: item.title || null,
+      quantity: item.quantity,
+      asin: item.asin || null,
+      currency: item.price?.currency || null,
+      unitPrice: item.price?.itemPriceAmount || null,
+      productionStatus: 'QC_PASSED',
+      scaleStatus: task.scaleStatus || null,
+      fulfillmentFile: { assets: (snapshot.fileChecks || []).filter((file) => file.outputVendorUrl).map((file) => ({
+        slotKey: file.slotKey,
+        slotLabel: file.slotLabel || null,
+        url: file.outputVendorUrl,
+      })) },
+      metadata: { lngOrderItemId: String(item._id || item.id), productionTaskId: String(task._id || task.id) },
+    };
+  }));
+  return {
+    externalOrderId: order.externalOrderId,
+    orderNumber: order.externalOrderId,
+    source: 'LNG_WEB',
+    sourceChannel: order.salesChannelCode,
+    marketplace: order.marketplaceCode,
+    purchaseAt: order.orderedAt || null,
+    recipient: {
+      name: order.shippingAddress?.name || order.buyer?.name || null,
+      phone: order.shippingAddress?.phoneMasked || null,
+      email: order.buyer?.emailMasked || null,
+      address: {
+        line1: order.shippingAddress?.addressLine1 || null,
+        line2: order.shippingAddress?.addressLine2 || null,
+        city: order.shippingAddress?.city || null,
+        state: order.shippingAddress?.stateOrProvinceCode || order.shippingAddress?.stateOrProvince || null,
+        postalCode: order.shippingAddress?.postalCode || null,
+        country: order.shippingAddress?.countryCode || order.shippingAddress?.country || null,
+      },
+    },
+    destinationCountry: order.shippingAddress?.countryCode || order.shippingAddress?.country || null,
+    destinationState: order.shippingAddress?.stateOrProvinceCode || order.shippingAddress?.stateOrProvince || null,
+    destinationCity: order.shippingAddress?.city || null,
+    destinationPostalCode: order.shippingAddress?.postalCode || null,
+    shippingService: order.shippingService?.name || order.shippingService?.level || null,
+    items: snapshots,
+    metadata: { lngOrderId: String(order._id || order.id), handoffVersion: 1 },
+  };
+}
+
+async function createAndSubmitFulfillmentOrderFromProductionTask(productionTaskId, authContext) {
+  // Resolve at call time because production triggers vendor submission.
+  const productionPort = require('../../production/public');
+  const task = await productionPort.getTaskById(productionTaskId, { ...(authContext || {}), system: true });
+  if (!task || vendorCode(task) !== 'LNG_GROUP') return null;
+
+  const [order, items, tasks] = await Promise.all([
+    orderPublic.findById(task.orderId),
+    orderPublic.listItemsByOrder(task.orderId),
+    productionPort.getTasksByOrderId(task.orderId, { ...(authContext || {}), system: true }),
+  ]);
+  const activeItems = items.filter(isActiveOrderItem);
+  const taskByItemId = new Map(tasks.map((entry) => [String(entry.orderItemId), entry]));
+  const ready = activeItems.length > 0 && activeItems.every((item) => {
+    const itemTask = taskByItemId.get(String(item._id || item.id));
+    return itemTask?.qcStatus === 'PASSED' && itemTask?.status === 'READY_TO_SEND_VENDOR' && vendorCode(itemTask) === 'LNG_GROUP';
+  });
+  if (!ready) return { deferred: true };
+
+  const submission = await createFromProductionTask(productionTaskId, authContext);
+  const payloadSnapshot = {
+    ...(submission.payloadSnapshot || {}),
+    fulfillmentOrder: await buildFulfillmentOrder(order, items, tasks),
+  };
+  await repository.updateById(submission.id, { payloadSnapshot });
+  return submitToVendor(submission.id, { provider: 'LNG_GROUP', dryRun: false }, authContext);
+}
+
 async function repairProductionHandoff(submission, authContext) {
   try {
     await productionPublic.markSentToVendor(
@@ -807,6 +903,7 @@ async function getByProviderExternalOrderId({ provider, vendorExternalOrderId } 
 module.exports = {
   cancel,
   createAndSubmitFromProductionTask,
+  createAndSubmitFulfillmentOrderFromProductionTask,
   createFromProductionTask,
   exportSubmissionsCsv,
   getByOrderItemId,

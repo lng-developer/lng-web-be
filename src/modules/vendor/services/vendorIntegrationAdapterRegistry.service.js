@@ -48,6 +48,23 @@ async function fetchLenfulOrder({ credential, orderNumber } = {}) {
 function getAdapter(adapterKey) {
   const provider = String(adapterKey || '').trim().toUpperCase();
   if (!provider) return null;
+  if (provider === 'LNG_GROUP') return Object.freeze({
+    provider,
+    async testConnection({ credential } = {}) {
+      const baseUrl = String(credential?.baseUrl || '').replace(/\/+$/, '');
+      const token = credential?.accessToken;
+      if (!baseUrl || !token) throw new Error('LNG Group credentials are not configured');
+
+      const response = await fetch(`${baseUrl}/api/portal/orders/${CONNECTION_PROBE_ORDER_ID}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok && !(response.status === 404 && body?.error?.code === 'NOT_FOUND')) {
+        throw new Error('LNG Group connection request failed');
+      }
+      return { provider };
+    },
+  });
   if (provider === 'MERCHFOX') return Object.freeze({
     provider,
     async testConnection({ credential } = {}) {
