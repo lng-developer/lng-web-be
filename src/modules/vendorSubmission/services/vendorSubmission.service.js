@@ -522,6 +522,14 @@ async function markSubmitted(submissionId, authContext) {
 }
 
 async function createAndSubmitFromProductionTask(productionTaskId, authContext) {
+  // LNG submissions require the normalized fulfillmentOrder payload. Keep the
+  // legacy path for other vendors, which use their own snapshot adapters.
+  const productionPort = require('../../production/public');
+  const task = await productionPort.getTaskById(productionTaskId, { ...(authContext || {}), system: true });
+  if (task && vendorCode(task) === 'LNG_GROUP') {
+    return createAndSubmitFulfillmentOrderFromProductionTask(productionTaskId, authContext);
+  }
+
   const submission = await createFromProductionTask(productionTaskId, authContext);
   return submitToVendor(submission.id, { dryRun: false }, authContext);
 }
