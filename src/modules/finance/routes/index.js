@@ -14,7 +14,7 @@ const adsUnassignedRowController = require('../controllers/adsUnassignedRow.cont
 const { financePermissions } = require('../constants/finance.constants');
 
 const router = express.Router();
-const requireRead = authPublic.authorizeAnyPermission(financePermissions.READ, financePermissions.WRITE);
+const requireRead = authPublic.authorizeAnyPermission(financePermissions.READ, financePermissions.WRITE, 'REPORTS:READ');
 const requireWrite = authPublic.authorizeAnyPermission(financePermissions.WRITE);
 const uploadDir = path.join(os.tmpdir(), 'lng-finance-imports');
 const upload = multer({

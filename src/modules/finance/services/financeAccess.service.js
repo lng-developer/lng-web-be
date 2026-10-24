@@ -8,13 +8,13 @@ function hasGlobal(auth = {}, permission) {
   if (auth.system || auth.worker || auth.import) return true;
   const permissions = auth.permissions || [];
   return permissions.includes(permission)
-    || (permission === financePermissions.READ && permissions.includes(financePermissions.WRITE));
+    || (permission === financePermissions.READ && (permissions.includes(financePermissions.WRITE) || permissions.includes('REPORTS:READ')));
 }
 
 function scopeHas(scope, permission) {
   const permissions = scope.permissions || [];
   return permissions.includes(permission)
-    || (permission === financePermissions.READ && permissions.includes(financePermissions.WRITE));
+    || (permission === financePermissions.READ && (permissions.includes(financePermissions.WRITE) || permissions.includes('REPORTS:READ')));
 }
 
 function accessConditions(auth = {}, permission = financePermissions.READ) {

@@ -1213,7 +1213,11 @@ async function approveTask(taskId, payload = {}, authContext) {
   const approvedAssetId = String(payload.approvedAssetId || '');
   const submissions = getSubmissions(task);
   const submission = selectSubmittedSubmission(submissions, payload);
-  if (authContext?.accountId && String(submission.submittedBy) === String(authContext.accountId)) {
+  if (
+    authContext?.accountId
+    && String(submission.submittedBy) === String(authContext.accountId)
+    && !(authContext.roles || []).some((role) => String(role).toUpperCase() === 'SUPER_ADMIN')
+  ) {
     throw forbidden();
   }
   if (!(submission.assetIds || []).map(String).includes(approvedAssetId)) {
@@ -1389,7 +1393,11 @@ async function rejectTask(taskId, payload = {}, authContext) {
   assertStatus(task, [designTaskStatuses.SUBMITTED], 'rejected');
   const submissions = getSubmissions(task);
   const submission = selectSubmittedSubmission(submissions, payload);
-  if (authContext?.accountId && String(submission.submittedBy) === String(authContext.accountId)) {
+  if (
+    authContext?.accountId
+    && String(submission.submittedBy) === String(authContext.accountId)
+    && !(authContext.roles || []).some((role) => String(role).toUpperCase() === 'SUPER_ADMIN')
+  ) {
     throw forbidden();
   }
   const rejectedAt = new Date();

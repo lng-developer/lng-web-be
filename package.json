@@ -56,6 +56,7 @@
     "audit:mongo-indexes": "node -r dotenv/config tools/scripts/audit/auditMongoIndexes.js",
     "audit:mongo-fields": "node -r dotenv/config tools/scripts/audit/auditMongoFields.js",
     "audit:vendor-products:canonical": "node -r dotenv/config src/modules/vendor/scripts/vendorProductCanonicalization.js",
+    "backfill:vendor-cut-metal-options": "node -r dotenv/config src/modules/vendor/scripts/backfillLngCutMetalSignOptions.js",
     "migrate:vendor-provider-integrations": "node -r dotenv/config src/modules/vendor/scripts/migrateVendorProviderKeysToIntegrations.js",
     "api:inventory": "node tools/api-contract/routeInventory.js",
     "api:contracts:check": "node tools/api-contract/validateApiContracts.js",
