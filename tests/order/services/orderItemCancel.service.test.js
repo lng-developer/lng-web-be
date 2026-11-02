@@ -17,6 +17,10 @@ jest.mock('../../../src/modules/vendorSubmission/public', () => ({
   getByOrderItemId: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/production/public', () => ({
+  cancelTaskByOrderItem: jest.fn(),
+}));
+
 jest.mock('../../../src/modules/auth/public', () => ({
   canAccessScope: jest.fn(),
 }));
@@ -32,6 +36,7 @@ const orderTimelineService = require('../../../src/modules/order/services/orderT
 const vendorSubmissionPublic = require('../../../src/modules/vendorSubmission/public');
 const orderNotificationService = require('../../../src/modules/order/services/orderNotification.service');
 const auditPublic = require('../../../src/modules/audit/public');
+const productionPublic = require('../../../src/modules/production/public');
 const service = require('../../../src/modules/order/services/orderItemCancel.service');
 
 describe('orderItemCancel.service', () => {
@@ -102,6 +107,11 @@ describe('orderItemCancel.service', () => {
     expect(event).toMatchObject({ action: 'ORDER_ITEM_CANCELLED', entityId: orderItemId });
     expect(JSON.stringify(event)).not.toContain('Buyer requested cancellation');
     expect(auditPublic.record).toHaveBeenCalledWith(expect.any(Object), { session: mockSession });
+    expect(productionPublic.cancelTaskByOrderItem).toHaveBeenCalledWith(
+      orderItemId,
+      { reason: 'Buyer requested cancellation' },
+      expect.objectContaining({ system: true, source: 'ORDER_CANCEL' }),
+    );
     expect(orderNotificationService.notifyAssignedStaff).toHaveBeenCalledWith(expect.objectContaining({
       order: expect.objectContaining({ _id: orderId }),
       actorAccountId: '660000000000000000000901',

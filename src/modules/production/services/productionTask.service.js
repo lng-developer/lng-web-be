@@ -1290,6 +1290,63 @@ async function prepareForMappingOverride(orderItemId, authContext = {}) {
   };
 }
 
+async function cancelTaskByOrderItem(orderItemId, { reason } = {}, authContext = {}) {
+  assertValidObjectId(orderItemId, 'orderItemId');
+  const task = await repository.findByOrderItem(orderItemId);
+  if (!task) return null;
+  if (!authContext?.system) {
+    assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+  }
+  if (task.status === productionTaskStatuses.CANCELLED) {
+    return toProductionTaskDto(task);
+  }
+  if (task.status === productionTaskStatuses.SENT_TO_VENDOR) {
+    throw conflict('Production task already sent to vendor', {
+      productionTaskId: toId(task),
+      status: task.status,
+    });
+  }
+
+  const vendorSubmissionPublic = getVendorSubmissionPublic();
+  const submission = typeof vendorSubmissionPublic.getByProductionTaskId === 'function'
+    ? await vendorSubmissionPublic.getByProductionTaskId(toId(task))
+    : null;
+  if (submission && submission.status !== 'CANCELLED' && typeof vendorSubmissionPublic.cancel === 'function') {
+    if (submission.status === 'SUBMITTED') {
+      throw conflict('Submitted vendor submission cannot be cancelled', {
+        productionTaskId: toId(task),
+        vendorSubmissionId: submission.id,
+        vendorSubmissionStatus: submission.status,
+      });
+    }
+    await vendorSubmissionPublic.cancel(submission.id, {
+      cancelReason: reason || 'Order item cancelled',
+    }, {
+      ...(authContext || {}),
+      system: true,
+      source: 'PRODUCTION_CANCEL',
+    });
+  }
+
+  const updated = await withProductionOperation(async (session) => {
+    const cancelled = await repository.cancelTask(toId(task), { session });
+    if (!cancelled) {
+      throw conflict('Production task changed concurrently or is already sent to vendor');
+    }
+    await recordProductionOperation({
+      action: 'PRODUCTION_TASK_CANCELLED',
+      task: cancelled,
+      authContext,
+      changes: { status: { from: task.status, to: productionTaskStatuses.CANCELLED } },
+      metadata: { reason: reason || null },
+      session,
+    });
+    return cancelled;
+  });
+
+  return toProductionTaskDto(updated);
+}
+
 async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
   assertValidObjectId(orderItemId, 'orderItemId');
   const item = await orderPublic.findItemById(orderItemId);
@@ -2833,6 +2890,7 @@ const productionTaskService = {
   bulkPushVendor,
   canReadTaskById,
   canReadAssignedTaskInputAsset,
+  cancelTaskByOrderItem,
   claimDesignTask,
   createOrRecheckTaskForOrderItem,
   exportTasksCsv,

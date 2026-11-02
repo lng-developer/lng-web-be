@@ -112,6 +112,7 @@ jest.mock('../../../src/modules/production/repositories/productionTask.repositor
   summarizeQueueCounts: jest.fn(),
   appendFileCheckIfMutable: jest.fn(),
   updateFileCheckOutputIfMutable: jest.fn(),
+  cancelTask: jest.fn(),
   updateById: jest.fn(),
   updateByIdIf: jest.fn(),
   updateScaledOutputIfMutable: jest.fn(),
@@ -554,6 +555,97 @@ describe('productionTask.service', () => {
       code: 'CONFLICT_ERROR',
       details: { vendorSubmissionStatus: 'SUBMITTED' },
     });
+  });
+
+  test('cancelTaskByOrderItem returns null when task does not exist', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce(null);
+    const result = await service.cancelTaskByOrderItem(orderItemId, {}, { system: true });
+    expect(result).toBeNull();
+  });
+
+  test('cancelTaskByOrderItem is idempotent when task is already cancelled', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: taskId,
+      orderItemId,
+      shopId,
+      status: 'CANCELLED',
+    });
+    const result = await service.cancelTaskByOrderItem(orderItemId, {}, { system: true });
+    expect(result).toMatchObject({ id: taskId, status: 'CANCELLED' });
+    expect(repository.cancelTask).not.toHaveBeenCalled();
+  });
+
+  test('cancelTaskByOrderItem rejects cancellation if task was already sent to vendor', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: taskId,
+      orderItemId,
+      shopId,
+      status: 'SENT_TO_VENDOR',
+    });
+    await expect(service.cancelTaskByOrderItem(orderItemId, {}, { system: true })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+  });
+
+  test('cancelTaskByOrderItem rejects cancellation if vendor submission is SUBMITTED', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: taskId,
+      orderItemId,
+      shopId,
+      status: 'BLOCKED',
+    });
+    vendorSubmissionPublic.getByProductionTaskId.mockResolvedValueOnce({
+      id: vendorSubmissionId,
+      status: 'SUBMITTED',
+    });
+    await expect(service.cancelTaskByOrderItem(orderItemId, {}, { system: true })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT_ERROR',
+    });
+  });
+
+  test('cancelTaskByOrderItem cancels task and unsubmitted submission, updating workbench projection', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: taskId,
+      orderId,
+      orderItemId,
+      shopId,
+      status: 'BLOCKED',
+    });
+    vendorSubmissionPublic.getByProductionTaskId.mockResolvedValueOnce({
+      id: vendorSubmissionId,
+      status: 'READY',
+    });
+    repository.cancelTask.mockResolvedValueOnce({
+      _id: taskId,
+      orderId,
+      orderItemId,
+      shopId,
+      status: 'CANCELLED',
+      orderSnapshot: { status: 'CANCELLED' },
+    });
+
+    const result = await service.cancelTaskByOrderItem(orderItemId, { reason: 'k ship kip' }, {
+      system: true,
+      accountId: '660000000000000000000901',
+    });
+
+    expect(vendorSubmissionPublic.cancel).toHaveBeenCalledWith(
+      vendorSubmissionId,
+      { cancelReason: 'k ship kip' },
+      expect.objectContaining({ system: true }),
+    );
+    expect(repository.cancelTask).toHaveBeenCalledWith(taskId, expect.objectContaining({ session: mockSession }));
+    expect(orderPublic.updateOrderWorkbenchItem).toHaveBeenCalledWith(
+      orderId,
+      orderItemId,
+      expect.objectContaining({
+        production: expect.objectContaining({ productionStatus: 'CANCELLED' }),
+      }),
+      expect.objectContaining({ source: 'PRODUCTION' }),
+    );
+    expect(result).toMatchObject({ id: taskId, status: 'CANCELLED' });
   });
 
   test('blocks task creation when fulfillment plan exists but is not READY', async () => {

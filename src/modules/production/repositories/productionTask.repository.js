@@ -515,6 +515,22 @@ async function upsertByOrderItem(orderItemId, payload, { session } = {}) {
   ).lean();
 }
 
+async function cancelTask(taskId, { session } = {}) {
+  return ProductionTask.findOneAndUpdate(
+    {
+      _id: taskId,
+      status: { $ne: productionTaskStatuses.SENT_TO_VENDOR },
+    },
+    {
+      $set: {
+        status: productionTaskStatuses.CANCELLED,
+        'orderSnapshot.status': 'CANCELLED',
+      },
+    },
+    { returnDocument: 'after', runValidators: true, session },
+  ).lean();
+}
+
 async function updateById(taskId, patch, { session } = {}) {
   return ProductionTask.findByIdAndUpdate(
     taskId,
@@ -680,6 +696,7 @@ module.exports = {
   listSummariesByOrderItemIds,
   summarize,
   summarizeQueueCounts,
+  cancelTask,
   updateById,
   updateByIdIf,
   appendFileCheckIfMutable,
