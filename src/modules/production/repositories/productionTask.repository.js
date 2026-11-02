@@ -656,6 +656,14 @@ function findSellerTaskReferencingAsset(assetId, orderItemIds) {
   ] }).select('_id').lean();
 }
 
+async function removeFileCheck(taskId, fileCheckId) {
+  return ProductionTask.findByIdAndUpdate(
+    taskId,
+    { $pull: { fileChecks: { _id: fileCheckId, outputAssetId: null } } },
+    { returnDocument: 'after' },
+  ).lean();
+}
+
 module.exports = {
   findSellerTaskReferencingAsset,
   findAssignedTaskReferencingInputAsset,
@@ -675,6 +683,7 @@ module.exports = {
   updateById,
   updateByIdIf,
   appendFileCheckIfMutable,
+  removeFileCheck,
   updateFileCheckOutputIfMutable,
   updateScaledOutputIfMutable,
   updateOrderAddressSnapshot,

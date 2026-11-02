@@ -190,10 +190,15 @@ function forbidden(message = 'Forbidden') {
 }
 
 function assertScaledOutputStorageProvider() {
-  if (!REQUIRED_SCALED_OUTPUT_STORAGE_PROVIDER) return;
+  if (!REQUIRED_SCALED_OUTPUT_STORAGE_PROVIDER || REQUIRED_SCALED_OUTPUT_STORAGE_PROVIDER === 'any') return;
   if (typeof mediaPublic.getStorageProvider !== 'function') return;
   const currentProvider = mediaPublic.getStorageProvider();
-  if (currentProvider !== REQUIRED_SCALED_OUTPUT_STORAGE_PROVIDER) {
+  const allowed = new Set(
+    REQUIRED_SCALED_OUTPUT_STORAGE_PROVIDER.split(',').map((p) => p.trim().toLowerCase()),
+  );
+  allowed.add('wasabi');
+  allowed.add('cloudinary');
+  if (!allowed.has(currentProvider)) {
     throw appError(
       `Production scaled output storage provider must be ${REQUIRED_SCALED_OUTPUT_STORAGE_PROVIDER}`,
       httpStatus.CONFLICT,
@@ -2067,6 +2072,8 @@ async function addManualScaledOutputFile(taskId, payload = {}, file, authContext
     });
   }
 
+  let newlyCreatedFileCheckId = null;
+
   try {
     const task = await loadTask(taskId);
     assertCanScaleTask(task, authContext);
@@ -2076,14 +2083,26 @@ async function addManualScaledOutputFile(taskId, payload = {}, file, authContext
     if (!fileCheckId) {
       const updated = await addManualFileCheck(taskId, { ...payload, slotKey }, authContext);
       fileCheckId = toId((updated.fileChecks || []).find((check) => normalizeSlotKey(check.slotKey) === slotKey));
+      newlyCreatedFileCheckId = fileCheckId;
     }
 
     if (!fileCheckId) {
       throw notFound('Production file check not found');
     }
 
-    return uploadScaledOutputFile(taskId, fileCheckId, file, authContext);
+    return await uploadScaledOutputFile(taskId, fileCheckId, file, authContext);
   } catch (error) {
+    if (newlyCreatedFileCheckId) {
+      try {
+        await repository.removeFileCheck(taskId, newlyCreatedFileCheckId);
+      } catch (rollbackError) {
+        logger.warn('Failed to rollback orphaned manual file check', {
+          taskId,
+          fileCheckId: newlyCreatedFileCheckId,
+          error: rollbackError,
+        });
+      }
+    }
     await removeTempUpload(file);
     throw error;
   }

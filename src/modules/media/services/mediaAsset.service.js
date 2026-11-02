@@ -154,6 +154,32 @@ function uploadToCloudinary({ stream, originalFilename, mimeType, maxBytes }) {
   });
 }
 
+async function uploadToWasabi({ stream, originalFilename, mimeType, maxBytes }) {
+  const hashAndLimit = createHashAndLimitTransform(maxBytes);
+  const extension = getSafeExtension(originalFilename);
+  const key = `scaled-outputs/${crypto.randomUUID()}${extension}`;
+
+  const chunks = [];
+  for await (const chunk of stream.pipe(hashAndLimit)) {
+    chunks.push(chunk);
+  }
+  const buffer = Buffer.concat(chunks);
+  const { size, sha256 } = hashAndLimit.getResult();
+
+  await wasabi.putObject({
+    key,
+    body: buffer,
+    contentType: mimeType || 'application/octet-stream',
+    contentLength: size,
+  });
+
+  return {
+    providerAssetId: key,
+    size,
+    sha256,
+  };
+}
+
 function downloadHttpsToFile(url, filePath, maxBytes = DEFAULT_MAX_BYTES) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
@@ -202,6 +228,47 @@ async function storeAsset({
   }
 
   const originalFilename = sanitizeFilename(filename);
+
+  const isScaledOutput = ownerType === 'PRODUCTION_TASK';
+  const isOverCloudinaryLimit = Number(maxBytes) > 10 * 1024 * 1024;
+  const isWasabiProvider = getStorageProvider() === 'wasabi'
+    || String(process.env.PRODUCTION_SCALED_OUTPUT_STORAGE_PROVIDER || '').toLowerCase() === 'wasabi';
+
+  if (isWasabiProvider || (isScaledOutput && isOverCloudinaryLimit) || isOverCloudinaryLimit) {
+    const wasabiResult = await uploadToWasabi({
+      stream,
+      originalFilename,
+      mimeType,
+      maxBytes,
+    });
+
+    return repository.create({
+      originalFilename,
+      storageFilename: wasabiResult.providerAssetId,
+      mimeType,
+      size: wasabiResult.size,
+      sha256: wasabiResult.sha256,
+      relativeStoragePath: wasabiResult.providerAssetId,
+      provider: 'wasabi',
+      providerAssetId: wasabiResult.providerAssetId,
+      resourceType: mimeType?.startsWith('image/') ? 'image' : 'raw',
+      uploadStatus: 'READY',
+      secureUrl: null,
+      sourceUrlRedacted,
+      sourceUrlHash,
+      metadata,
+      shopId,
+      ownerType,
+      ownerId,
+    }).catch(async (error) => {
+      try {
+        await wasabi.deleteObject({ key: wasabiResult.providerAssetId });
+      } catch (cleanupErr) {
+        // ignore
+      }
+      throw error;
+    });
+  }
 
   if (getStorageProvider() === 'cloudinary') {
     const { uploadResult, resourceType, size, sha256 } = await uploadToCloudinary({
@@ -303,6 +370,11 @@ async function discardUnattachedAsset(assetId, expectedMetadata, reason) {
     return asset;
   }
 
+  if (asset.provider === 'wasabi') {
+    await wasabi.deleteObject({ key: asset.providerAssetId });
+    return asset;
+  }
+
   const root = getStorageRoot();
   const filePath = path.resolve(root, asset.relativeStoragePath || '');
   ensureInsideRoot(root, filePath);
@@ -335,6 +407,24 @@ async function buildLocalReadAccess(assetId, existingAsset = null) {
 
   if (mediaAsset.provider === 'cloudinary') {
     return materializeRemoteReadAccess();
+  }
+
+  if (mediaAsset.provider === 'wasabi') {
+    const tmpDir = path.join(root, 'tmp');
+    await fs.promises.mkdir(tmpDir, { recursive: true });
+    const localPath = path.join(tmpDir, `${crypto.randomUUID()}.read`);
+    ensureInsideRoot(root, localPath);
+    const presigned = await wasabi.presignDownload({
+      key: mediaAsset.providerAssetId,
+      filename: mediaAsset.originalFilename || 'asset.bin',
+      expiresIn: 300,
+    });
+    await downloadHttpsToFile(presigned, localPath, mediaAsset.size || DEFAULT_MAX_BYTES);
+    return {
+      mediaAsset,
+      localPath,
+      cleanup: async () => removeIfExists(localPath),
+    };
   }
 
   const localPath = path.resolve(root, mediaAsset.relativeStoragePath || '');
@@ -487,10 +577,32 @@ async function getPublicAssetUrl(assetId) {
   if (asset.uploadStatus && asset.uploadStatus !== 'READY') return null;
   if (asset.provider === 'cloudinary') return asset.secureUrl || null;
   if (asset.provider === 'wasabi') {
+    const publicBaseUrl = process.env.API_PUBLIC_BASE_URL
+      ? String(process.env.API_PUBLIC_BASE_URL).replace(/\/+$/, '')
+      : null;
+    if (publicBaseUrl) {
+      return `${publicBaseUrl}/api/media/public/assets/${asset._id || asset.id}/download`;
+    }
     return wasabi.presignDownload({
       key: asset.providerAssetId,
       filename: asset.originalFilename || 'asset.bin',
-      expiresIn: config.media.wasabi.downloadUrlTtlSeconds,
+      expiresIn: 7 * 24 * 3600,
+    });
+  }
+  return null;
+}
+
+async function getPublicDownloadUrl(assetId, options = {}) {
+  const asset = await getAsset(assetId);
+  if (!asset || asset.isDiscarded) return null;
+  if (asset.uploadStatus && asset.uploadStatus !== 'READY') return null;
+  if (asset.provider === 'cloudinary') return asset.secureUrl || null;
+  if (asset.provider === 'wasabi') {
+    return wasabi.presignDownload({
+      key: asset.providerAssetId,
+      filename: asset.originalFilename || 'asset.bin',
+      expiresIn: 7 * 24 * 3600,
+      disposition: options.disposition || 'inline',
     });
   }
   return null;
@@ -593,6 +705,7 @@ module.exports = {
   getAuthorizedAsset,
   getAuthorizedDownloadUrl,
   getPublicAssetUrl,
+  getPublicDownloadUrl,
   attachAssetsToChat,
   getAssetsByIds,
   findAssetsByProviderAssetIds,

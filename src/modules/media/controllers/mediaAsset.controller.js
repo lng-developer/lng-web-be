@@ -113,10 +113,44 @@ async function downloadAsset(req, res) {
   }
 }
 
+async function downloadPublicAsset(req, res) {
+  assertValidObjectId(req.params.assetId, 'assetId');
+  const disposition = req.query.disposition === 'inline' ? 'inline' : 'attachment';
+  try {
+    const redirectUrl = await service.getPublicDownloadUrl(req.params.assetId, { disposition });
+    if (redirectUrl) {
+      if (req.query.redirect === 'false') {
+        res.status(httpStatus.OK).json({ success: true, data: { url: redirectUrl } });
+        return;
+      }
+      res.redirect(redirectUrl);
+      return;
+    }
+    await service.withAssetLocalReadFile(req.params.assetId, async ({ mediaAsset, localPath }) => {
+      const filename = encodeURIComponent(mediaAsset.originalFilename || 'asset.bin');
+      res.setHeader('Content-Type', mediaAsset.mimeType || 'application/octet-stream');
+      if (Number.isInteger(mediaAsset.size)) res.setHeader('Content-Length', mediaAsset.size);
+      res.setHeader('Content-Disposition', `${disposition}; filename*=UTF-8''${filename}`);
+      res.status(httpStatus.OK);
+      await pipeline(fs.createReadStream(localPath), res);
+    });
+  } catch (error) {
+    if ([
+      'MEDIA_ASSET_NOT_FOUND',
+      'MEDIA_ASSET_FILE_NOT_FOUND',
+      'MEDIA_CLOUDINARY_DOWNLOAD_FAILED',
+    ].includes(error.code)) {
+      throw new AppError('Media asset file not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
+    }
+    throw error;
+  }
+}
+
 module.exports = {
   abortMultipartUpload,
   completeMultipartUpload,
   downloadAsset,
+  downloadPublicAsset,
   getAsset,
   initiateMultipartUpload,
   listAssets,
