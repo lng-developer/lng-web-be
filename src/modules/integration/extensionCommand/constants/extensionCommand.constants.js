@@ -5,6 +5,7 @@ const extensionCommandTypes = Object.freeze({
   IMPORT_SETTLEMENTS: 'IMPORT_SETTLEMENTS',
   TEST_CONNECTION: 'TEST_CONNECTION',
   SYNC_LISTING_IMAGES: 'SYNC_LISTING_IMAGES',
+  UPLOAD_TRACKING: 'UPLOAD_TRACKING',
 });
 
 const financeScheduleSources = Object.freeze({
@@ -16,6 +17,7 @@ const extensionCommandStatuses = Object.freeze({
   QUEUED: 'QUEUED',
   CLAIMED: 'CLAIMED',
   RUNNING: 'RUNNING',
+  WAITING_AMAZON: 'WAITING_AMAZON',
   SUCCEEDED: 'SUCCEEDED',
   FAILED: 'FAILED',
 });

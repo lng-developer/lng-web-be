@@ -167,11 +167,30 @@ async function updateStatusIfCurrent(shipmentId, currentStatus, patch) {
   ).lean();
 }
 
+async function findByIds(shipmentIds = []) {
+  return Shipment.find({ _id: { $in: shipmentIds } }).lean();
+}
+
+async function updateMarketplaceConfirmation(shipmentIds = [], { status, confirmedAt, submissionId }) {
+  return Shipment.updateMany(
+    { _id: { $in: shipmentIds } },
+    {
+      $set: {
+        marketplaceConfirmationStatus: status,
+        ...(confirmedAt !== undefined ? { marketplaceConfirmedAt: confirmedAt } : {}),
+        ...(submissionId !== undefined ? { marketplaceSubmissionId: submissionId } : {}),
+      },
+    },
+  );
+}
+
 module.exports = {
   buildFilter,
   create,
   findActiveByVendorSubmission,
   findById,
+  findByIds,
+  updateMarketplaceConfirmation,
   findByOrderItem,
   list,
   listByOrderItemIds,

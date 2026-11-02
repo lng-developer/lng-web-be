@@ -25,4 +25,12 @@ router.post('/agent/claim', authPublic.authenticate, write, asyncHandler(control
 router.post('/agent/commands/:commandId/start', authPublic.authenticate, write, asyncHandler(controller.startCommand));
 router.post('/agent/commands/:commandId/renew', authPublic.authenticate, write, asyncHandler(controller.renewCommand));
 router.post('/agent/commands/:commandId/complete', authPublic.authenticate, write, asyncHandler(controller.completeCommand));
+
+const trackingController = require('../../amazonTrackingSubmission/controllers/amazonTrackingSubmission.controller');
+router.post('/agent/commands/:commandId/tracking-payload', authPublic.authenticate, write, asyncHandler(trackingController.getLeasedPayload));
+router.post('/agent/commands/:commandId/tracking-submissions/:submissionId/submitted', authPublic.authenticate, write, asyncHandler(trackingController.markSubmitted));
+router.post('/agent/commands/:commandId/tracking-submissions/:submissionId/waiting', authPublic.authenticate, write, asyncHandler(trackingController.markWaiting));
+router.post('/agent/commands/:commandId/tracking-submissions/:submissionId/batch', authPublic.authenticate, write, asyncHandler(trackingController.recordAmazonBatch));
+router.post('/agent/commands/:commandId/tracking-submissions/:submissionId/terminal', authPublic.authenticate, write, asyncHandler(trackingController.markTerminal));
+
 module.exports = router;
