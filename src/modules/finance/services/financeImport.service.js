@@ -219,12 +219,21 @@ async function autoConfirmExactOrderRefund(identity, summary, authContext) {
   const expectedAmount = items.reduce((total, item) => total + expectedCustomerChargeAmount(item), 0);
   const refundAmount = refunds.reduce((total, refund) => total + refund.totalRefundAmount, 0);
   const currency = String(refunds[0].currency || 'USD').toUpperCase();
+  const allocationsByRefund = distributeRefundsAcrossItems(refunds, items);
   if (!items.length || items.some((item) => expectedCustomerChargeAmount(item) <= 0
     || String(item.price?.currency || 'USD').toUpperCase() !== currency)
-    || expectedAmount !== refundAmount) return 0;
-
-  const allocationsByRefund = distributeRefundsAcrossItems(refunds, items);
-  if (allocationsByRefund.some((allocations) => !allocations)) return 0;
+    || expectedAmount !== refundAmount
+    || allocationsByRefund.some((allocations) => !allocations)) {
+    const formatted = `${(refundAmount / 100).toFixed(2)} ${currency}`;
+    await orderPublic.ensureOpenOrderCase({
+      orderId: String(order._id || order.id),
+      caseType: 'REFUND',
+      severity: 'MEDIUM',
+      title: `Refund recorded (${formatted})`,
+      description: `A refund of ${formatted} was imported from transaction reports. Please review and reconcile with order items.`,
+    }, authContext || { system: true, source: 'FINANCE_IMPORT' });
+    return 0;
+  }
 
   const session = await mongoose.startSession();
   try {

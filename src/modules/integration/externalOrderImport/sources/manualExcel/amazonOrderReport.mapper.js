@@ -4,6 +4,19 @@ const aliases = {
   'order-id': ['amazon-order-id'],
   'order-item-id': ['order-item-id '],
   'quantity-purchased': ['quantity'],
+  'order-status': ['order_status', 'OrderStatus', 'status'],
+  'item-status': ['item_status', 'ItemStatus'],
+};
+
+function normalizeAmazonStatus(raw) {
+  if (!raw) return null;
+  const upper = String(raw).trim().toUpperCase().replace(/[\s-]/g, '_');
+  if (['CANCELED', 'CANCELLED'].includes(upper)) return 'CANCELLED';
+  if (upper === 'SHIPPED') return 'SHIPPED';
+  if (upper === 'UNSHIPPED') return 'UNSHIPPED';
+  if (['PARTIALLYSHIPPED', 'PARTIALLY_SHIPPED'].includes(upper)) return 'PARTIALLY_SHIPPED';
+  if (upper === 'PENDING') return 'PENDING';
+  return upper;
 };
 
 function value(row, key) {
@@ -49,6 +62,7 @@ function buildItem(row) {
     asin: nullable(value(row, 'asin')),
     sku: nullable(value(row, 'sku')),
     title: nullable(value(row, 'product-name')),
+    externalStatus: normalizeAmazonStatus(value(row, 'item-status') || value(row, 'order-status')),
     quantity: parseQuantity(row),
     price: {
       currency,
@@ -107,14 +121,15 @@ function buildItems(rows) {
 
 function buildOrder(row, context, items) {
   return {
-    source: 'MANUAL_EXCEL',
-    importSources: ['MANUAL_EXCEL'],
+    source: context.source || 'MANUAL_EXCEL',
+    importSources: [context.source || 'MANUAL_EXCEL'],
     salesChannelCode: 'AMAZON',
     marketplaceCode: context.marketplaceCode,
     shopId: context.shopId,
     shopConnectionId: context.shopConnectionId,
     externalAccountId: context.externalAccountId,
     externalOrderId: value(row, 'order-id'),
+    externalStatus: normalizeAmazonStatus(value(row, 'order-status') || value(row, 'item-status')),
     orderedAt: nullable(value(row, 'purchase-date')),
     shipByDate: nullable(value(row, 'latest-ship-date')),
     buyer: {

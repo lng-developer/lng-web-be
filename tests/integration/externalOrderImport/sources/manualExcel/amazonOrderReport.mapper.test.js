@@ -180,4 +180,19 @@ describe('amazonOrderReport.mapper', () => {
       },
     });
   });
+  test('normalizes order-status and item-status and respects context source', () => {
+    const [dto] = mapAmazonOrderReportRowsToExternalOrderDtos([
+      {
+        'order-id': '114-0489323-8837846',
+        'order-item-id': '64829103847291',
+        'order-status': 'Cancelled',
+        'item-status': 'Cancelled',
+        sku: 'SKU-CANCELLED',
+      },
+    ], { ...context, source: 'AMAZON_EXTENSION_REPORT' });
+
+    expect(dto.source).toBe('AMAZON_EXTENSION_REPORT');
+    expect(dto.externalStatus).toBe('CANCELLED');
+    expect(dto.items[0].externalStatus).toBe('CANCELLED');
+  });
 });

@@ -14,7 +14,7 @@ const { addressValidationStatuses } = require('./constants/orderStatuses');
 
 const publicPort = {
   personalSellerItemIds: require('./services/orderAccess.service').personalSellerItemIds,
-  assertMarketplaceAllowsFulfillment: require('./services/etsyOrderStatus.service').assertCanFulfill,
+  assertMarketplaceAllowsFulfillment: require('./services/orderFulfillmentGuard.service').assertMarketplaceAllowsFulfillment,
   processListingImage: require('./services/etsyListingImage.service').processListingImage,
   importExternalOrder: orderImportService.importExternalOrder,
   findById: orderRepository.findById,

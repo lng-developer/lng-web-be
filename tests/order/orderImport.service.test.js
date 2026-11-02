@@ -2,6 +2,7 @@ jest.mock('../../src/modules/shop/public', () => ({
   assertShopIsActive: jest.fn(),
 }));
 jest.mock('../../src/modules/order/services/etsyOrderStatus.service', () => ({ reconcile: jest.fn().mockResolvedValue(false) }));
+jest.mock('../../src/modules/order/services/amazonOrderStatus.service', () => ({ reconcile: jest.fn().mockResolvedValue(false) }));
 
 jest.mock('../../src/modules/hr/public', () => ({
   listEmployeeProfilesByEmployeeCodes: jest.fn(),
@@ -435,5 +436,32 @@ describe('orderImportService', () => {
     expect(result).toMatchObject({ created: false, updated: true });
     expect(orderRepository.updateFromExternalImport).toHaveBeenCalledWith('order-1', expect.any(Object));
     expect(orderItemRepository.create).toHaveBeenCalledTimes(1);
+  });
+
+  test('does not skip an existing Amazon extension order when externalStatus changes', async () => {
+    const existingOrder = { _id: 'order-1', shopId: 'shop-1', salesChannelCode: 'AMAZON', externalStatus: 'UNSHIPPED' };
+    const updatedOrder = { ...existingOrder, externalStatus: 'CANCELLED' };
+    orderRepository.findByExternalIdentity.mockResolvedValue(existingOrder);
+    orderRepository.updateFromExternalImport.mockResolvedValue(updatedOrder);
+    orderItemRepository.findByExternalIdentity.mockResolvedValue({ _id: 'item-1', orderId: 'order-1' });
+    orderItemRepository.updateFromExternalImport.mockResolvedValue({ _id: 'item-1', orderId: 'order-1' });
+
+    const amazonOrderStatusService = require('../../src/modules/order/services/amazonOrderStatus.service');
+    amazonOrderStatusService.reconcile.mockResolvedValue(true);
+
+    const result = await orderImportService.importExternalOrder({
+      ...oneItemDto,
+      source: 'AMAZON_EXTENSION_REPORT',
+      externalStatus: 'CANCELLED',
+    });
+
+    expect(result).toMatchObject({
+      orderId: 'order-1',
+      created: false,
+      updated: true,
+      terminal: true,
+    });
+    expect(orderRepository.updateFromExternalImport).toHaveBeenCalled();
+    expect(amazonOrderStatusService.reconcile).toHaveBeenCalledWith(updatedOrder);
   });
 });
