@@ -403,8 +403,15 @@ function mapById(items = [], idPicker = (item) => item && (item._id || item.id))
     .filter(([id]) => Boolean(id)));
 }
 
+function parseEmployeeCodeFromSku(sku) {
+  const match = String(sku || '').trim().match(/^(J\d{3,})(?:[-_]|$)/i);
+  return match ? match[1].toUpperCase() : null;
+}
+
 async function buildDtoOptions(tasks = [], { includeScores = false } = {}) {
   const assignedDesignerIds = uniqueIds(tasks.map((task) => task.assignedDesignerId));
+  const requestedByAccountIds = uniqueIds(tasks.map((task) => task.requestedByAccountId));
+  const accountIdsToFetch = uniqueIds([...assignedDesignerIds, ...requestedByAccountIds]);
   const shopIds = uniqueIds(tasks.map((task) => task.shopId));
   const listingIds = uniqueIds(tasks.map((task) => task.targetListingId || task.listingId));
   const submissionIds = uniqueIds(tasks.flatMap((task) => getSubmissions(task)
@@ -423,7 +430,7 @@ async function buildDtoOptions(tasks = [], { includeScores = false } = {}) {
   const assetIds = uniqueIds([...thumbnailAssetIds, ...latestAssetIds, ...submissionAssetIds]);
 
   const [profiles, shops, assets, orderContexts, scores, listings] = await Promise.all([
-    assignedDesignerIds.length ? hrPublic.listEmployeeProfilesByAccountIds(assignedDesignerIds) : [],
+    accountIdsToFetch.length ? hrPublic.listEmployeeProfilesByAccountIds(accountIdsToFetch) : [],
     Promise.all(shopIds.map((shopId) => shopPublic.findById(shopId))),
     assetIds.length && typeof mediaPublic.getAssetsByIds === 'function'
       ? mediaPublic.getAssetsByIds(assetIds)
@@ -441,8 +448,17 @@ async function buildDtoOptions(tasks = [], { includeScores = false } = {}) {
     listingIds.length ? catalogPublic.getListingsByIds(listingIds) : [],
   ]);
 
+  const allEmployeeCodes = uniqueIds([
+    ...tasks.map((task) => parseEmployeeCodeFromSku(task.listingSnapshot?.sku)),
+    ...(listings || []).map((listing) => parseEmployeeCodeFromSku(listing?.sku)),
+  ].filter(Boolean));
+  const sellerProfiles = allEmployeeCodes.length
+    ? await hrPublic.listEmployeeProfilesByEmployeeCodes(allEmployeeCodes)
+    : [];
+
   return {
     profilesByAccountId: mapById(profiles, (profile) => profile.accountId),
+    profilesByEmployeeCode: mapById(sellerProfiles, (profile) => (profile.employeeCode ? String(profile.employeeCode).toUpperCase() : null)),
     listingsById: mapById(listings),
     shopsById: mapById(shops),
     assetsById: mapById(assets),

@@ -134,6 +134,7 @@ function toDesignTaskDto(task, {
   assetsById = {},
   detail = false,
   profilesByAccountId = {},
+  profilesByEmployeeCode = {},
   shopsById = {},
   listingsById = {},
   orderContextByListingId = {},
@@ -142,6 +143,7 @@ function toDesignTaskDto(task, {
 } = {}) {
   if (!task) return null;
   const assignedDesignerId = toId(task.assignedDesignerId);
+  const requestedByAccountId = toId(task.requestedByAccountId);
   const shopId = toId(task.shopId);
   const thumbnailAssetId = toId((task.referenceAssetIds || [])[0]);
   const submissions = buildSubmissions(task);
@@ -153,6 +155,32 @@ function toDesignTaskDto(task, {
   const listingId = toId(task.targetListingId || task.listingId);
   const orderContext = orderContextByListingId[listingId] || {};
   const listing = toSnapshot(task.listingSnapshot);
+
+  const matchedListing = listingsById[listingId];
+  const sku = listing?.sku || task.listingSnapshot?.sku || matchedListing?.sku;
+  const match = String(sku || '').trim().match(/^(J\d{3,})(?:[-_]|$)/i);
+  const employeeCode = match ? match[1].toUpperCase() : null;
+  const requester = requestedByAccountId ? profilesByAccountId[requestedByAccountId] : null;
+  const sellerFromCode = employeeCode ? profilesByEmployeeCode[employeeCode] : null;
+  const sellerProfile = sellerFromCode || (!employeeCode ? requester : null);
+
+  const sellerDto = sellerProfile ? {
+    id: sellerProfile.accountId || sellerProfile.id || null,
+    fullName: sellerProfile.fullName || null,
+    name: sellerProfile.fullName || null,
+    employeeCode: sellerProfile.employeeCode || employeeCode || null,
+  } : (employeeCode ? {
+    id: null,
+    fullName: employeeCode,
+    name: employeeCode,
+    employeeCode,
+  } : (requester ? {
+    id: requester.accountId || requester.id || null,
+    fullName: requester.fullName || null,
+    name: requester.fullName || null,
+    employeeCode: requester.employeeCode || null,
+  } : shop));
+
   const dto = {
     id: toId(task._id || task.id),
     taskType: task.taskType,
@@ -160,7 +188,11 @@ function toDesignTaskDto(task, {
     priority: task.priority || designTaskPriorities.NORMAL,
     listing: listing ? {
       ...listing,
-      productImageUrl: listingsById[listingId]?.productImageUrl || listing.productImageUrl || orderContext.productImageUrl || null,
+      productImageUrl: matchedListing?.productImageUrl || listing.productImageUrl || orderContext.productImageUrl || null,
+      seller: sellerDto ? {
+        name: sellerDto.fullName || sellerDto.name || null,
+        employeeCode: sellerDto.employeeCode || null,
+      } : null,
     } : null,
     internalTemplate: toSnapshot(task.internalTemplateSnapshot),
     brief: task.brief || null,
@@ -169,11 +201,16 @@ function toDesignTaskDto(task, {
     targetListingId: listingId,
     listingVariantId: toId(task.listingVariantId),
     targetScope: task.listingVariantId ? 'LISTING_VARIANT' : 'LISTING',
-    requestedByAccountId: toId(task.requestedByAccountId),
+    requestedByAccountId,
+    requestedBy: requester ? {
+      id: requester.accountId || requester.id,
+      fullName: requester.fullName || null,
+      employeeCode: requester.employeeCode || null,
+    } : null,
     orderContext: task.orderId ? {
       orderId: toId(task.orderId),
       orderItemId: toId(task.orderItemId),
-      requestedByAccountId: toId(task.requestedByAccountId),
+      requestedByAccountId,
       requestNote: task.requestNote || null,
     } : null,
     sourceListingId: toId(task.sourceListingId),
@@ -181,7 +218,7 @@ function toDesignTaskDto(task, {
     assignedDesignerId,
     assignedDesigner: toProfileDto(profilesByAccountId[assignedDesignerId], assignedDesignerId),
     shop,
-    seller: shop,
+    seller: sellerDto,
     externalOrderId: orderContext.externalOrderId || null,
     blockedOrderCount: orderContext.blockedOrderCount || 0,
     asinType: 'NORMAL',
