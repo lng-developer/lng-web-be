@@ -19,7 +19,29 @@ const leaseSchema = Joi.object({ leaseToken: Joi.string().trim().min(20).max(200
 const renewSchema = leaseSchema.keys({ importJobId: objectId });
 const completeSchema = leaseSchema.keys({ success: Joi.boolean().required(), importJobId: objectId.allow(null), importedCount: Joi.number().integer().min(0).max(1000000).default(0), failedCount: Joi.number().integer().min(0).max(1000000).default(0), errorMessage: Joi.string().trim().max(1000).allow('', null) });
 const listSchema = Joi.object({ page: Joi.number().integer().min(1).default(1), limit: Joi.number().integer().min(1).max(100).default(20) });
-const upsertOrderScheduleSchema = Joi.object({ enabled: Joi.boolean().required(), intervalMinutes: Joi.number().integer().valid(60, 120, 180, 240).required() });
-const upsertFinanceScheduleSchema = Joi.object({ enabled: Joi.boolean().required() });
+const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
+const upsertOrderScheduleSchema = Joi.object({
+  enabled: Joi.boolean().required(),
+  scheduleType: Joi.string().valid('INTERVAL', 'FIXED_TIMES'),
+  intervalMinutes: Joi.number().integer().valid(60, 120, 180, 240),
+  fixedTimes: Joi.array().items(Joi.string().regex(timeRegex)).unique(),
+  timezone: Joi.string().trim().max(100),
+}).custom((value, helpers) => {
+  if (value.scheduleType === 'FIXED_TIMES' && value.enabled && (!value.fixedTimes || !value.fixedTimes.length)) {
+    return helpers.error('any.invalid');
+  }
+  return value;
+});
+const upsertFinanceScheduleSchema = Joi.object({
+  enabled: Joi.boolean().required(),
+  scheduleType: Joi.string().valid('INTERVAL', 'FIXED_TIMES'),
+  fixedTimes: Joi.array().items(Joi.string().regex(timeRegex)).unique(),
+  timezone: Joi.string().trim().max(100),
+}).custom((value, helpers) => {
+  if (value.scheduleType === 'FIXED_TIMES' && value.enabled && (!value.fixedTimes || !value.fixedTimes.length)) {
+    return helpers.error('any.invalid');
+  }
+  return value;
+});
 function validate(schema, payload) { const result = schema.validate(payload, { abortEarly: false, stripUnknown: true }); return result.error ? { details: result.error.details } : { value: result.value }; }
 module.exports = { createCommandSchema, heartbeatSchema, manualOrderImportSchema, manualAdsImportSchema, commandIdSchema, leaseSchema, renewSchema, completeSchema, listSchema, upsertOrderScheduleSchema, upsertFinanceScheduleSchema, validate };

@@ -5,6 +5,39 @@ function toCommandDto(command) {
   const expired = command?.provider === 'ETSY' && ['CLAIMED', 'RUNNING'].includes(command.status) && command.leaseExpiresAt && new Date(command.leaseExpiresAt).getTime() <= Date.now();
   return command && { id: id(command), type: command.type, status: expired ? 'FAILED' : command.status, provider: command.provider || null, origin: command.origin || null, maxOrders: command.maxOrders ?? null, shopId: id(command.shopId), agentId: id(command.agentId), numDays: command.numDays || 1, dateFrom: command.dateFrom || null, dateTo: command.dateTo || null, createdByAccountId: id(command.createdByAccountId), claimedAt: command.claimedAt, startedAt: command.startedAt, completedAt: command.completedAt, leaseExpiresAt: command.leaseExpiresAt, attemptCount: command.attemptCount, importJobId: id(command.importJobId), imageSyncJobId: id(command.imageSyncJobId), result: command.result || { importedCount: 0, failedCount: 0 }, errorMessage: expired ? 'Extension lease expired' : command.errorMessage || null, createdAt: command.createdAt, updatedAt: command.updatedAt };
 }
-function toOrderScheduleDto(schedule) { return schedule && { id: id(schedule), shopId: id(schedule.shopId), agentId: id(schedule.agentId), enabled: schedule.enabled, intervalMinutes: schedule.intervalMinutes, nextRunAt: schedule.nextRunAt, lastQueuedAt: schedule.lastQueuedAt || null, lastError: schedule.lastError || null, updatedAt: schedule.updatedAt }; }
-function toFinanceScheduleDto(schedule) { return schedule && { id: id(schedule), shopId: id(schedule.shopId), agentId: id(schedule.agentId), source: schedule.source, enabled: schedule.enabled, intervalMinutes: schedule.intervalMinutes, nextRunAt: schedule.nextRunAt, lastQueuedAt: schedule.lastQueuedAt || null, lastCompletedAt: schedule.lastCompletedAt || null, lastSuccessfulDate: schedule.lastSuccessfulDate || null, lastError: schedule.lastError || null, updatedAt: schedule.updatedAt }; }
+function toOrderScheduleDto(schedule) {
+  return schedule && {
+    id: id(schedule),
+    shopId: id(schedule.shopId),
+    agentId: id(schedule.agentId),
+    enabled: schedule.enabled,
+    scheduleType: schedule.scheduleType || 'INTERVAL',
+    fixedTimes: Array.isArray(schedule.fixedTimes) ? schedule.fixedTimes : [],
+    timezone: schedule.timezone || 'Asia/Ho_Chi_Minh',
+    intervalMinutes: schedule.intervalMinutes,
+    nextRunAt: schedule.nextRunAt,
+    lastQueuedAt: schedule.lastQueuedAt || null,
+    lastError: schedule.lastError || null,
+    updatedAt: schedule.updatedAt,
+  };
+}
+function toFinanceScheduleDto(schedule) {
+  return schedule && {
+    id: id(schedule),
+    shopId: id(schedule.shopId),
+    agentId: id(schedule.agentId),
+    source: schedule.source,
+    enabled: schedule.enabled,
+    scheduleType: schedule.scheduleType || 'INTERVAL',
+    fixedTimes: Array.isArray(schedule.fixedTimes) ? schedule.fixedTimes : [],
+    timezone: schedule.timezone || 'Asia/Ho_Chi_Minh',
+    intervalMinutes: schedule.intervalMinutes,
+    nextRunAt: schedule.nextRunAt,
+    lastQueuedAt: schedule.lastQueuedAt || null,
+    lastCompletedAt: schedule.lastCompletedAt || null,
+    lastSuccessfulDate: schedule.lastSuccessfulDate || null,
+    lastError: schedule.lastError || null,
+    updatedAt: schedule.updatedAt,
+  };
+}
 module.exports = { toAgentDto, toManagementAgentDto, toCommandDto, toOrderScheduleDto, toFinanceScheduleDto };

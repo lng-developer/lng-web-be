@@ -37,28 +37,44 @@ test('preserves legacy day window', async () => {
   repository.findAgentById.mockResolvedValue({ _id: agent._id, shopId: agent.shopId });
   await expect(service.createCommand({ ...input, numDays: 7 }, {})).resolves.toMatchObject({ numDays: 7 });
 });
-test.each(['IMPORT_ADS_SPEND', 'TEST_CONNECTION'])('rejects Etsy %s', async type => {
-  await expect(service.createCommand({ ...input, type }, {})).rejects.toMatchObject({ statusCode: 400 });
+test('rejects Etsy TEST_CONNECTION', async () => {
+  await expect(service.createCommand({ ...input, type: 'TEST_CONNECTION' }, {})).rejects.toMatchObject({ statusCode: 400 });
 });
-test('does not allow extension-origin Etsy queueing', async () => {
-  await expect(service.queueCurrentOrderImport({ clientId: 'vm' }, auth)).rejects.toMatchObject({ statusCode: 400 });
+test('accepts Etsy IMPORT_ADS_SPEND', async () => {
+  repository.findAgentById.mockResolvedValue({ _id: agent._id, shopId: agent.shopId, provider: 'ETSY' });
+  repository.createCommand.mockResolvedValue({ type: 'IMPORT_ADS_SPEND', provider: 'ETSY' });
+  await expect(service.createCommand({ ...input, type: 'IMPORT_ADS_SPEND', dateFrom: '2026-11-03', dateTo: '2026-11-03' }, {})).resolves.toMatchObject({ type: 'IMPORT_ADS_SPEND' });
+});
+test('allows extension-origin Etsy queueing', async () => {
+  repository.findAgentForToken.mockResolvedValue({ _id: agent._id, shopId: agent.shopId, provider: 'ETSY' });
+  repository.createCommand.mockResolvedValue({ type: 'IMPORT_NEW_ORDERS', origin: 'EXTENSION', provider: 'ETSY' });
+  await expect(service.queueCurrentOrderImport({ clientId: 'vm' }, auth)).resolves.toMatchObject({ type: 'IMPORT_NEW_ORDERS', provider: 'ETSY' });
 });
 test('filters Etsy claims in repository before leasing', async () => {
   await service.claimNext({ clientId: 'vm' }, auth);
   expect(repository.claimNext).toHaveBeenCalledWith(expect.objectContaining({ provider: 'ETSY' }));
 });
-test('does not enable Etsy schedules', async () => {
-  await expect(service.upsertOrderSchedule(agent._id, { enabled: true, intervalMinutes: 60 }, {})).rejects.toMatchObject({ statusCode: 400 });
-  await expect(service.upsertFinanceSchedule(agent._id, 'TRANSACTIONS', { enabled: true }, {})).rejects.toMatchObject({ statusCode: 400 });
+test('enables Etsy schedules identically to Amazon', async () => {
+  repository.findAgentById.mockResolvedValue({ _id: agent._id, shopId: agent.shopId, provider: 'ETSY' });
+  repository.upsertOrderSchedule.mockResolvedValue({ _id: 'order-schedule', enabled: true });
+  repository.findOrderScheduleByAgentId.mockResolvedValue({ _id: 'order-schedule', enabled: true });
+  repository.upsertFinanceSchedule.mockResolvedValue({ _id: 'finance-schedule', enabled: true });
+  await expect(service.upsertOrderSchedule(agent._id, { enabled: true, intervalMinutes: 60 }, {})).resolves.toMatchObject({ enabled: true });
+  await expect(service.upsertFinanceSchedule(agent._id, 'TRANSACTIONS', { enabled: true }, {})).resolves.toMatchObject({ enabled: true });
 });
-test('dispatchers leave existing Etsy schedules untouched', async () => {
-  repository.listDueOrderSchedules.mockResolvedValue([{ _id: 'order-schedule', agentId: agent._id }]);
-  repository.listDueFinanceSchedules.mockResolvedValue([{ _id: 'finance-schedule', agentId: agent._id }]);
+test('dispatchers process due Etsy schedules', async () => {
+  repository.listDueOrderSchedules.mockResolvedValue([{ _id: 'order-schedule', agentId: agent._id, shopId: agent.shopId }]);
+  repository.listDueFinanceSchedules.mockResolvedValue([{ _id: 'finance-schedule', agentId: agent._id, shopId: agent.shopId, source: 'SETTLEMENTS' }]);
+  repository.findAgentById.mockResolvedValue({ _id: agent._id, shopId: agent.shopId, provider: 'ETSY', lastSeenAt: new Date() });
+  repository.claimDueOrderSchedule.mockResolvedValue(true);
+  repository.claimDueFinanceSchedule.mockResolvedValue(true);
+  repository.hasActiveImportCommand.mockResolvedValue(false);
+  repository.createCommand.mockResolvedValue({});
   await service.dispatchDueOrderSchedules();
   await service.dispatchDueFinanceSchedules();
-  expect(repository.claimDueOrderSchedule).not.toHaveBeenCalled();
-  expect(repository.claimDueFinanceSchedule).not.toHaveBeenCalled();
-  expect(repository.createCommand).not.toHaveBeenCalled();
+  expect(repository.claimDueOrderSchedule).toHaveBeenCalled();
+  expect(repository.claimDueFinanceSchedule).toHaveBeenCalled();
+  expect(repository.createCommand).toHaveBeenCalled();
 });
 test('renews only active ownership without resetting status', async () => {
   repository.updateClaimed.mockResolvedValue({ _id: 'task', status: 'RUNNING' });

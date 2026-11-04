@@ -21,11 +21,19 @@ describe('extension command leases', () => {
     }, expect.any(Object), expect.objectContaining({ runValidators: true }));
   });
   beforeEach(() => jest.clearAllMocks());
-  test('filters Etsy WEB Orders before atomic claim', async () => {
+  test('filters Etsy commands before atomic claim', async () => {
     const lean = jest.fn().mockResolvedValue(null);
     ExtensionCommand.findOneAndUpdate.mockReturnValue({ select: () => ({ lean }) });
     await repository.claimNext({ agentId: 'etsy', provider: 'ETSY', now: new Date(), leaseExpiresAt: new Date(), leaseTokenHash: 'hash' });
-    expect(ExtensionCommand.findOneAndUpdate.mock.calls[0][0]).toMatchObject({ provider: 'ETSY', type: 'IMPORT_NEW_ORDERS', origin: 'WEB', maxOrders: { $gte: 1, $lte: 200, $mod: [1, 0] } });
+    expect(ExtensionCommand.findOneAndUpdate.mock.calls[0][0]).toMatchObject({
+      provider: 'ETSY',
+      $or: expect.arrayContaining([
+        expect.objectContaining({ type: 'IMPORT_NEW_ORDERS', origin: 'WEB' }),
+        expect.objectContaining({ type: 'IMPORT_NEW_ORDERS', origin: 'SCHEDULE' }),
+        expect.objectContaining({ type: 'IMPORT_ADS_SPEND' }),
+        expect.objectContaining({ type: 'IMPORT_SETTLEMENTS' }),
+      ]),
+    });
   });
   test('fails expired Etsy claims without requeueing or dropping job evidence', async () => {
     await repository.releaseExpired('etsy', new Date(), 'ETSY');

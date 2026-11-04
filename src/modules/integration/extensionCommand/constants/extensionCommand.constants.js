@@ -10,6 +10,7 @@ const extensionCommandTypes = Object.freeze({
 const financeScheduleSources = Object.freeze({
   TRANSACTIONS: 'TRANSACTIONS',
   SETTLEMENTS: 'SETTLEMENTS',
+  ADS: 'ADS',
 });
 
 const extensionCommandStatuses = Object.freeze({

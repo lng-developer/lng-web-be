@@ -4,6 +4,7 @@ const ExtensionCommand = require('../models/extensionCommand.model');
 const ExtensionOrderSchedule = require('../models/extensionOrderSchedule.model');
 const ExtensionFinanceSchedule = require('../models/extensionFinanceSchedule.model');
 const { extensionCommandStatuses, extensionCommandTypes } = require('../constants/extensionCommand.constants');
+const { calculateNextRunAt } = require('../services/scheduleTimeUtils');
 
 async function upsertAgent(payload) {
   return ExtensionAgent.findOneAndUpdate(
@@ -54,7 +55,15 @@ async function releaseExpired(agentId, now, provider) {
 function claimNext({ agentId, provider, leaseTokenHash, now, leaseExpiresAt, listingImageSync = false }) {
   return ExtensionCommand.findOneAndUpdate(
     { agentId, status: extensionCommandStatuses.QUEUED, ...(provider === 'ETSY'
-      ? { provider: 'ETSY', type: extensionCommandTypes.IMPORT_NEW_ORDERS, origin: 'WEB', maxOrders: { $gte: 1, $lte: 200, $mod: [1, 0] } }
+      ? {
+        provider: 'ETSY',
+        $or: [
+          { type: extensionCommandTypes.IMPORT_NEW_ORDERS, origin: 'WEB', maxOrders: { $gte: 1, $lte: 200, $mod: [1, 0] } },
+          { type: extensionCommandTypes.IMPORT_NEW_ORDERS, origin: 'SCHEDULE' },
+          { type: extensionCommandTypes.IMPORT_ADS_SPEND },
+          { type: extensionCommandTypes.IMPORT_SETTLEMENTS },
+        ],
+      }
       : !listingImageSync ? { type: { $ne: extensionCommandTypes.SYNC_LISTING_IMAGES } } : {}) },
     { $set: { status: extensionCommandStatuses.CLAIMED, claimedAt: now, leaseExpiresAt, leaseTokenHash }, $inc: { attemptCount: 1 } },
     { sort: { createdAt: 1, _id: 1 }, returnDocument: 'after', runValidators: true },
@@ -78,10 +87,13 @@ function listDueOrderSchedules(now) {
     .lean();
 }
 
-async function claimDueOrderSchedule(scheduleId, now, intervalMinutes) {
+async function claimDueOrderSchedule(scheduleId, now, nextRun) {
+  const nextRunAt = nextRun instanceof Date
+    ? nextRun
+    : new Date(now.getTime() + (Number(nextRun) || 120) * 60 * 1000);
   const result = await ExtensionOrderSchedule.updateOne(
     { _id: scheduleId, enabled: true, nextRunAt: { $lte: now } },
-    { $set: { nextRunAt: new Date(now.getTime() + (intervalMinutes * 60 * 1000)), lastError: null } },
+    { $set: { nextRunAt, lastError: null } },
   );
   return result.modifiedCount === 1;
 }
@@ -116,10 +128,41 @@ function findOrderScheduleByAgentId(agentId) {
   return ExtensionOrderSchedule.findOne({ agentId }).lean();
 }
 
-function upsertOrderSchedule({ shopId, agentId, enabled, intervalMinutes, now, runImmediately = false }) {
+function upsertOrderSchedule({
+  shopId,
+  agentId,
+  enabled,
+  scheduleType = 'INTERVAL',
+  fixedTimes = [],
+  timezone = 'Asia/Ho_Chi_Minh',
+  intervalMinutes = 120,
+  nextRunAt,
+  now,
+  runImmediately = false,
+}) {
+  const calculatedNextRun = nextRunAt || calculateNextRunAt({
+    scheduleType,
+    intervalMinutes,
+    fixedTimes,
+    timezone,
+    now,
+  });
+  const finalNextRunAt = enabled && runImmediately ? now : calculatedNextRun;
+
   return ExtensionOrderSchedule.findOneAndUpdate(
     { agentId },
-    { $set: { shopId, enabled, intervalMinutes, nextRunAt: new Date(now.getTime() + (enabled && !runImmediately ? intervalMinutes : 0) * 60 * 1000), lastError: null } },
+    {
+      $set: {
+        shopId,
+        enabled,
+        scheduleType,
+        fixedTimes,
+        timezone,
+        intervalMinutes,
+        nextRunAt: finalNextRunAt,
+        lastError: null,
+      },
+    },
     { upsert: true, returnDocument: 'after', runValidators: true },
   ).lean();
 }
@@ -160,10 +203,46 @@ async function requestFinanceScheduleNow(scheduleId, now) {
   return result.modifiedCount === 1;
 }
 
-function upsertFinanceSchedule({ shopId, agentId, source, enabled, now, runImmediately = false }) {
+function findFinanceScheduleById(id) {
+  return ExtensionFinanceSchedule.findById(id).lean();
+}
+
+function upsertFinanceSchedule({
+  shopId,
+  agentId,
+  source,
+  enabled,
+  scheduleType = 'INTERVAL',
+  fixedTimes = [],
+  timezone = 'Asia/Ho_Chi_Minh',
+  intervalMinutes = 1440,
+  nextRunAt,
+  now,
+  runImmediately = false,
+}) {
+  const calculatedNextRun = nextRunAt || calculateNextRunAt({
+    scheduleType,
+    intervalMinutes,
+    fixedTimes,
+    timezone,
+    now,
+  });
+  const finalNextRunAt = enabled && runImmediately ? now : calculatedNextRun;
+
   return ExtensionFinanceSchedule.findOneAndUpdate(
     { agentId, source },
-    { $set: { shopId, enabled, nextRunAt: new Date(now.getTime() + (enabled && !runImmediately ? 24 * 60 * 60 * 1000 : 0)), lastError: null } },
+    {
+      $set: {
+        shopId,
+        enabled,
+        scheduleType,
+        fixedTimes,
+        timezone,
+        intervalMinutes,
+        nextRunAt: finalNextRunAt,
+        lastError: null,
+      },
+    },
     { upsert: true, returnDocument: 'after', runValidators: true },
   ).lean();
 }
@@ -196,4 +275,4 @@ function markFinanceScheduleCompleted({ agentId, source, now, success, errorMess
   );
 }
 
-module.exports = { findCompletedForLease, findCommandById, upsertAgent, listAgents, findAgentById, findAgentForToken, createCommand, listCommands, releaseExpired, claimNext, updateClaimed, listDueOrderSchedules, claimDueOrderSchedule, hasActiveOrderCommand, hasActiveImportCommand, postponeOrderSchedule, markOrderScheduleQueued, listOrderSchedules, findOrderScheduleByAgentId, upsertOrderSchedule, listDueFinanceSchedules, claimDueFinanceSchedule, listFinanceSchedules, findFinanceSchedule, requestFinanceScheduleNow, upsertFinanceSchedule, postponeFinanceSchedule, markFinanceScheduleQueued, markFinanceScheduleCompleted };
+module.exports = { findCompletedForLease, findCommandById, upsertAgent, listAgents, findAgentById, findAgentForToken, createCommand, listCommands, releaseExpired, claimNext, updateClaimed, listDueOrderSchedules, claimDueOrderSchedule, hasActiveOrderCommand, hasActiveImportCommand, postponeOrderSchedule, markOrderScheduleQueued, listOrderSchedules, findOrderScheduleByAgentId, upsertOrderSchedule, listDueFinanceSchedules, claimDueFinanceSchedule, listFinanceSchedules, findFinanceSchedule, findFinanceScheduleById, requestFinanceScheduleNow, upsertFinanceSchedule, postponeFinanceSchedule, markFinanceScheduleQueued, markFinanceScheduleCompleted };
