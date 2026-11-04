@@ -165,6 +165,22 @@ npm test -- --runInBand
 - Do not add approval-heavy or placeholder scaffolds unless explicitly asked.
 - Do not broaden a task into unrelated refactors.
 
+## Autonomous Tooling & Workflow Protocols
+
+Agents operating on this repository must automatically adopt the following integrated workflows on every user request without requiring explicit prompt activation:
+
+1. **Architecture & Cross-Module Impact (CodeGraph MCP):**
+   - Automatically use `codegraph_explore` MCP tool for symbol lookup, inter-module call graphs, and blast-radius analysis before touching public ports or schema definitions.
+   - Respect strict modular monolith boundaries verified via graph dependencies.
+
+2. **Anti-Bloat & YAGNI (Ponytail):**
+   - Implement the minimal, clean backend solution without over-engineering or speculative abstractions.
+   - Reuse existing utilities in `src/shared/` and target module public ports. Never add unnecessary npm dependencies.
+
+3. **Engineering Rigor & Verification (Superpowers):**
+   - **Systematic Debugging:** Inspect logs and trace failure points to the root cause before editing code.
+   - **Strict Verification:** Always run `npm test` on affected test suites before declaring work complete. Evidence before assertions.
+
 ## Agent skills
 
 ### Domain docs
