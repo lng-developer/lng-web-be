@@ -290,6 +290,7 @@ module.exports = {
   canTransition,
   deriveOrderStatusFromItems,
   markOrderDelivered,
+  syncParentOrderStatus,
   transitionItemStatus,
   updateItemAsin,
   updateItemListingId,

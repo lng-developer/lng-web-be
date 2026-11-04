@@ -91,7 +91,20 @@ function tabCountGroupStage() {
     _id: null,
     [orderListTabs.ALL]: { $sum: 1 },
     [orderListTabs.NEW_ORDER]: { $sum: { $cond: [{ $gte: ['$orderedAt', cutoff] }, 1, 0] } },
-    [orderListTabs.NO_COST_CENTER]: { $sum: { $cond: [{ $in: ['$costCenterStatus', [costCenterStatuses.MISSING, null]] }, 1, 0] } },
+    [orderListTabs.NO_COST_CENTER]: {
+      $sum: {
+        $cond: [
+          {
+            $and: [
+              { $in: ['$costCenterStatus', [costCenterStatuses.MISSING, null]] },
+              { $ne: ['$status', orderStatuses.CANCELLED] },
+            ],
+          },
+          1,
+          0,
+        ],
+      },
+    },
     [orderListTabs.NO_PSD]: { $sum: { $cond: [{ $eq: ['$hasCurrentPsd', false] }, 1, 0] } },
     [orderListTabs.ADDRESS_ISSUE]: {
       $sum: { $cond: [{ $not: [{ $in: ['$addressValidationStatus', [addressValidationStatuses.VALID, addressValidationStatuses.OVERRIDDEN]] }] }, 1, 0] },
@@ -117,7 +130,13 @@ function tabCountGroupStage() {
 function applyTabFilter(filter, tab = orderListTabs.ALL) {
   const next = { ...filter };
   if (tab === orderListTabs.NEW_ORDER) applyNewOrderWindow(next);
-  if (tab === orderListTabs.NO_COST_CENTER) next.costCenterStatus = { $in: [costCenterStatuses.MISSING, null] };
+  if (tab === orderListTabs.NO_COST_CENTER) {
+    next.costCenterStatus = { $in: [costCenterStatuses.MISSING, null] };
+    mergeStatusFilter(
+      next,
+      Object.values(orderStatuses).filter((status) => status !== orderStatuses.CANCELLED),
+    );
+  }
   if (tab === orderListTabs.NO_PSD) next.hasCurrentPsd = false;
   if (tab === orderListTabs.ADDRESS_ISSUE) next.addressValidationStatus = { $nin: [addressValidationStatuses.VALID, addressValidationStatuses.OVERRIDDEN] };
   if (tab === orderListTabs.PAYMENT_PENDING) next.paymentStatus = paymentStatuses.PENDING;

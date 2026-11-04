@@ -69,7 +69,8 @@ describe('productionTask.repository', () => {
     await repository.list({ view: 'QC', qcTeamAccountIds: [member], search: 'napkin' });
     const filter = ProductionTask.find.mock.calls[0][0];
     const memberId = new (require('mongoose').Types.ObjectId)(member);
-    expect(filter.qcStatus).toBe('PENDING');
+    expect(filter.qcStatus).toEqual({ $in: ['PENDING', 'PASSED', 'REJECTED'] });
+    expect(filter.status).toEqual({ $ne: 'CANCELLED' });
     expect(filter.$and).toContainEqual({ $or: [
       { assignedDesignUserId: { $in: [memberId] } },
       { csAssigneeId: { $in: [memberId] } },
@@ -343,7 +344,8 @@ describe('productionTask.repository', () => {
     await repository.list({ view: 'QC', qcStatus: 'REJECTED' });
 
     expect(ProductionTask.find).toHaveBeenCalledWith(expect.objectContaining({
-      qcStatus: 'PENDING',
+      qcStatus: 'REJECTED',
+      status: { $ne: 'CANCELLED' },
     }));
   });
 
@@ -353,7 +355,7 @@ describe('productionTask.repository', () => {
     await repository.list({ view: 'SCALE' });
 
     expect(ProductionTask.find).toHaveBeenCalledWith(expect.objectContaining({
-      status: { $in: ['NEED_SCALE', 'QC_REJECTED'] },
+      status: { $in: ['NEED_SCALE', 'QC_REJECTED', 'QC_PENDING', 'READY_TO_SEND_VENDOR', 'SENT_TO_VENDOR', 'BLOCKED'] },
     }));
   });
 

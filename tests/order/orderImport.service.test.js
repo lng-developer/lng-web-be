@@ -35,6 +35,10 @@ jest.mock('../../src/modules/order/services/orderCostCenterStatus.service', () =
   updatePsdStatusForOrder: jest.fn(),
 }));
 
+jest.mock('../../src/modules/order/services/orderItemStatusTransition.service', () => ({
+  syncParentOrderStatus: jest.fn().mockResolvedValue(null),
+}));
+
 jest.mock('../../src/modules/order/services/orderWorkbenchProjection.service', () => ({
   upsertOrderWorkbenchBase: jest.fn(),
   rebuildOrderWorkbenchProjection: jest.fn(),
@@ -54,6 +58,7 @@ const orderItemRepository = require('../../src/modules/order/repositories/orderI
 const orderReadinessService = require('../../src/modules/order/services/orderCostCenterStatus.service');
 const orderTimelineService = require('../../src/modules/order/services/orderTimeline.service');
 const orderWorkbenchProjectionService = require('../../src/modules/order/services/orderWorkbenchProjection.service');
+const orderItemStatusTransitionService = require('../../src/modules/order/services/orderItemStatusTransition.service');
 const orderImportService = require('../../src/modules/order/services/orderImport.service');
 const financePublic = require('../../src/modules/finance/public');
 
