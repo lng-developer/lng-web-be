@@ -55,14 +55,36 @@ function parseVariationPairs(variations) {
     .filter(Boolean);
 }
 
+function isPersonalizationPair(pair) {
+  const label = (pair.label || '').toLowerCase().trim();
+  const value = String(pair.value || '').trim();
+
+  // If value is explicitly a short counter or number (e.g. "2 Name", "3 Names", "1", "2"), it is a selection option
+  if (/^\d+\s*(name|names|person|people|character|characters|item|items|pcs)?$/i.test(value)) {
+    return false;
+  }
+
+  if (/type\s*printing|type\s*option|product\s*type|paper\s*type/i.test(label)) {
+    return false;
+  }
+
+  if (textLabels.has(label)) return true;
+  if (/(custom|personal|enter|input|type|your\s*name|engrav|message|note|quote|text|monogram|initial|song|title|date|year)/i.test(label)) {
+    return true;
+  }
+  if (label === 'names' || label === 'name') return true;
+  if (value.includes('\n') || value.length > 35) return true;
+  return false;
+}
+
 function bucketInputs(pairs, customizedUrl) {
   const customerInputs = { texts: [], options: [], images: [] };
 
   pairs.forEach((pair) => {
     const label = pair.label.toLowerCase();
-    if (label === 'photo') {
+    if (label === 'photo' || label === 'image' || label === 'upload') {
       customerInputs.images.push(pair);
-    } else if (textLabels.has(label)) {
+    } else if (isPersonalizationPair(pair)) {
       customerInputs.texts.push(pair);
     } else {
       customerInputs.options.push(pair);
