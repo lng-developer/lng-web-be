@@ -68,12 +68,14 @@ async function bootstrap() {
   integrationPublic.teamsChat.attachTeamsOutboundListener();
   integrationPublic.teamsChat.startTeamsSubscriptionScheduler();
   integrationPublic.teamsChat.startTeamsOutboundOutboxScheduler();
+  integrationPublic.sqlAttendance.startSqlAttendanceScheduler();
 
   async function shutdown(signal) {
     logger.info('server_shutdown_started', { signal });
     integrationPublic.teamsChat.detachTeamsOutboundListener();
     integrationPublic.teamsChat.stopTeamsSubscriptionScheduler();
     integrationPublic.teamsChat.stopTeamsOutboundOutboxScheduler();
+    integrationPublic.sqlAttendance.stopSqlAttendanceScheduler();
     chatSocket.close();
     server.close(async () => {
       const shutdownTasks = [disconnectDatabase()];

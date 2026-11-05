@@ -73,30 +73,43 @@ function toTemplateRefDto(template) {
   };
 }
 
-function toOrderItemDto(snapshot) {
-  if (!snapshot) return null;
+function toOrderItemDto(snapshot, task) {
+  if (!snapshot && !task) return null;
+  const salesChannelCode = snapshot?.salesChannelCode || task?.salesChannelCode || null;
+  const etsyListingId = snapshot?.etsyListingId
+    || task?.listingSnapshot?.etsyListingId
+    || task?.orderItemSnapshot?.externalListingId
+    || null;
   return {
-    externalOrderId: snapshot.externalOrderId || null,
-    externalItemId: snapshot.externalItemId || null,
-    externalAccountId: snapshot.externalAccountId || null,
-    salesChannelCode: snapshot.salesChannelCode || null,
-    marketplaceCode: snapshot.marketplaceCode || null,
-    asin: snapshot.asin || null,
-    sku: snapshot.sku || null,
-    title: snapshot.title || null,
-    status: snapshot.status || null,
+    externalOrderId: snapshot?.externalOrderId || null,
+    externalItemId: snapshot?.externalItemId || null,
+    externalAccountId: snapshot?.externalAccountId || null,
+    salesChannelCode,
+    marketplaceCode: snapshot?.marketplaceCode || null,
+    asin: snapshot?.asin || null,
+    etsyListingId,
+    sku: snapshot?.sku || null,
+    title: snapshot?.title || null,
+    status: snapshot?.status || null,
   };
 }
 
-function toOrderItemSummaryDto(snapshot) {
-  if (!snapshot) return null;
+function toOrderItemSummaryDto(snapshot, task) {
+  if (!snapshot && !task) return null;
+  const salesChannelCode = snapshot?.salesChannelCode || task?.salesChannelCode || null;
+  const etsyListingId = snapshot?.etsyListingId
+    || task?.listingSnapshot?.etsyListingId
+    || task?.orderItemSnapshot?.externalListingId
+    || null;
   return {
-    externalOrderId: snapshot.externalOrderId || null,
-    externalItemId: snapshot.externalItemId || null,
-    asin: snapshot.asin || null,
-    sku: snapshot.sku || null,
-    title: snapshot.title || null,
-    status: snapshot.status || null,
+    externalOrderId: snapshot?.externalOrderId || null,
+    externalItemId: snapshot?.externalItemId || null,
+    salesChannelCode,
+    asin: snapshot?.asin || null,
+    etsyListingId,
+    sku: snapshot?.sku || null,
+    title: snapshot?.title || null,
+    status: snapshot?.status || null,
   };
 }
 
@@ -143,6 +156,7 @@ function toScaleListingDto(snapshot) {
     id: toId(snapshot),
     sku: snapshot.sku || null,
     asin: snapshot.asin || null,
+    etsyListingId: snapshot.etsyListingId || null,
     title: snapshot.title || null,
     previewAssetId,
     previewAssetDownloadUrl: toAssetDownloadUrl(previewAssetId),
@@ -284,6 +298,9 @@ function toScaleContextDto(task = {}) {
   const blockers = task.blockers || [];
   const rawListing = toListingDto(task.listingSnapshot);
   const listing = toScaleListingDto(task.listingSnapshot);
+  if (listing && !listing.etsyListingId) {
+    listing.etsyListingId = task.orderItemSnapshot?.etsyListingId || task.orderItemSnapshot?.externalListingId || null;
+  }
   const internalTemplate = toInternalTemplateDto(task.templateSnapshot);
   const customization = toCustomizationDto(task.customizationSnapshot);
   const vendorProduct = toVendorProductDto(task.vendorProductSnapshot);
@@ -472,7 +489,7 @@ function toProductionTaskDto(task) {
     orderItemId: toId(task.orderItemId),
     fulfillmentPlanId: toId(task.fulfillmentPlanId),
     listingVariantId: toId(task.listingVariantId),
-    orderItem: toOrderItemDto(task.orderItemSnapshot),
+    orderItem: toOrderItemDto(task.orderItemSnapshot, task),
     order: toOrderDto(task.orderSnapshot),
     listing: toListingDto(task.listingSnapshot),
     internalTemplate: toInternalTemplateDto(task.templateSnapshot),
@@ -510,7 +527,7 @@ function toProductionTaskSummaryDto(task) {
     orderItemId: toId(task.orderItemId),
     fulfillmentPlanId: toId(task.fulfillmentPlanId),
     listingVariantId: toId(task.listingVariantId),
-    orderItem: toOrderItemSummaryDto(task.orderItemSnapshot),
+    orderItem: toOrderItemSummaryDto(task.orderItemSnapshot, task),
     customization: toCustomizationDto(task.customizationSnapshot),
     vendorProduct: toVendorProductDto(task.vendorProductSnapshot),
     vendorCostCenter: toVendorCostCenterDto(task.vendorCostCenterSnapshot),
@@ -543,7 +560,7 @@ function toQcTaskSummaryDto(task) {
   return {
     id: toId(task),
     orderItemId: toId(task.orderItemId),
-    orderItem: toOrderItemSummaryDto(task.orderItemSnapshot),
+    orderItem: toOrderItemSummaryDto(task.orderItemSnapshot, task),
     customization: toQcCustomizationDto(task.customizationSnapshot),
     vendorProduct: task.vendorProductSnapshot
       ? { name: task.vendorProductSnapshot.name || null, vendor: task.vendorProductSnapshot.vendor?.name || null }

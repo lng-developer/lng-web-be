@@ -1,6 +1,11 @@
 const repository = require('./repositories/sqlAttendanceSync.repository');
 const { syncPage } = require('./services/sqlAttendanceImport.service');
 const { QUEUE_NAME } = require('./workers/sqlAttendance.worker');
+const {
+  runSqlAttendanceOnce,
+  startSqlAttendanceScheduler,
+  stopSqlAttendanceScheduler,
+} = require('./services/sqlAttendanceScheduler.service');
 
 let queue;
 
@@ -51,5 +56,8 @@ module.exports = {
   getStatus,
   migrateLegacyState,
   routeContracts: ['/api/hr/integrations/sql-attendance/sync', '/api/hr/integrations/sql-attendance/status'],
+  runSqlAttendanceOnce,
+  startSqlAttendanceScheduler,
+  stopSqlAttendanceScheduler,
   syncPage,
 };
