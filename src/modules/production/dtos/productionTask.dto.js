@@ -75,13 +75,17 @@ function toTemplateRefDto(template) {
 
 function toOrderItemDto(snapshot) {
   if (!snapshot) return null;
+  const salesChannelCode = snapshot.salesChannelCode || null;
+  const etsyListingId = snapshot.etsyListingId || snapshot.externalListingId || null;
   return {
     externalOrderId: snapshot.externalOrderId || null,
     externalItemId: snapshot.externalItemId || null,
     externalAccountId: snapshot.externalAccountId || null,
-    salesChannelCode: snapshot.salesChannelCode || null,
+    salesChannelCode,
     marketplaceCode: snapshot.marketplaceCode || null,
     asin: snapshot.asin || null,
+    etsyListingId,
+    externalListingId: snapshot.externalListingId || etsyListingId,
     sku: snapshot.sku || null,
     title: snapshot.title || null,
     status: snapshot.status || null,
@@ -90,10 +94,15 @@ function toOrderItemDto(snapshot) {
 
 function toOrderItemSummaryDto(snapshot) {
   if (!snapshot) return null;
+  const salesChannelCode = snapshot.salesChannelCode || null;
+  const etsyListingId = snapshot.etsyListingId || snapshot.externalListingId || null;
   return {
     externalOrderId: snapshot.externalOrderId || null,
     externalItemId: snapshot.externalItemId || null,
+    salesChannelCode,
     asin: snapshot.asin || null,
+    etsyListingId,
+    externalListingId: snapshot.externalListingId || etsyListingId,
     sku: snapshot.sku || null,
     title: snapshot.title || null,
     status: snapshot.status || null,
@@ -141,8 +150,10 @@ function toScaleListingDto(snapshot) {
   const previewAssetId = toId(snapshot.previewAssetId);
   return {
     id: toId(snapshot),
+    salesChannelCode: snapshot.salesChannelCode || null,
     sku: snapshot.sku || null,
     asin: snapshot.asin || null,
+    etsyListingId: snapshot.etsyListingId || null,
     title: snapshot.title || null,
     previewAssetId,
     previewAssetDownloadUrl: toAssetDownloadUrl(previewAssetId),

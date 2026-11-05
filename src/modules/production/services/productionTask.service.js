@@ -967,8 +967,10 @@ function toListingSnapshot(listing) {
   if (!listing) return null;
   return {
     id: toId(listing),
+    salesChannelCode: listing.salesChannelCode || null,
     sku: listing.sku || null,
     asin: listing.asin || null,
+    etsyListingId: listing.etsyListingId || null,
     title: listing.title || null,
     printMethod: listing.printMethod || null,
     productImageUrl: listing.productImageUrl || listing.thumbnailUrl || listing.thumbnailAsset?.secureUrl || null,
@@ -1045,6 +1047,8 @@ function snapshotPayload({ item, order, plan, listing, template, customization, 
       salesChannelCode: item.salesChannelCode || null,
       marketplaceCode: item.marketplaceCode || null,
       asin: item.asin || null,
+      etsyListingId: (item.salesChannelCode === 'ETSY' ? item.externalListingId : null) || item.etsyListingId || null,
+      externalListingId: item.externalListingId || null,
       sku: item.sku || null,
       title: item.title || null,
       productImageUrl: productImageUrlFrom(item, listing, customization),
@@ -1447,9 +1451,9 @@ async function getTaskByOrderItem(orderItemId, authContext) {
     if (!sellerIds.map(String).includes(String(orderItemId))) throw forbidden();
   } else assertCanAccessShop(item.shopId, productionPermissions.READ, authContext);
   const [task] = await attachVendorSubmissions(await attachProductionUsers(await attachShops([
-    ...(await attachOrderSnapshots([
+    ...(await attachOrderItemIdentifiers(await attachOrderSnapshots([
       await attachCustomizationSnapshot(await repository.findByOrderItem(orderItemId), authContext),
-    ])),
+    ]))),
   ])));
   return toProductionTaskDto(task);
 }
@@ -1502,6 +1506,42 @@ function toPsdRecheckItem(task, result) {
     status: isCleared ? 'CLEARED' : 'STILL_BLOCKED',
     blockers,
   };
+}
+
+async function attachOrderItemIdentifiers(tasks = []) {
+  const missing = tasks.filter((task) => {
+    if (!task || !task.orderItemId) return false;
+    const snapshot = task.orderItemSnapshot;
+    const isEtsy = task.salesChannelCode === 'ETSY' || snapshot?.salesChannelCode === 'ETSY';
+    return isEtsy && !snapshot?.etsyListingId && !snapshot?.externalListingId;
+  });
+  if (!missing.length) return tasks;
+  const itemIds = unique(missing.map((task) => toId(task.orderItemId)).filter(Boolean));
+  const items = typeof orderPublic.findItemsByIds === 'function'
+    ? await orderPublic.findItemsByIds(itemIds).catch(() => [])
+    : await Promise.all(itemIds.map((id) => orderPublic.findItemById(id).catch(() => null)));
+  const byItemId = new Map((items || [])
+    .filter(Boolean)
+    .map((item) => [toId(item._id || item.id), item]));
+
+  return tasks.map((task) => {
+    if (!task || !task.orderItemId) return task;
+    const item = byItemId.get(toId(task.orderItemId));
+    if (!item) return task;
+    const etsyListingId = item.externalListingId || item.etsyListingId || null;
+    if (!etsyListingId) return task;
+    const taskObj = typeof task.toObject === 'function' ? task.toObject() : task;
+    const existingSnapshot = taskObj.orderItemSnapshot || {};
+    return {
+      ...taskObj,
+      orderItemSnapshot: {
+        ...existingSnapshot,
+        salesChannelCode: existingSnapshot.salesChannelCode || item.salesChannelCode || 'ETSY',
+        etsyListingId: existingSnapshot.etsyListingId || etsyListingId,
+        externalListingId: existingSnapshot.externalListingId || item.externalListingId || etsyListingId,
+      },
+    };
+  });
 }
 
 async function attachOrderSnapshots(tasks = []) {
@@ -1604,9 +1644,9 @@ async function getTaskById(taskId, authContext) {
   ].includes(task.status);
   if ((!scopedQuery || !taskMatchesScopedReadQuery(task, scopedQuery)) && !canReadCompletedTask) throw forbidden();
   const [enrichedTask] = await attachVendorSubmissions(await attachProductionUsers(await attachShops([
-    ...(await attachOrderSnapshots([
+    ...(await attachOrderItemIdentifiers(await attachOrderSnapshots([
       await attachCustomizationSnapshot(task, authContext),
-    ])),
+    ]))),
   ])));
   return toProductionTaskDto(enrichedTask);
 }
@@ -1761,7 +1801,9 @@ async function listTasks(query = {}, authContext) {
   const scopedQuery = await applyReadScope(normalizedQuery, authContext);
   if (!scopedQuery) return emptyTaskList(normalizedQuery);
   const result = await repository.list(scopedQuery);
-  const baseItems = await attachOrderSnapshots(await attachCustomizationSnapshots(result.items, authContext));
+  const baseItems = await attachOrderItemIdentifiers(
+    await attachOrderSnapshots(await attachCustomizationSnapshots(result.items, authContext))
+  );
   const [
     shopItems,
     userItems,
