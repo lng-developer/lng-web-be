@@ -11,7 +11,7 @@ describe('vendorSubmissionRecoveryScheduler', () => {
   beforeEach(() => {
     jest.resetModules();
     jest.clearAllMocks();
-    delete process.env.VENDOR_SUBMISSION_RECOVERY_ENABLED;
+    process.env.VENDOR_SUBMISSION_RECOVERY_ENABLED = 'false';
     vendorSubmissionPublic = require('../../../src/modules/vendorSubmission/public');
     scheduler = require('../../../src/modules/vendorSubmission/services/vendorSubmissionRecoveryScheduler.service');
   });

@@ -17,6 +17,7 @@ function createResponse() {
 describe('auth rate limit', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    config.auth.loginRateLimitEnabled = true;
     config.redis.enabled = false;
   });
 
