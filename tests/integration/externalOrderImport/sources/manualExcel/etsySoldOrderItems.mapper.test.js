@@ -116,6 +116,7 @@ describe('etsySoldOrderItems.mapper', () => {
     ['Choose Your Design:C — Script Names,Initials:T/M'],
     ['Type printing option:Square,Ink Color:Gold'],
     ['Photo:1 file'],
+    ['Enter Your Name: The Leeper Family\nGrace, Seth, Parker\n2026'],
   ])('marks Etsy variation key as customization: %s', (variations) => {
     const [dto] = mapEtsySoldOrderItemRowsToExternalOrderDtos([{
       'Transaction ID': '5121748428',

@@ -13,7 +13,7 @@ describe('orderWorkbenchProjection dto', () => {
       order: { externalOrderId: '114-1' },
       shop: { name: 'US Store' },
       case: { title: 'Address issue' },
-      items: [{ item: { sku: 'J2501-TS2S' }, production: { qcStatus: 'APPROVED' } }],
+      items: [{ item: { sku: 'J2501-TS2S' }, production: { qcStatus: 'APPROVED' }, psd: { listingPsd: null, listingVariant: null } }],
     });
   });
 });
