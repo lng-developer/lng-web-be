@@ -18,8 +18,19 @@ async function cleanupMultipartUploads({ limit = 100, now = new Date() } = {}) {
         'metadata.abortReason': 'EXPIRED',
       });
       aborted += 1;
-    } catch (_error) {
-      failed += 1;
+    } catch (error) {
+      const isNotFound = error?.name === 'NoSuchUpload'
+        || error?.code === 'NoSuchUpload'
+        || error?.$metadata?.httpStatusCode === 404;
+      if (isNotFound) {
+        await repository.transitionUploadStatus(asset._id, 'UPLOADING', 'ABORTED', {
+          'metadata.abortedAt': now,
+          'metadata.abortReason': 'EXPIRED_NOT_FOUND',
+        });
+        aborted += 1;
+      } else {
+        failed += 1;
+      }
     }
   }
   return { selected: assets.length, aborted, failed };

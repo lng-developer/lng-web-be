@@ -1,14 +1,17 @@
 const logger = require('../../../../shared/utils/logger');
 const service = require('./extensionCommand.service');
+const { withDistributedLock } = require('../../../../shared/utils/distributedLock');
 
 let timer;
 
 function runOnce() {
-  return Promise.all([
-    service.dispatchDueOrderSchedules(),
-    service.dispatchDueFinanceSchedules(),
-    require('../../listingImageSync/public').dispatch(),
-  ]).catch((error) => logger.error('extension_schedule_dispatch_failed', { error }));
+  return withDistributedLock('scheduler:extension_order_schedule', 60000, async () => {
+    return Promise.all([
+      service.dispatchDueOrderSchedules(),
+      service.dispatchDueFinanceSchedules(),
+      require('../../listingImageSync/public').dispatch(),
+    ]);
+  }).catch((error) => logger.error('extension_schedule_dispatch_failed', { error }));
 }
 
 function startExtensionOrderScheduleScheduler() {

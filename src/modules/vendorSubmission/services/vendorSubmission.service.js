@@ -76,22 +76,49 @@ function isDuplicateKey(error) {
   return error && error.code === 11000;
 }
 
-async function attachVendorAssetUrls(fileChecks = []) {
+async function attachVendorAssetUrls(fileChecks = [], options = {}) {
+  const expiresIn = options.expiresIn || 24 * 3600;
   return Promise.all((fileChecks || []).map(async (check) => {
     const outputAssetId = check.outputAssetId || null;
     if (!outputAssetId) return check;
     return {
       ...check,
-      outputVendorUrl: await mediaPublic.getPublicAssetUrl(outputAssetId),
+      outputVendorUrl: await mediaPublic.getPublicAssetUrl(outputAssetId, { expiresIn }),
     };
   }));
 }
 
-async function attachListingVendorUrl(listing) {
+async function attachListingVendorUrl(listing, options = {}) {
   if (!listing?.previewAssetId) return listing || null;
+  const expiresIn = options.expiresIn || 24 * 3600;
   return {
     ...listing,
-    previewVendorUrl: await mediaPublic.getPublicAssetUrl(listing.previewAssetId),
+    previewVendorUrl: await mediaPublic.getPublicAssetUrl(listing.previewAssetId, { expiresIn }),
+  };
+}
+
+async function refreshSubmissionVendorUrls(submission) {
+  const snapshot = submission?.payloadSnapshot;
+  if (!snapshot) return submission;
+  let fileChecks = snapshot.fileChecks;
+  let listing = snapshot.listing;
+  let changed = false;
+  if (Array.isArray(fileChecks) && fileChecks.length) {
+    fileChecks = await attachVendorAssetUrls(fileChecks, { expiresIn: 24 * 3600 });
+    changed = true;
+  }
+  if (listing && listing.previewAssetId) {
+    listing = await attachListingVendorUrl(listing, { expiresIn: 24 * 3600 });
+    changed = true;
+  }
+  if (!changed) return submission;
+  return {
+    ...submission,
+    payloadSnapshot: {
+      ...snapshot,
+      fileChecks,
+      listing,
+    },
   };
 }
 
@@ -802,7 +829,8 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
   const operationKey = `vendor-submission:${submissionId}`;
 
   if (dryRun) {
-    const submitPayload = adapter.buildPayload(submission, { idempotencyKey: operationKey });
+    const readySubmission = await refreshSubmissionVendorUrls(submission);
+    const submitPayload = adapter.buildPayload(readySubmission, { idempotencyKey: operationKey });
     adapter.validatePayload(submitPayload);
     return {
       provider: adapter.provider,
@@ -819,7 +847,8 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
 
   let submitResult;
   try {
-    const submitPayload = adapter.buildPayload(claimed, { idempotencyKey: operationKey });
+    const readySubmission = await refreshSubmissionVendorUrls(claimed);
+    const submitPayload = adapter.buildPayload(readySubmission, { idempotencyKey: operationKey });
     adapter.validatePayload(submitPayload);
     const credential = await vendorPublic.getVendorIntegrationCredential(vendorId, provider);
     if (!credential) throw validationError('Vendor credentials are not configured');

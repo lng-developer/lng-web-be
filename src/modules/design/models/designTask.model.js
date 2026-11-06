@@ -39,6 +39,11 @@ const designListingSnapshotSchema = new Schema({
     trim: true,
     default: null,
   },
+  salesChannelCode: {
+    type: String,
+    trim: true,
+    default: null,
+  },
   productTypeGroupId: {
     type: String,
     default: null,

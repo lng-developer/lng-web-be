@@ -1,6 +1,6 @@
 const createApp = require('./app');
 const config = require('./config');
-const { connectDatabase, disconnectDatabase, initializeModels } = require('./config/database');
+const { connectDatabase, disconnectDatabase } = require('./config/database');
 const { connectRedis, disconnectRedis } = require('./config/redis');
 const { startFulfillmentSideEffectWorker } = require('./modules/mapping/workers/fulfillmentSideEffect.worker');
 const { startFinanceSnapshotWorker } = require('./modules/finance/workers/financeSnapshot.worker');
@@ -39,7 +39,6 @@ const { attachChatSocket } = require('./realtime/chatSocket');
 
 async function bootstrap() {
   await connectDatabase();
-  if (config.env === 'production') await initializeModels();
   let importWorkers = [];
 
   if (config.redis.enabled) {

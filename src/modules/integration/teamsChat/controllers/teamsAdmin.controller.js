@@ -75,11 +75,29 @@ async function linkAccount(req, res) {
   });
 }
 
+function toSubscriptionDto(sub) {
+  if (!sub) return null;
+  return {
+    id: sub.subscriptionId || (sub._id ? String(sub._id) : null),
+    subscriptionId: sub.subscriptionId,
+    resource: sub.resource,
+    notificationUrl: sub.notificationUrl,
+    expirationDateTime: sub.expirationDateTime,
+    status: sub.status,
+    createdAt: sub.createdAt,
+    updatedAt: sub.updatedAt,
+  };
+}
+
 async function ensureSubscription(req, res) {
   const result = await teamsSyncService.ensureWebhookSubscription();
+  const data = result && typeof result === 'object' ? {
+    ...result,
+    subscription: result.subscription ? toSubscriptionDto(result.subscription) : null,
+  } : result;
   return res.status(httpStatus.OK).json({
     success: true,
-    data: result,
+    data,
   });
 }
 

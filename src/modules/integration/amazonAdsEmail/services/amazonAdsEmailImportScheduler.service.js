@@ -1,6 +1,7 @@
 const config = require('../../../../config');
 const logger = require('../../../../shared/utils/logger');
 const emailImportService = require('./amazonAdsEmailImport.service');
+const { withDistributedLock } = require('../../../../shared/utils/distributedLock');
 
 function createAmazonAdsEmailImportScheduler(settings = config.amazonAdsGmail, dependencies = {}) {
   const runOnce = dependencies.runOnce || emailImportService.runOnce;
@@ -12,15 +13,18 @@ function createAmazonAdsEmailImportScheduler(settings = config.amazonAdsGmail, d
 
   async function run() {
     if (running) return null;
-    running = true;
-    try {
-      return await runOnce();
-    } catch (error) {
-      log.warn('amazon_ads_gmail_import_failed', { message: error.message });
-      return null;
-    } finally {
-      running = false;
-    }
+    return withDistributedLock('scheduler:amazon_ads_email_import', 60000, async () => {
+      if (running) return null;
+      running = true;
+      try {
+        return await runOnce();
+      } catch (error) {
+        log.warn('amazon_ads_gmail_import_failed', { message: error.message });
+        return null;
+      } finally {
+        running = false;
+      }
+    });
   }
 
   function start() {

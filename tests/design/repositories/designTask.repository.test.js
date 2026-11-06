@@ -53,11 +53,21 @@ describe('designTask.repository', () => {
     expect(filter.$or).toEqual(expect.arrayContaining([
       { _id: new mongoose.Types.ObjectId(taskId) },
       expect.objectContaining({ 'listingSnapshot.asin': expect.any(RegExp) }),
+      expect.objectContaining({ 'listingSnapshot.etsyListingId': expect.any(RegExp) }),
       expect.objectContaining({ 'listingSnapshot.sku': expect.any(RegExp) }),
       expect.objectContaining({ 'listingSnapshot.title': expect.any(RegExp) }),
     ]));
   });
 
+
+  test('buildFilter supports explicit asin and etsyListingId filters', () => {
+    const filter = repository.buildFilter({
+      asin: 'B0HGD12L9P',
+      etsyListingId: '1793859852095',
+    });
+    expect(filter['listingSnapshot.asin']).toBe('B0HGD12L9P');
+    expect(filter['listingSnapshot.etsyListingId']).toBe('1793859852095');
+  });
   test('buildSort only allows known fields and defaults to updatedAt desc', () => {
     expect(repository.buildSort({ sortBy: 'createdAt', sortOrder: 'asc' })).toEqual({ createdAt: 1, _id: 1 });
     expect(repository.buildSort({ sortBy: 'bad', sortOrder: 'asc' })).toEqual({ updatedAt: -1, _id: -1 });

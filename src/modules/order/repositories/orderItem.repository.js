@@ -405,10 +405,14 @@ async function summarizeSalesByAsins(asins = []) {
     { $match: { listingId: { $ne: null } } },
     {
       $lookup: {
-        from: 'listings',
-        localField: 'listingId',
-        foreignField: '_id',
-        as: 'listing',
+        from: "listings",
+        localField: "listingId",
+        foreignField: "_id",
+        pipeline: [
+          { $match: { asin: { $in: normalizedAsins } } },
+          { $project: { asin: 1 } },
+        ],
+        as: "listing",
       },
     },
     { $unwind: '$listing' },

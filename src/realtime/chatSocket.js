@@ -7,6 +7,8 @@ const schemas = require('../modules/chat/validators/chat.validator');
 const presenceRegistry = require('./presenceRegistry');
 const socketMetrics = require('./socketMetrics');
 const logger = require('../shared/utils/logger');
+const { createAdapter } = require('@socket.io/redis-adapter');
+const { getRedisClient } = require('../config/redis');
 
 function getToken(socket) {
   const authToken = socket.handshake.auth?.token;
@@ -51,6 +53,21 @@ function attachChatSocket(server) {
       credentials: true,
     },
   });
+
+  let pubClient;
+  let subClient;
+
+  if (config.redis?.enabled && typeof io.adapter === 'function') {
+    try {
+      const baseRedis = getRedisClient();
+      pubClient = baseRedis.duplicate();
+      subClient = baseRedis.duplicate();
+      io.adapter(createAdapter(pubClient, subClient));
+      logger.info('chat_socket_redis_adapter_attached');
+    } catch (error) {
+      logger.warn('chat_socket_redis_adapter_attach_failed', { error: error.message });
+    }
+  }
 
   socketMetrics.attachIo(io);
   io.use(authenticateSocket);
@@ -131,6 +148,14 @@ function attachChatSocket(server) {
   io.close = (...args) => {
     chatEvents.off('message.created', broadcastCreatedMessage);
     chatEvents.off('message.read', broadcastRead);
+    if (pubClient) {
+      try { pubClient.quit(); } catch { /* ignore */ }
+      pubClient = undefined;
+    }
+    if (subClient) {
+      try { subClient.quit(); } catch { /* ignore */ }
+      subClient = undefined;
+    }
     return originalClose(...args);
   };
 

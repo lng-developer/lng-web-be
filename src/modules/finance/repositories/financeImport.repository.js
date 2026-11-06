@@ -16,7 +16,12 @@ const importedDataSources = Object.freeze({
 const transactionFeeTypes = Object.freeze(['SELLING_FEES', 'FBA_FEES', 'OTHER_TRANSACTION_FEES']);
 
 function toObjectId(value) {
-  return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
+  if (!value) return null;
+  if (value instanceof mongoose.Types.ObjectId) return value;
+  if (typeof value === 'string' && mongoose.Types.ObjectId.isValid(value)) {
+    return new mongoose.Types.ObjectId(value);
+  }
+  return null;
 }
 
 function toId(value) {

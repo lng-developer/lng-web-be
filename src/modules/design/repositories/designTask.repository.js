@@ -35,6 +35,8 @@ function buildFilter(query = {}) {
   if (query.taskType) filter.taskType = query.taskType;
   if (query.priority) filter.priority = query.priority;
   if (query.psdStatus) filter['listingSnapshot.psdStatus'] = query.psdStatus;
+  if (query.asin) filter['listingSnapshot.asin'] = query.asin;
+  if (query.etsyListingId) filter['listingSnapshot.etsyListingId'] = query.etsyListingId;
   if (query.listingId) filter.listingId = toObjectId(query.listingId);
   if (query.listingIds) {
     if (!query.listingIds.length) return emptyFilter();
@@ -72,6 +74,7 @@ function buildFilter(query = {}) {
     filter.$or = [
       ...(mongoose.Types.ObjectId.isValid(normalizedSearch) ? [{ _id: toObjectId(normalizedSearch) }] : []),
       { 'listingSnapshot.asin': searchRegex },
+      { 'listingSnapshot.etsyListingId': searchRegex },
       { 'listingSnapshot.sku': searchRegex },
       { 'listingSnapshot.title': searchRegex },
     ];
@@ -343,6 +346,7 @@ async function listPsdFileLinks(query = {}) {
               { 'fileLinks.assetId': { $in: (query.matchingAssetIds || []).map(toObjectId) } },
               { 'listingSnapshot.sku': searchRegex },
               { 'listingSnapshot.asin': searchRegex },
+              { 'listingSnapshot.etsyListingId': searchRegex },
               { 'listingSnapshot.title': searchRegex },
             ],
           },

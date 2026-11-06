@@ -147,6 +147,7 @@ externalOrderRawRecordSchema.index({ importJobId: 1, rowNumber: 1 }, { unique: t
 externalOrderRawRecordSchema.index({ importJobId: 1, importStatus: 1 });
 externalOrderRawRecordSchema.index({ importJobId: 1, postImportStatus: 1 });
 externalOrderRawRecordSchema.index({ postImportStatus: 1, postImportLeaseExpiresAt: 1 });
+externalOrderRawRecordSchema.index({ postImportStatus: 1, postImportQueuedAt: 1, postImportStartedAt: 1, _id: 1 });
 externalOrderRawRecordSchema.index({ externalOrderId: 1 });
 externalOrderRawRecordSchema.index({ rawRecordHash: 1 });
 externalOrderRawRecordSchema.index({ createdAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 });

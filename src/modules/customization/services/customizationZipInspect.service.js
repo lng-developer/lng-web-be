@@ -220,9 +220,10 @@ function streamToString(stream, maxBytes = MAX_JSON_BYTES) {
   });
 }
 
-function walkCustomizationTree(value, visit) {
+function walkCustomizationTree(value, visit, depth = 0) {
+  if (depth > 20) return;
   if (Array.isArray(value)) {
-    value.forEach((entry) => walkCustomizationTree(entry, visit));
+    value.forEach((entry) => walkCustomizationTree(entry, visit, depth + 1));
     return;
   }
 
@@ -231,7 +232,7 @@ function walkCustomizationTree(value, visit) {
   }
 
   visit(value);
-  Object.values(value).forEach((entry) => walkCustomizationTree(entry, visit));
+  Object.values(value).forEach((entry) => walkCustomizationTree(entry, visit, depth + 1));
 }
 
 function compactList(items) {
@@ -443,7 +444,12 @@ async function extractImagesFromZipFile(localPath, targetAsset, payload = {}) {
     }
 
     zipfile.on('entry', async (entry) => {
-      const entryManifest = buildZipEntryManifestEntry(entry, extractedImages.length + skippedCount + failedCount);
+      const totalProcessed = extractedImages.length + skippedCount + failedCount;
+      if (totalProcessed >= 100) {
+        finish();
+        return;
+      }
+      const entryManifest = buildZipEntryManifestEntry(entry, totalProcessed);
       const extension = entryManifest.extension;
 
       if (entryManifest.directory || !entryManifest.safe) {

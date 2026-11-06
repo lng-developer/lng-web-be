@@ -4,7 +4,14 @@ function toId(value) {
   return value ? String(value._id || value.id || value) : null;
 }
 
-function toPayrollResultDto(result, capabilities, { teamName = null, departmentName = null } = {}) {
+function sanitizeInputSnapshot(snapshot, includePayrollSettings) {
+  if (!snapshot) return null;
+  if (includePayrollSettings) return snapshot;
+  const { payrollSettings, ...rest } = snapshot;
+  return rest;
+}
+
+function toPayrollResultDto(result, capabilities, { teamName = null, departmentName = null, includePayrollSettings = true } = {}) {
   if (!result) return null;
   return {
     id: toId(result),
@@ -13,7 +20,7 @@ function toPayrollResultDto(result, capabilities, { teamName = null, departmentN
     employee: result.employeeSnapshot ? { ...result.employeeSnapshot, teamName, departmentName } : null,
     company: result.inputSnapshot?.payrollSettings?.company || null,
     formulaVersion: result.formulaVersion,
-    inputSnapshot: result.inputSnapshot,
+    inputSnapshot: sanitizeInputSnapshot(result.inputSnapshot, includePayrollSettings),
     baseSalary: result.inputSnapshot?.compensation?.baseSalary ?? 0,
     standardWorkDays: result.standardWorkDays,
     workUnits: result.workUnits,

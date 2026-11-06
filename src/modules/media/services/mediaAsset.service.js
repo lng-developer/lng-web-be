@@ -337,6 +337,25 @@ async function buildLocalReadAccess(assetId, existingAsset = null) {
     return materializeRemoteReadAccess();
   }
 
+  if (mediaAsset.provider === 'wasabi') {
+    const downloadUrl = wasabi.presignDownload({
+      key: mediaAsset.providerAssetId,
+      filename: mediaAsset.originalFilename || 'asset.bin',
+      expiresIn: 300,
+    });
+    const tmpDir = path.join(root, 'tmp');
+    await fs.promises.mkdir(tmpDir, { recursive: true });
+    const localPath = path.join(tmpDir, `${crypto.randomUUID()}.read`);
+    ensureInsideRoot(root, localPath);
+    const maxBytes = mediaAsset.size || config.media.wasabi.maxAssetBytes || DEFAULT_MAX_BYTES;
+    await downloadHttpsToFile(downloadUrl, localPath, maxBytes);
+    return {
+      mediaAsset,
+      localPath,
+      cleanup: async () => removeIfExists(localPath),
+    };
+  }
+
   const localPath = path.resolve(root, mediaAsset.relativeStoragePath || '');
   ensureInsideRoot(root, localPath);
 
@@ -482,15 +501,16 @@ async function getAuthorizedDownloadUrl(assetId, authContext, options = {}) {
   });
 }
 
-async function getPublicAssetUrl(assetId) {
+async function getPublicAssetUrl(assetId, options = {}) {
   const asset = await getAsset(assetId);
   if (asset.uploadStatus && asset.uploadStatus !== 'READY') return null;
   if (asset.provider === 'cloudinary') return asset.secureUrl || null;
   if (asset.provider === 'wasabi') {
+    const expiresIn = options.expiresIn || config.media.wasabi.downloadUrlTtlSeconds;
     return wasabi.presignDownload({
       key: asset.providerAssetId,
       filename: asset.originalFilename || 'asset.bin',
-      expiresIn: config.media.wasabi.downloadUrlTtlSeconds,
+      expiresIn,
     });
   }
   return null;

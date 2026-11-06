@@ -201,6 +201,7 @@ async function listPsdScoreRows(query = {}) {
               { assetId: { $in: (query.matchingAssetIds || []).map(toObjectId) } },
               { 'task.listingSnapshot.sku': searchRegex },
               { 'task.listingSnapshot.asin': searchRegex },
+              { 'task.listingSnapshot.etsyListingId': searchRegex },
               { 'task.listingSnapshot.title': searchRegex },
             ],
           },

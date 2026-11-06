@@ -151,6 +151,7 @@ const reconcileSettlementSchema = Joi.object({
 const refundParamsSchema = Joi.object({ refundId: objectId.required() });
 const refundOrderItemParamsSchema = Joi.object({ orderItemId: objectId.required() });
 const allocateRefundSchema = Joi.object({ allocations: Joi.array().min(1).max(50).items(Joi.object({ orderItemId: objectId.required(), amount: Joi.number().integer().min(1).required() })).required() });
+const listRefundsQuerySchema = Joi.object({ shopId: objectId });
 
 module.exports = {
   financeImportContextSchema,
@@ -168,6 +169,7 @@ module.exports = {
   refundParamsSchema,
   refundOrderItemParamsSchema,
   allocateRefundSchema,
+  listRefundsQuerySchema,
   exportSnapshotsQuerySchema,
   listSnapshotsQuerySchema,
   orderIdParamsSchema,
