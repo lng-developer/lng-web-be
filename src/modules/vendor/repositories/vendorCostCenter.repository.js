@@ -99,6 +99,10 @@ async function listActiveByProduct(vendorProductId) {
   }).sort({ code: 1, _id: 1 }).lean();
 }
 
+async function listByProduct(vendorProductId) {
+  return VendorCostCenter.find({ vendorProductId }).sort({ code: 1, _id: 1 }).lean();
+}
+
 async function listActiveByProducts(vendorProductIds = []) {
   if (!vendorProductIds.length) return [];
   return VendorCostCenter.find({
@@ -363,6 +367,10 @@ async function updateIfVersion(costCenterId, version, patch) {
   ).lean();
 }
 
+async function deleteByProduct(vendorProductId) {
+  return VendorCostCenter.deleteMany({ vendorProductId });
+}
+
 module.exports = {
   create,
   createMany,
@@ -373,6 +381,7 @@ module.exports = {
   list,
   cursorAllForExport,
   listActiveByProduct,
+  listByProduct,
   listActiveByProducts,
   listActiveMatchProbesByProducts,
   listActiveByIds,
@@ -381,5 +390,6 @@ module.exports = {
   countByProduct,
   update,
   updateIfVersion,
+  deleteByProduct,
   buildFilter,
 };

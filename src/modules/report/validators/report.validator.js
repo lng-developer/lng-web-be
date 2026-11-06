@@ -14,6 +14,7 @@ function validate(schema, payload) {
 }
 
 const baseReportQuerySchema = Joi.object({
+  externalOrderId: Joi.string().trim().max(255),
   dateFrom: Joi.date().iso(),
   dateTo: Joi.date().iso().min(Joi.ref('dateFrom')),
   shopId: objectId,
@@ -28,6 +29,7 @@ const baseReportQuerySchema = Joi.object({
 
 const financeReportQuerySchema = baseReportQuerySchema.keys({
   dateBasis: Joi.string().trim().uppercase().valid('ORDERED_AT', 'CALCULATED_AT').default('ORDERED_AT'),
+  financialStatus: Joi.string().trim().uppercase().valid('ACTIVE', 'CANCELLED', 'PARTIALLY_REFUNDED', 'REFUNDED'),
 });
 
 const financeOrderProfitabilityQuerySchema = financeReportQuerySchema.keys({

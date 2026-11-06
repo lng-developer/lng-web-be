@@ -257,6 +257,10 @@ async function update(productId, patch) {
   )).lean();
 }
 
+async function deleteById(productId) {
+  return VendorProduct.deleteOne({ _id: productId });
+}
+
 module.exports = {
   create,
   createMany,
@@ -273,6 +277,7 @@ module.exports = {
   listActiveByVendor,
   listActiveByIds,
   update,
+  deleteById,
   buildFilter,
   buildListFilter,
 };

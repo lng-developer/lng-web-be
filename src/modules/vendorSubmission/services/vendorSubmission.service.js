@@ -11,6 +11,7 @@ const orderPublic = require('../../order/public');
 const productionPublic = require('../../production/public');
 const mediaPublic = require('../../media/public');
 const vendorPublic = require('../../vendor/public');
+const financePublic = require('../../finance/public');
 const submitRegistry = require('./submitAdapters/registry');
 const {
   vendorSubmissionPermissions,
@@ -40,6 +41,31 @@ function conflict(message, details) {
 
 function validationError(message, details) {
   return appError(message, httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR, details);
+}
+
+function moneyToMinorUnits(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const amount = Number(value);
+  return Number.isFinite(amount) ? Math.round(amount * 100) : null;
+}
+
+const SYSTEM_BASE_COST_MARKUP_AMOUNT = 100;
+
+function extractVendorCost(provider, response) {
+  if (String(provider || '').toUpperCase() !== 'MANGOTEE') return null;
+  const data = response?.data || response?.result || response || {};
+  const vendorBaseCostAmount = moneyToMinorUnits(data.subtotal);
+  return {
+    vendorBaseCostAmount,
+    baseCostAmount: vendorBaseCostAmount === null ? null : vendorBaseCostAmount + SYSTEM_BASE_COST_MARKUP_AMOUNT,
+    shippingAmount: moneyToMinorUnits(data.shipping_fee),
+    taxAmount: moneyToMinorUnits(data.ioss_fee ?? data.tax),
+    additionalFeesAmount: moneyToMinorUnits(data.box_fee),
+    totalAmount: moneyToMinorUnits(data.total),
+    currency: String(data.currency || 'USD').toUpperCase(),
+    source: 'MANGOTEE_ORDER_RESPONSE',
+    capturedAt: new Date(),
+  };
 }
 
 function forbidden() {
@@ -122,8 +148,41 @@ async function refreshSubmissionVendorUrls(submission) {
   };
 }
 
+async function refreshSubmissionOrderSnapshot(submission) {
+  const snapshot = submission.payloadSnapshot || {};
+  if (snapshot.orderSnapshot?.shippingAddress) return submission;
+  const order = await orderPublic.findById(submission.orderId);
+  if (!order?.shippingAddress) return submission;
+  const nextSnapshot = {
+    ...snapshot,
+    orderSnapshot: stripUnsafe({
+      ...(snapshot.orderSnapshot || {}),
+      id: String(order.id || order._id || submission.orderId),
+      externalOrderId: order.externalOrderId || snapshot.externalOrderId || null,
+      buyer: order.buyer || null,
+      shippingAddress: order.shippingAddress,
+      shippingService: order.shippingService || null,
+    }),
+  };
+  const refreshed = await repository.updateById(submission._id || submission.id, { payloadSnapshot: nextSnapshot });
+  return refreshed || { ...submission, payloadSnapshot: nextSnapshot };
+}
+
+async function refreshSubmissionVendorCostCenter(submission) {
+  const snapshot = submission.payloadSnapshot || {};
+  const costCenterId = snapshot.vendorCostCenter?.id || snapshot.vendorCostCenter?._id;
+  if (!costCenterId || snapshot.vendorCostCenter?.sku) return submission;
+  const rows = await vendorPublic.listActiveVendorCostCentersByIds([String(costCenterId)]);
+  const costCenter = rows?.[0];
+  if (!costCenter) return submission;
+  const nextSnapshot = { ...snapshot, vendorCostCenter: stripUnsafe(costCenter) };
+  const refreshed = await repository.updateById(submission._id || submission.id, { payloadSnapshot: nextSnapshot });
+  return refreshed || { ...submission, payloadSnapshot: nextSnapshot };
+}
+
 async function snapshotFromTask(task) {
   return stripUnsafe({
+    orderSnapshot: task.orderSnapshot || task.order || null,
     orderItem: task.orderItem || null,
     listing: await attachListingVendorUrl(task.listing),
     internalTemplate: task.internalTemplate || null,
@@ -816,6 +875,8 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
     throw conflict('Vendor submission is not ready to submit', { status: submission.status });
   }
 
+  submission = await refreshSubmissionOrderSnapshot(submission);
+  submission = await refreshSubmissionVendorCostCenter(submission);
   const fulfillmentOrder = await refreshLngFulfillmentOrder(submission, authContext);
   if (fulfillmentOrder) {
     submission = await repository.updateById(submissionId, {
@@ -898,6 +959,7 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
     provider: adapter.provider,
     vendorExternalOrderId: submitResult.externalId || null,
     submittedResponse: stripUnsafe(submitResult.response || null),
+    vendorCost: extractVendorCost(adapter.provider, submitResult.response),
     submittedBy: authContext?.accountId || null,
     submittedAt: new Date(),
     statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.SUBMITTED, authContext, `Submitted to ${adapter.provider}`),
@@ -908,6 +970,8 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
     changes: { status: { from: submission.status, to: vendorSubmissionStatuses.SUBMITTED } },
     metadata: { provider: adapter.provider },
   });
+  const vendorCost = extractVendorCost(adapter.provider, submitResult.response);
+  if (vendorCost) await financePublic.updateActualVendorCost(updated.orderItemId, vendorCost);
 
   await repairProductionHandoff(updated, authContext);
 

@@ -34,6 +34,7 @@ const listSnapshotsQuerySchema = Joi.object({
   marketplaceCode: Joi.string().trim().uppercase(),
   snapshotStatus: Joi.string().trim().uppercase().valid(...Object.values(financeSnapshotStatuses)),
   costStatus: Joi.string().trim().uppercase().valid(...Object.values(financeCostStatuses)),
+  financialStatus: Joi.string().trim().uppercase().valid('ACTIVE', 'CANCELLED', 'PARTIALLY_REFUNDED', 'REFUNDED'),
   sellerEmployeeCode: Joi.string().trim().uppercase().max(80),
   teamId: objectId,
   departmentId: objectId,

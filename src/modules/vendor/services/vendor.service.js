@@ -676,6 +676,14 @@ async function getLenfulOrder(vendorId, orderNumber) {
   return toLenfulOrderDto(order);
 }
 
+async function getVendorProductionLines(vendorId, providerKey) {
+  const credential = await getVendorIntegrationCredential(vendorId, providerKey, { refreshIfExpiring: false });
+  const adapter = integrationAdapterRegistry.getAdapter(providerKey);
+  if (!adapter?.fetchProductionLines) throw validationError('Production line lookup is not supported for this vendor');
+  if (!credential) throw validationError('Connected vendor credentials are required');
+  return adapter.fetchProductionLines({ credential });
+}
+
 function responseErrorMessage(body, fallback) {
   return body?.message || body?.error || body?.errors?.[0]?.message || fallback;
 }
@@ -1100,6 +1108,72 @@ async function updateVendorProduct(productId, patch, authContext) {
   }
 }
 
+function cloneMetadata(metadata = {}) {
+  const result = { ...metadata };
+  delete result.legacyId;
+  delete result.externalProductId;
+  return result;
+}
+
+async function cloneVendorProduct(productId, payload, authContext) {
+  const source = await getVendorProductById(productId);
+  if (!source) throw notFound('Vendor product not found');
+  const targetVendor = await assertVendorActive(payload.vendorId);
+  const targetVendorId = targetVendor._id || targetVendor.id;
+  const sourceVendorId = source.vendorId?._id || source.vendorId;
+  const vendorChanged = String(sourceVendorId) !== String(targetVendorId);
+  const requestedCode = normalizeCode(payload.code || `${source.code}-COPY`);
+  let code = requestedCode;
+  let suffix = 1;
+  while (await productRepository.findByCode({ vendorId: targetVendorId, code, includeInactive: true })) {
+    code = `${requestedCode}-${suffix}`;
+    suffix += 1;
+  }
+
+  const productPayload = {
+    vendorId: targetVendorId,
+    productTypeGroupId: source.productTypeGroupId?._id || source.productTypeGroupId || null,
+    code,
+    name: payload.name || `${source.name} Copy`,
+    externalProductId: null,
+    imageUrl: source.imageUrl || null,
+    productUrl: source.productUrl || null,
+    designTemplateUrl: source.designTemplateUrl || null,
+    minProductionDays: source.minProductionDays ?? null,
+    maxProductionDays: source.maxProductionDays ?? null,
+    baseCostAmount: source.baseCostAmount,
+    unitSurchargeAmount: source.unitSurchargeAmount ?? null,
+    currency: source.currency,
+    status: source.status,
+    metadata: cloneMetadata(source.metadata),
+  };
+  let createdProduct;
+  try {
+    createdProduct = await productRepository.create(productPayload);
+    const costCenters = await costCenterRepository.listByProduct(productId);
+    await costCenterRepository.createMany(costCenters.map(({ _id, id, vendorProductId, vendorId, createdAt, updatedAt, __v, metadata, ...costCenter }) => ({
+      ...costCenter,
+      vendorProductId: createdProduct._id || createdProduct.id,
+      vendorId: targetVendorId,
+      ...(vendorChanged ? { status: recordStatuses.INACTIVE } : {}),
+      metadata: cloneMetadata(metadata),
+    })));
+  } catch (error) {
+    if (createdProduct?._id || createdProduct?.id) {
+      await costCenterRepository.deleteByProduct(createdProduct._id || createdProduct.id).catch(() => {});
+      await productRepository.deleteById(createdProduct._id || createdProduct.id).catch(() => {});
+    }
+    await mapDuplicate(error, 'Vendor product or cost center code already exists');
+    throw error;
+  }
+  await recordVendorOperation({
+    action: 'VENDOR_PRODUCT_CLONED', entityType: 'VENDOR_PRODUCT', entity: createdProduct, authContext,
+    metadata: { sourceProductId: String(productId), vendorId: String(targetVendorId) },
+  });
+  const costCenterCount = await costCenterRepository.countByProduct(createdProduct._id || createdProduct.id);
+  return toVendorProductDto(createdProduct, { detail: true, costCenterCount });
+}
+
 async function getVendorProductById(productId, { includeInactive = false } = {}) {
   assertValidObjectId(productId, 'vendorProductId');
   const product = await productRepository.findById(productId);
@@ -1187,6 +1261,48 @@ async function listVendorCostCenters(productId, query = {}) {
   return toPaginatedResponse(result, toVendorCostCenterDto);
 }
 
+async function syncVendorProductFromIntegration(productId, authContext) {
+  const product = await assertActiveVendorProduct(productId);
+  const provider = String(product.vendorId?.providerKey || product.vendorId?.code || '').toUpperCase();
+  const adapter = integrationAdapterRegistry.getAdapter(provider);
+  if (!adapter?.fetchVariations || !product.externalProductId) {
+    throw validationError(`Catalog sync is not supported for ${provider || 'vendor'}`);
+  }
+  const credential = await getVendorIntegrationCredential(String(product.vendorId._id || product.vendorId), provider);
+  if (!credential) throw validationError('Vendor credentials are not configured');
+  const variations = [];
+  for (let page = 1; page <= 100; page += 1) {
+    const data = await adapter.fetchVariations({ credential, productId: product.externalProductId, productName: product.name, page, limit: 200 });
+    variations.push(...(data.items || []));
+    if (page >= Number(data.pagination?.pages || page) || !(data.items || []).length) break;
+  }
+  const bySku = new Map(variations.map((row) => [String(row.sku || '').trim().toUpperCase(), row]));
+  const centers = await costCenterRepository.listByProduct(productId);
+  const result = { total: centers.length, matched: 0, updated: 0, missing: [], items: [] };
+  for (const center of centers) {
+    const row = bySku.get(String(center.sku || '').trim().toUpperCase());
+    if (!row) { result.missing.push(center.sku || center.code); continue; }
+    const vendorPrice = Number(row.price);
+    const patch = {
+      vendorSize: row.size || center.vendorSize,
+      vendorColor: row.color || center.vendorColor,
+      baseCostAmount: Number.isFinite(vendorPrice) ? Math.round(vendorPrice * 100) + 100 : center.baseCostAmount,
+      currency: row.currency || center.currency || 'USD',
+      status: row.is_available === false ? 'INACTIVE' : 'ACTIVE',
+      metadata: {
+        ...(center.metadata || {}),
+        vendorSync: { source: provider, sourceSku: row.sku, vendorPrice, isAvailable: row.is_available !== false, syncedAt: new Date() },
+      },
+    };
+    const updated = await costCenterRepository.update(center._id, patch);
+    result.matched += 1;
+    result.updated += updated ? 1 : 0;
+    result.items.push({ id: String(center._id), sku: row.sku, vendorPrice, systemBaseCostAmount: patch.baseCostAmount, status: patch.status });
+  }
+  await recordVendorOperation({ action: 'VENDOR_CATALOG_SYNCED', entityType: 'VENDOR_PRODUCT', entity: product, authContext, metadata: { ...result, missing: result.missing.slice(0, 100) } });
+  return result;
+}
+
 async function createVendorCostCenter(productId, payload, authContext) {
   const product = await assertActiveVendorProduct(productId);
 
@@ -1256,6 +1372,39 @@ async function updateVendorCostCenter(productId, costCenterId, patch, authContex
   } catch (error) {
     await mapDuplicate(error, 'Vendor cost center code already exists for this product');
   }
+}
+
+async function cloneVendorCostCenter(productId, costCenterId, authContext) {
+  const product = await assertActiveVendorProduct(productId);
+  assertValidObjectId(costCenterId, 'vendorCostCenterId');
+  const source = await costCenterRepository.findById(costCenterId);
+  if (!source || String(source.vendorProductId) !== String(productId)) {
+    throw notFound('Vendor cost center not found');
+  }
+
+  const requestedCode = `${normalizeCode(source.code)}-COPY`;
+  let code = requestedCode;
+  let suffix = 1;
+  while (await costCenterRepository.findByProductAndCode({ vendorProductId: productId, code })) {
+    code = `${requestedCode}-${suffix}`;
+    suffix += 1;
+  }
+  const {
+    _id, id, vendorProductId, vendorId, createdAt, updatedAt, __v, metadata, ...fields
+  } = source;
+  const costCenter = await costCenterRepository.create({
+    ...fields,
+    vendorProductId: productId,
+    vendorId: product.vendorId._id || product.vendorId,
+    code,
+    name: `${source.name} Copy`,
+    metadata: cloneMetadata(metadata),
+  });
+  await recordVendorOperation({
+    action: 'VENDOR_COST_CENTER_CLONED', entityType: 'VENDOR_COST_CENTER', entity: costCenter, authContext,
+    metadata: { sourceCostCenterId: String(costCenterId), vendorProductId: String(productId) },
+  });
+  return toVendorCostCenterDto(costCenter, { detail: true });
 }
 
 async function listActiveVendorCostCenters(productId) {
@@ -1348,6 +1497,7 @@ module.exports = {
   getLenfulCatalog,
   getLenfulTracking,
   getLenfulOrder,
+  getVendorProductionLines,
   refreshVendorIntegrationCredential,
   refreshVendorIntegrationCredentialForVendor,
   getVendorById,
@@ -1366,13 +1516,16 @@ module.exports = {
   getVendorProduct,
   createVendorProduct,
   updateVendorProduct,
+  cloneVendorProduct,
   getVendorProductById,
   findVendorProductByCode,
   findVendorProductByLegacyId,
   listActiveVendorProductsByProductTypeGroup,
   listVendorCostCenters,
+  syncVendorProductFromIntegration,
   createVendorCostCenter,
   updateVendorCostCenter,
+  cloneVendorCostCenter,
   listActiveVendorCostCenters,
   listActiveVendorCostCentersByProductIds,
   listActiveVendorCostCenterMatchProbesByProductIds,

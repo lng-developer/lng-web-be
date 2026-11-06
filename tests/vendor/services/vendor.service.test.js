@@ -1,14 +1,18 @@
 jest.mock('../../../src/modules/vendor/repositories/vendor.repository', () => ({
   create: jest.fn(),
+  createMany: jest.fn(),
   findByCode: jest.fn(),
   findById: jest.fn(),
+  findByProductAndCode: jest.fn(),
   list: jest.fn(),
   listActive: jest.fn(),
   update: jest.fn(),
+  deleteById: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/vendor/repositories/vendorProduct.repository', () => ({
   create: jest.fn(),
+  createMany: jest.fn(),
   findByCode: jest.fn(),
   findById: jest.fn(),
   list: jest.fn(),
@@ -25,7 +29,9 @@ jest.mock('../../../src/modules/vendor/repositories/vendorProduct.repository', (
 jest.mock('../../../src/modules/vendor/repositories/vendorCostCenter.repository', () => ({
   countByProduct: jest.fn(),
   create: jest.fn(),
+  createMany: jest.fn(),
   findById: jest.fn(),
+  findByProductAndCode: jest.fn(),
   list: jest.fn(),
   cursorAllForExport: jest.fn(),
   listActiveByProduct: jest.fn(),
@@ -36,6 +42,7 @@ jest.mock('../../../src/modules/vendor/repositories/vendorCostCenter.repository'
   search: jest.fn(),
   update: jest.fn(),
   updateIfVersion: jest.fn(),
+  listByProduct: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/vendor/repositories/vendorIntegrationConfig.repository', () => ({
@@ -92,6 +99,90 @@ describe('vendor.service', () => {
   const productId = '660000000000000000000601';
   const costCenterId = '660000000000000000000701';
   const groupId = '660000000000000000000301';
+
+  test('clones a product and all cost centers to another active vendor', async () => {
+    productRepository.findById.mockResolvedValue({
+      _id: productId,
+      vendorId: { _id: vendorId, code: 'OLD', name: 'Old Vendor', status: 'ACTIVE' },
+      productTypeGroupId: groupId,
+      code: 'SHIRT',
+      name: 'Shirt',
+      externalProductId: 'legacy-product',
+      baseCostAmount: 1000,
+      currency: 'USD',
+      status: 'ACTIVE',
+      metadata: { legacyId: 'do-not-copy', source: 'catalog' },
+    });
+    vendorRepository.findById.mockResolvedValue({ _id: '660000000000000000000502', code: 'NEW', name: 'New Vendor', status: 'ACTIVE' });
+    productRepository.findByCode.mockResolvedValue(null);
+    costCenterRepository.listByProduct.mockResolvedValue([{
+      code: 'BLACK_L', name: 'Black L', vendorId, vendorProductId: productId,
+      sku: 'SKU-1', status: 'ACTIVE', metadata: { legacyId: 'do-not-copy' },
+    }]);
+    productRepository.create.mockResolvedValue({ _id: '660000000000000000000602', vendorId: { _id: '660000000000000000000502' }, code: 'SHIRT-COPY', name: 'Shirt' });
+    costCenterRepository.createMany.mockResolvedValue([]);
+
+    const result = await service.cloneVendorProduct(productId, {
+      vendorId: '660000000000000000000502',
+    }, {});
+
+    expect(productRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      vendorId: '660000000000000000000502',
+      code: 'SHIRT-COPY',
+      externalProductId: null,
+      metadata: { source: 'catalog' },
+    }));
+    expect(costCenterRepository.createMany).toHaveBeenCalledWith([expect.objectContaining({
+      vendorId: '660000000000000000000502',
+      vendorProductId: '660000000000000000000602',
+      code: 'BLACK_L',
+      status: 'INACTIVE',
+      metadata: {},
+    })]);
+    expect(result).toEqual(expect.objectContaining({ code: 'SHIRT-COPY' }));
+  });
+
+  test('clones one cost center with a unique editable code', async () => {
+    productRepository.findById.mockResolvedValue({
+      _id: productId,
+      vendorId: { _id: vendorId, status: 'ACTIVE' },
+      status: 'ACTIVE',
+    });
+    costCenterRepository.findById.mockResolvedValue({
+      _id: costCenterId,
+      vendorProductId: productId,
+      vendorId,
+      code: 'BLACK_L',
+      name: 'Black L',
+      sku: 'SKU-1',
+      baseCostAmount: 1250,
+      costRateHistory: [{ version: 1 }],
+      metadata: { legacyId: 'remove-me' },
+      status: 'ACTIVE',
+    });
+    costCenterRepository.findByProductAndCode.mockResolvedValue(null);
+    costCenterRepository.create.mockResolvedValue({
+      _id: '660000000000000000000702',
+      vendorProductId: productId,
+      vendorId,
+      code: 'BLACK_L-COPY',
+      name: 'Black L Copy',
+      status: 'ACTIVE',
+    });
+
+    const result = await service.cloneVendorCostCenter(productId, costCenterId, {});
+
+    expect(costCenterRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+      vendorProductId: productId,
+      vendorId,
+      code: 'BLACK_L-COPY',
+      name: 'Black L Copy',
+      baseCostAmount: 1250,
+      costRateHistory: [{ version: 1 }],
+      metadata: {},
+    }));
+    expect(result.code).toBe('BLACK_L-COPY');
+  });
 
   test('selects exactly one effective-dated rate and rejects overlap', () => {
     const costCenter = {

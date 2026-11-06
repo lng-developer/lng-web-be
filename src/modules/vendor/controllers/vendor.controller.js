@@ -13,6 +13,7 @@ const {
   listVendorCostCentersQuerySchema,
   listVendorsQuerySchema,
   updateVendorProductSchema,
+  cloneVendorProductSchema,
   updateVendorCostCenterSchema,
   updateVendorIntegrationConfigSchema,
   refreshVendorIntegrationCredentialSchema,
@@ -58,6 +59,13 @@ async function getVendorIntegrationConfig(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.getVendorIntegrationConfig(req.params.vendorId, auditAuth(req)),
+  });
+}
+
+async function getVendorProductionLines(req, res) {
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.getVendorProductionLines(req.params.vendorId, req.params.providerKey),
   });
 }
 
@@ -201,12 +209,24 @@ async function updateVendorProduct(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: await service.updateVendorProduct(req.params.id, payload, auditAuth(req)) });
 }
 
+async function cloneVendorProduct(req, res) {
+  const payload = assertValid(cloneVendorProductSchema, req.body);
+  res.status(httpStatus.CREATED).json({
+    success: true,
+    data: await service.cloneVendorProduct(req.params.id, payload, auditAuth(req)),
+  });
+}
+
 async function listVendorCostCenters(req, res) {
   const query = assertValid(listVendorCostCentersQuerySchema, req.query);
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.listVendorCostCenters(req.params.productId, query),
   });
+}
+
+async function syncVendorProduct(req, res) {
+  res.status(httpStatus.OK).json({ success: true, data: await service.syncVendorProductFromIntegration(req.params.id, auditAuth(req)) });
 }
 
 async function createVendorCostCenter(req, res) {
@@ -237,12 +257,24 @@ async function updateVendorCostCenter(req, res) {
   });
 }
 
+async function cloneVendorCostCenter(req, res) {
+  res.status(httpStatus.CREATED).json({
+    success: true,
+    data: await service.cloneVendorCostCenter(
+      req.params.productId,
+      req.params.costCenterId,
+      auditAuth(req),
+    ),
+  });
+}
+
 module.exports = {
   listVendors,
   getVendor,
   createVendor,
   updateVendor,
   getVendorIntegrationConfig,
+  getVendorProductionLines,
   updateVendorIntegrationConfig,
   testVendorIntegrationConnection,
   deleteVendorIntegrationConfig,
@@ -260,8 +292,11 @@ module.exports = {
   createVendorProduct,
   importVendorProducts,
   updateVendorProduct,
+  cloneVendorProduct,
   listVendorCostCenters,
+  syncVendorProduct,
   createVendorCostCenter,
   importVendorCostCenters,
   updateVendorCostCenter,
+  cloneVendorCostCenter,
 };

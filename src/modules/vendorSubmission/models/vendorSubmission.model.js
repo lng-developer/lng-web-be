@@ -68,6 +68,17 @@ const vendorSubmissionSchema = new Schema({
     type: Schema.Types.Mixed,
     default: null,
   },
+  vendorCost: {
+    vendorBaseCostAmount: { type: Number, default: null },
+    baseCostAmount: { type: Number, default: null },
+    shippingAmount: { type: Number, default: null },
+    taxAmount: { type: Number, default: null },
+    additionalFeesAmount: { type: Number, default: null },
+    totalAmount: { type: Number, default: null },
+    currency: { type: String, trim: true, uppercase: true, default: null },
+    source: { type: String, trim: true, uppercase: true, default: null },
+    capturedAt: { type: Date, default: null },
+  },
   statusHistory: [{
     status: {
       type: String,

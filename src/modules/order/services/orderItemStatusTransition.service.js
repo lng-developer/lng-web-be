@@ -295,6 +295,13 @@ async function transitionItemStatus(orderItemId, targetStatus, context = {}) {
       { source: 'ORDER_STATUS', ...(context.session ? { session: context.session } : {}) },
     );
   }
+  if ([orderItemStatuses.CANCELLED, orderItemStatuses.REFUNDED].includes(targetStatus)) {
+    const financePublic = require('../../finance/public');
+    await financePublic.requestSnapshotRecalculation({
+      orderItemId: String(orderItemId),
+      reason: `ORDER_ITEM_${targetStatus}`,
+    });
+  }
   return updated;
 }
 

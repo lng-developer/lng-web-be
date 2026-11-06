@@ -32,6 +32,7 @@ jest.mock('../../../src/modules/order/public', () => ({
   summarizeBuyerInsights: jest.fn(),
   summarizeNewBuyersByChannel: jest.fn(),
   summarizeOrderItems: jest.fn(),
+  findItemIds: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/shop/public', () => ({ findByIds: jest.fn() }));
@@ -388,6 +389,24 @@ describe('report.service', () => {
       }),
     );
   });
+
+  test('order profitability filters legacy cancelled snapshots by marketplace status', async () => {
+    orderPublic.findItemIds.mockResolvedValueOnce(['660000000000000000000702']);
+    financePublic.summarizeOrderProfitability.mockResolvedValueOnce({
+      items: [], pagination: { total: 0, page: 1, limit: 20 },
+    });
+
+    await service.getFinanceOrderProfitability({ financialStatus: 'CANCELLED' }, scopedAuth);
+
+    expect(orderPublic.findItemIds).toHaveBeenCalledWith({
+      externalStatus: ['CANCELLED', 'CANCELED', 'PARTIALLY_CANCELLED'],
+    });
+    expect(financePublic.summarizeOrderProfitability).toHaveBeenCalledWith(
+      { shopIds: [shopId], orderItemIds: ['660000000000000000000702'], financialStatus: undefined },
+      expect.any(Object),
+    );
+  });
+
 
   test('daily employee ads preserve all campaign metrics', async () => {
     financePublic.summarizeAdsSellerDaily.mockResolvedValueOnce([

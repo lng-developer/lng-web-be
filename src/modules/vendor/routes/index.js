@@ -86,6 +86,12 @@ router.patch(
   requireVendorWrite,
   asyncHandler(controller.updateVendorCostCenter),
 );
+router.post(
+  '/products/:productId/cost-centers/:costCenterId/clone',
+  authPublic.authenticate,
+  requireVendorWrite,
+  asyncHandler(controller.cloneVendorCostCenter),
+);
 router.get(
   '/products/:id',
   authPublic.authenticate,
@@ -98,12 +104,25 @@ router.patch(
   requireVendorWrite,
   asyncHandler(controller.updateVendorProduct),
 );
+router.post(
+  '/products/:id/clone',
+  authPublic.authenticate,
+  requireVendorWrite,
+  asyncHandler(controller.cloneVendorProduct),
+);
+router.post('/products/:id/sync', authPublic.authenticate, requireVendorWrite, asyncHandler(controller.syncVendorProduct));
 
 router.get(
   '/:vendorId/integration',
   authPublic.authenticate,
   requireVendorRead,
   asyncHandler(controller.getVendorIntegrationConfig),
+);
+router.get(
+  '/:vendorId/integration/:providerKey/production-lines',
+  authPublic.authenticate,
+  requireVendorRead,
+  asyncHandler(controller.getVendorProductionLines),
 );
 router.patch(
   '/:vendorId/integration',

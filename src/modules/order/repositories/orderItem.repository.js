@@ -16,6 +16,8 @@ function buildFilter({
   shopId,
   shopIds,
   status,
+  excludeStatuses,
+  externalStatus,
   salesChannelCode,
   marketplaceCode,
   listingId,
@@ -31,10 +33,14 @@ function buildFilter({
   if (shopId) filter.shopId = toObjectId(shopId);
   if (shopIds && shopIds.length) filter.shopId = { $in: shopIds.map(toObjectId) };
   if (status) filter.status = status;
+  if (excludeStatuses?.length) filter.status = { $nin: excludeStatuses };
+  if (externalStatus) filter.externalStatus = Array.isArray(externalStatus)
+    ? { $in: externalStatus }
+    : externalStatus;
   if (salesChannelCode) filter.salesChannelCode = salesChannelCode;
   if (marketplaceCode) filter.marketplaceCode = marketplaceCode;
   if (listingId) filter.listingId = toObjectId(listingId);
-  if (externalOrderId) filter.externalOrderId = { $regex: escapeRegex(externalOrderId), $options: 'i' };
+  if (externalOrderId) filter.externalOrderId = externalOrderId;
   if (q) {
     const search = { $regex: escapeRegex(q), $options: 'i' };
     filter.$or = [

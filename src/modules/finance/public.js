@@ -9,6 +9,7 @@ const publicPort = {
   listSnapshotsByOrderItemIds: service.listSnapshotsByOrderItemIds,
   recalculateOrder: service.recalculateOrder,
   recalculateOrderItem: service.recalculateOrderItem,
+  updateActualVendorCost: service.updateActualVendorCost,
   requestSnapshotRecalculation: enqueueSnapshotRecalculation,
   reconcileSnapshots,
   summarizeBySeller: service.summarizeBySeller,

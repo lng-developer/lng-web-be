@@ -387,7 +387,26 @@ async function getFinanceDailyProfit(query = {}, authContext) {
 async function getFinanceOrderProfitability(query = {}, authContext) {
   const scopedQuery = applyReportScope(query, authContext, { financeDimensions: true });
   if (!scopedQuery) return { items: [], pagination: { total: 0, page: 1, limit: 20 }, summaryByCurrency: [] };
-  const result = await financePublic.summarizeOrderProfitability(scopedQuery, systemContext(authContext));
+  const itemQuery = query.externalOrderId ? { externalOrderId: query.externalOrderId } : {};
+  if (query.financialStatus === 'CANCELLED') {
+    itemQuery.externalStatus = ['CANCELLED', 'CANCELED', 'PARTIALLY_CANCELLED'];
+  }
+  const hasItemFilter = query.externalOrderId || itemQuery.externalStatus
+    ? true
+    : false;
+  const orderItemIds = hasItemFilter
+    ? await orderPublic.findItemIds(itemQuery)
+    : null;
+  if (hasItemFilter && !orderItemIds?.length) {
+    return { items: [], pagination: { total: 0, page: query.page || 1, limit: query.limit || 20 }, summaryByCurrency: [] };
+  }
+  const financeQuery = orderItemIds
+    ? { ...scopedQuery, orderItemIds, ...(itemQuery.externalStatus ? { financialStatus: undefined } : {}) }
+    : scopedQuery;
+  const result = await financePublic.summarizeOrderProfitability(
+    financeQuery,
+    systemContext(authContext),
+  );
   return { ...result, items: (result.items || []).map(toFinanceOrderProfitabilityDto) };
 }
 

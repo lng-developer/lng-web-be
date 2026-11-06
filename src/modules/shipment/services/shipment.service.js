@@ -449,7 +449,10 @@ async function updateTracking(shipmentId, payload = {}, authContext) {
   if (shipment.status === shipmentStatuses.EXCEPTION) {
     throw conflict('Exception shipment tracking cannot be changed', { status: shipment.status });
   }
-  const shippedAt = shipment.shippedAt || new Date();
+  const vendorShippedAt = payload.shippedAt ? new Date(payload.shippedAt) : null;
+  const shippedAt = shipment.shippedAt
+    || (vendorShippedAt && !Number.isNaN(vendorShippedAt.getTime()) ? vendorShippedAt : null)
+    || new Date();
   const updated = await repository.updateTrackingIfNotDelivered(shipmentId, {
     carrier,
     trackingNumber,
@@ -641,6 +644,7 @@ async function applyTrackingUpdate(vendorSubmissionId, update = {}, authContext)
     carrier,
     trackingNumber,
     trackingUrl,
+    shippedAt: update.shippedAt || null,
     note: update.note || null,
   }, authContext);
   if (nextStatus && nextStatus !== shipmentStatuses.SHIPPED && shipment.status !== nextStatus) {

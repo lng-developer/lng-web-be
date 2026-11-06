@@ -47,6 +47,12 @@ function toFinanceSnapshotDto(snapshot) {
       feeConfidence: snapshot.feeConfidence || null,
       refundAmount: snapshot.refundAmount || 0,
       customerPaidAmount: snapshot.customerPaidAmount || 0,
+      netRevenueAmount: snapshot.netRevenueAmount ?? Math.max(
+        (snapshot.customerPaidAmount || 0) - (snapshot.refundAmount || 0),
+        0,
+      ),
+      orderItemStatus: snapshot.orderItemStatus || null,
+      financialStatus: snapshot.financialStatus || 'ACTIVE',
       currency: snapshot.currency || null,
     },
     cost: {
@@ -56,6 +62,15 @@ function toFinanceSnapshotDto(snapshot) {
       costStatus: snapshot.costStatus || null,
       costBasis: snapshot.costBasis || null,
       missingCostReason: snapshot.missingCostReason || null,
+    },
+    actualVendorCost: {
+      baseCostAmount: snapshot.actualVendorBaseCostAmount ?? null,
+      shippingAmount: snapshot.actualVendorShippingAmount ?? null,
+      taxAmount: snapshot.actualVendorTaxAmount ?? null,
+      totalAmount: snapshot.actualVendorTotalAmount ?? null,
+      currency: snapshot.actualVendorCurrency || null,
+      source: snapshot.actualVendorSource || null,
+      capturedAt: snapshot.actualVendorCapturedAt || null,
     },
     margin: {
       grossProfitAmount: snapshot.grossProfitAmount ?? null,

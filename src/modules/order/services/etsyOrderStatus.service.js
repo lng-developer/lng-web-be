@@ -18,6 +18,19 @@ function reviewError(order) {
     errorCodes.CONFLICT_ERROR, { orderId: String(order._id || order.id), externalStatus: order.externalStatus });
 }
 
+async function createReviewCase(order, context, reason) {
+  const orderPublic = require('../public');
+  const isRefund = ['REFUNDED', 'PARTIALLY_REFUNDED'].includes(order.externalStatus)
+    || order.paymentStatus === 'REFUNDED';
+  return orderPublic.ensureOpenOrderCase({
+    orderId: String(order._id || order.id),
+    caseType: isRefund ? 'REFUND' : 'OTHER',
+    severity: 'HIGH',
+    title: isRefund ? 'Etsy refund requires review' : 'Etsy cancellation requires review',
+    description: `${reason} External status: ${order.externalStatus || 'UNKNOWN'}.`,
+  }, context);
+}
+
 async function assertCanFulfill(orderId, orderItemId) {
   const order = await orderRepository.findById(orderId);
   if (!order) throw new AppError('Order not found', 404, true, errorCodes.RESOURCE_NOT_FOUND);
@@ -33,10 +46,13 @@ async function reconcile(order) {
   const items = await itemRepository.listAllByOrder(order._id || order.id);
   if (items.length && items.every(item => terminalStatuses.has(item.status))) return true;
   if (!isBlocked(order)) return false;
-  if (order.externalStatus !== 'CANCELLED') throw reviewError(order);
+  const context = { system: true, source: 'IMPORT', scopes: [{ scopeType: 'shop', scopeId: String(order.shopId), permissions: ['ORDERS:WRITE'] }] };
+  if (order.externalStatus !== 'CANCELLED') {
+    await createReviewCase(order, context, 'Etsy reported a refund or non-terminal cancellation state.');
+    throw reviewError(order);
+  }
 
   const active = items.filter(item => !terminalStatuses.has(item.status));
-  const context = { system: true, source: 'IMPORT', scopes: [{ scopeType: 'shop', scopeId: String(order.shopId), permissions: ['ORDERS:WRITE'] }] };
   const production = require('../../production/public');
   const vendor = require('../../vendorSubmission/public');
   const [tasks, submissions] = await Promise.all([
@@ -44,7 +60,10 @@ async function reconcile(order) {
     Promise.all(active.map(item => vendor.getByOrderItemId(item._id || item.id))),
   ]);
   // Existing production/vendor work must be reconciled by an operator, never silently cancelled.
-  if (tasks.length || submissions.some(Boolean) || active.some(item => !cancellableStatuses.has(item.status))) throw reviewError(order);
+  if (tasks.length || submissions.some(Boolean) || active.some(item => !cancellableStatuses.has(item.status))) {
+    await createReviewCase(order, context, 'Etsy cancellation arrived after fulfillment work had started.');
+    throw reviewError(order);
+  }
   const { cancelOrderItem } = require('./orderItemCancel.service');
   for (const item of active) {
     await cancelOrderItem(item._id || item.id, { reason: 'Etsy confirmed full cancellation' }, context);

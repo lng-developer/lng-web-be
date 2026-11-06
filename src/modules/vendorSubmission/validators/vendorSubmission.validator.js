@@ -67,7 +67,8 @@ const retrySchema = Joi.object({
 });
 
 const submitToVendorSchema = Joi.object({
-  provider: Joi.string().trim().uppercase().valid('MERCHIZE', 'PRINTWAY', 'LENFUL'),
+  provider: Joi.string().trim().uppercase().valid('MERCHIZE', 'PRINTWAY', 'LENFUL', 'MANGOTEE'),
+  productionLineId: Joi.string().trim().max(120),
   dryRun: Joi.boolean().default(true),
 });
 

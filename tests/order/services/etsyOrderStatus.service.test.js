@@ -3,11 +3,13 @@ jest.mock('../../../src/modules/order/repositories/order.repository', () => ({ f
 jest.mock('../../../src/modules/production/public', () => ({ listWorkbenchTaskSummariesByOrderItemIds: jest.fn() }));
 jest.mock('../../../src/modules/vendorSubmission/public', () => ({ getByOrderItemId: jest.fn() }));
 jest.mock('../../../src/modules/order/services/orderItemCancel.service', () => ({ cancelOrderItem: jest.fn() }));
+jest.mock('../../../src/modules/order/public', () => ({ ensureOpenOrderCase: jest.fn() }));
 
 const items = require('../../../src/modules/order/repositories/orderItem.repository');
 const production = require('../../../src/modules/production/public');
 const vendor = require('../../../src/modules/vendorSubmission/public');
 const cancel = require('../../../src/modules/order/services/orderItemCancel.service');
+const orderPublic = require('../../../src/modules/order/public');
 const service = require('../../../src/modules/order/services/etsyOrderStatus.service');
 
 const order = { _id: 'order', shopId: 'shop', salesChannelCode: 'ETSY', externalStatus: 'CANCELLED' };
@@ -24,6 +26,10 @@ test('full cancellation uses existing cancellation flow', async () => {
 test.each(['PARTIALLY_CANCELLED', 'CANCELLATION_PENDING', 'PARTIALLY_REFUNDED', 'REFUNDED'])('%s requires review, not full cancellation', async (externalStatus) => {
   await expect(service.reconcile({ ...order, externalStatus })).rejects.toThrow(/review/i);
   expect(cancel.cancelOrderItem).not.toHaveBeenCalled();
+  expect(orderPublic.ensureOpenOrderCase).toHaveBeenCalledWith(expect.objectContaining({
+    orderId: 'order',
+    caseType: ['PARTIALLY_REFUNDED', 'REFUNDED'].includes(externalStatus) ? 'REFUND' : 'OTHER',
+  }), expect.objectContaining({ source: 'IMPORT' }));
 });
 test('preflights all items before cancelling any when vendor submission exists', async () => {
   items.listAllByOrder.mockResolvedValue([{ _id: 'one' }, { _id: 'two' }]);
@@ -34,6 +40,9 @@ test('preflights all items before cancelling any when vendor submission exists',
 test('production task requires review', async () => {
   production.listWorkbenchTaskSummariesByOrderItemIds.mockResolvedValue([{ id: 'task' }]);
   await expect(service.reconcile(order)).rejects.toThrow(/review/i);
+  expect(orderPublic.ensureOpenOrderCase).toHaveBeenCalledWith(expect.objectContaining({
+    orderId: 'order', caseType: 'OTHER',
+  }), expect.objectContaining({ source: 'IMPORT' }));
 });
 test('cancelled items stay terminal even on stale Completed reimport', async () => {
   items.listAllByOrder.mockResolvedValue([{ _id: 'item', status: 'CANCELLED' }]);

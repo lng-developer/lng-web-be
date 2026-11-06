@@ -287,6 +287,43 @@ describe('financeSnapshot.service', () => {
     });
   });
 
+  test('uses actual vendor total for order P&L when available', () => {
+    expect(service.calculateOrderPnl({
+      feeAmount: 300,
+      refundAmount: 200,
+      discountAmount: 100,
+      customerPaidAmount: 3980,
+      baseCostAmount: 1200,
+      totalCostAmount: 1228,
+      actualVendorBaseCostAmount: 853,
+      actualVendorTotalAmount: 1378,
+    })).toEqual({
+      marketplaceFeeAmount: 300,
+      refundAmount: 200,
+      discountAmount: 100,
+      baseCostAmount: 953,
+      additionalFulfillmentCostAmount: 425,
+      totalCostAmount: 1378,
+      totalDeductionAmount: 1978,
+      profitAmount: 2002,
+    });
+  });
+
+  test.each([
+    [{ status: 'CANCELLED' }, 0, 'CANCELLED'],
+    [{ status: 'REFUNDED' }, 3980, 'REFUNDED'],
+    [{ status: 'SHIPPED' }, 200, 'PARTIALLY_REFUNDED'],
+  ])('classifies %s financial outcome', (itemStatus, refundAmount, financialStatus) => {
+    const sourceItem = itemStatus.status === 'CANCELLED'
+      ? { ...item, externalStatus: 'CANCELLED' }
+      : { ...item, ...itemStatus };
+    expect(service.calculateRevenue(sourceItem, { refundAmount })).toMatchObject({
+      refundAmount,
+      netRevenueAmount: sourceItem.externalStatus === 'CANCELLED' ? 0 : Math.max(3980 - refundAmount, 0),
+      financialStatus,
+    });
+  });
+
   test('recalculate uses linked finance fee and refund rows before externalData fallback', async () => {
     financeImportRepository.sumFeesByOrderItem.mockResolvedValueOnce(425);
     financeImportRepository.sumRefundsByOrderItem.mockResolvedValueOnce(150);
@@ -759,6 +796,26 @@ describe('financeSnapshot.service', () => {
       pagination: { total: 0, page: 1, limit: 20 },
     });
     expect(repository.listOrderProfitability).toHaveBeenCalledWith({ shopId });
+  });
+
+  test('merges duplicate external order rows in profitability output', async () => {
+    repository.listOrderProfitability.mockResolvedValueOnce({
+      items: [
+        { orderItemIds: ['item-a'], orderId: 'order-a', shopId, externalOrderId: null, currency: 'USD', itemCount: 1, revenueAmount: 1000, netRevenueAmount: 900, totalCostAmount: 500, profitAmount: 400, missingCostCount: 0 },
+        { orderItemIds: ['item-b'], orderId: 'order-b', shopId, externalOrderId: null, currency: 'USD', itemCount: 1, revenueAmount: 2000, netRevenueAmount: 1800, totalCostAmount: 700, profitAmount: 1100, missingCostCount: 0 },
+      ],
+      pagination: { total: 2, page: 1, limit: 20 },
+    });
+    orderPublic.findItemsByIds.mockResolvedValueOnce([
+      { _id: 'item-a', externalOrderId: '111-4184816-4909046' },
+      { _id: 'item-b', externalOrderId: '111-4184816-4909046' },
+    ]);
+
+    const result = await service.listOrderProfitability({ shopId });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({ externalOrderId: '111-4184816-4909046', itemCount: 2, revenueAmount: 3000, totalCostAmount: 1200, profitAmount: 1500 });
+    expect(result.pagination.total).toBe(1);
   });
 
   test('applies the active account operating cost on the report day', async () => {

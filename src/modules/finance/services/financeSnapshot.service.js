@@ -174,6 +174,15 @@ function calculateRevenue(item = {}, financeTotals = {}) {
     financeTotals.refundAmount !== null && financeTotals.refundAmount !== undefined
       ? moneyAmount(financeTotals.refundAmount)
       : moneyAmount(item.finance?.refundAmount || item.externalData?.finance?.refundAmount);
+  const externalStatus = String(item.externalStatus || '').toUpperCase();
+  const isMarketplaceCancelled = ['CANCELLED', 'CANCELED', 'PARTIALLY_CANCELLED'].includes(externalStatus);
+  const financialStatus = isMarketplaceCancelled
+    ? 'CANCELLED'
+    : refundAmount <= 0
+      ? 'ACTIVE'
+      : refundAmount >= customerPaidAmount
+        ? 'REFUNDED'
+        : 'PARTIALLY_REFUNDED';
   return {
     itemPriceAmount,
     taxAmount,
@@ -185,6 +194,11 @@ function calculateRevenue(item = {}, financeTotals = {}) {
     feeConfidence,
     refundAmount,
     customerPaidAmount,
+    netRevenueAmount: isMarketplaceCancelled
+      ? 0
+      : Math.max(customerPaidAmount - refundAmount, 0),
+    orderItemStatus: item.status || null,
+    financialStatus,
     currency: price.currency || 'USD',
   };
 }
@@ -241,19 +255,22 @@ function calculateCost(fulfillmentPlan) {
   };
 }
 
-function profitStatusFor({ costStatus, costBasis, feeConfidence }) {
+function profitStatusFor({ costStatus, costBasis, feeConfidence, actualVendorTotalAmount }) {
   if (costStatus !== financeCostStatuses.PRESENT) return financeProfitStatuses.INCOMPLETE_COST;
+  if (actualVendorTotalAmount !== null && actualVendorTotalAmount !== undefined) {
+    return financeProfitStatuses.ACTUAL;
+  }
   if (costBasis !== financeCostBases.VENDOR_INVOICE || feeConfidence !== financeFeeConfidences.ACTUAL) {
     return financeProfitStatuses.ESTIMATED;
   }
   return financeProfitStatuses.ACTUAL;
 }
 
-function calculateMargin({ customerPaidAmount, feeAmount, refundAmount, discountAmount }, totalCostAmount, costStatus) {
+function calculateMargin({ customerPaidAmount, netRevenueAmount, feeAmount, refundAmount, discountAmount }, totalCostAmount, costStatus) {
   if (totalCostAmount === null || totalCostAmount === undefined || costStatus !== financeCostStatuses.PRESENT) {
     return { grossProfitAmount: null, grossMarginBps: null };
   }
-  const grossProfitAmount = customerPaidAmount - feeAmount - refundAmount - totalCostAmount - discountAmount;
+  const grossProfitAmount = (netRevenueAmount ?? customerPaidAmount) - feeAmount - totalCostAmount - discountAmount;
   return {
     grossProfitAmount,
     grossMarginBps: customerPaidAmount > 0 ? Math.round((grossProfitAmount / customerPaidAmount) * 10000) : null,
@@ -264,7 +281,9 @@ function calculateOrderPnl(snapshot = {}) {
   const marketplaceFeeAmount = moneyAmount(snapshot.feeAmount);
   const refundAmount = moneyAmount(snapshot.refundAmount);
   const discountAmount = moneyAmount(snapshot.discountAmount);
-  const totalCostAmount = nullableMoneyAmount(snapshot.totalCostAmount);
+  const totalCostAmount = nullableMoneyAmount(
+    snapshot.actualVendorTotalAmount ?? snapshot.totalCostAmount,
+  );
   if (totalCostAmount === null) {
     return {
       marketplaceFeeAmount,
@@ -278,7 +297,11 @@ function calculateOrderPnl(snapshot = {}) {
     };
   }
 
-  const baseCostAmount = nullableMoneyAmount(snapshot.baseCostAmount);
+  const baseCostAmount = nullableMoneyAmount(
+    snapshot.actualVendorBaseCostAmount === null || snapshot.actualVendorBaseCostAmount === undefined
+      ? snapshot.baseCostAmount
+      : snapshot.actualVendorBaseCostAmount + 100,
+  );
   const additionalFulfillmentCostAmount = Math.max(totalCostAmount - (baseCostAmount || 0), 0);
   const totalDeductionAmount = marketplaceFeeAmount + refundAmount + discountAmount + totalCostAmount;
   return {
@@ -289,7 +312,11 @@ function calculateOrderPnl(snapshot = {}) {
     additionalFulfillmentCostAmount,
     totalCostAmount,
     totalDeductionAmount,
-    profitAmount: moneyAmount(snapshot.customerPaidAmount) - totalDeductionAmount,
+    profitAmount: moneyAmount(snapshot.netRevenueAmount ?? Math.max(
+      moneyAmount(snapshot.customerPaidAmount) - refundAmount,
+      0,
+    ))
+      - marketplaceFeeAmount - discountAmount - totalCostAmount,
   };
 }
 
@@ -480,18 +507,78 @@ async function listOrderProfitability(query = {}) {
   const result = await repository.listOrderProfitability(query);
   const orderItemIds = result.items.flatMap((row) => (row.orderItemIds || []).map(String));
   const orderItems = await orderPublic.findItemsByIds(orderItemIds);
+  const itemById = new Map(orderItems.map((item) => [String(item._id || item.id), item]));
   const externalOrderIdByItemId = new Map(
     orderItems.map((item) => [String(item._id || item.id), item.externalOrderId || null]),
   );
+  const items = result.items.map(({ orderItemIds, orderId, shopId, ...row }) => ({
+    ...row,
+    orderId: String(orderId),
+    shopId: String(shopId),
+    externalOrderId: externalOrderIdByItemId.get(String(orderItemIds?.[0])) || null,
+    ...financialStatusCounts(orderItemIds, itemById),
+  }));
+  const mergedItems = mergeExternalOrderProfitability(items);
   return {
     ...result,
-    items: result.items.map(({ orderItemIds, orderId, shopId, ...row }) => ({
-      ...row,
-      orderId: String(orderId),
-      shopId: String(shopId),
-      externalOrderId: externalOrderIdByItemId.get(String(orderItemIds?.[0])) || null,
-    })),
+    items: mergedItems,
+    ...(mergedItems.length !== items.length ? {
+      pagination: { ...result.pagination, total: Math.max(0, (result.pagination?.total || 0) - (items.length - mergedItems.length)) },
+      summaryByCurrency: summarizeMergedProfitability(mergedItems),
+    } : {}),
   };
+}
+
+function financialStatusCounts(orderItemIds = [], itemById = new Map()) {
+  const statuses = orderItemIds.map((id) => String(itemById.get(String(id))?.externalStatus || '').toUpperCase());
+  return {
+    cancelledCount: statuses.filter((status) => ['CANCELLED', 'CANCELED', 'PARTIALLY_CANCELLED'].includes(status)).length,
+  };
+}
+
+function mergeExternalOrderProfitability(items = []) {
+  const grouped = new Map();
+  items.forEach((item) => {
+    const key = [item.shopId, item.salesChannelCode, item.marketplaceCode, item.currency, item.externalOrderId || item.orderId].join('|');
+    const current = grouped.get(key);
+    if (!current) {
+      grouped.set(key, { ...item });
+      return;
+    }
+    ['itemCount', 'revenueAmount', 'netRevenueAmount', 'baseCostAmount', 'marketplaceFeeAmount', 'refundAmount', 'discountAmount', 'cancelledCount', 'partiallyRefundedCount', 'refundedCount'].forEach((field) => {
+      current[field] = (current[field] || 0) + (item[field] || 0);
+    });
+    ['totalCostAmount', 'lngFulfillmentFeeAmount', 'shippingCostAmount', 'vendorAdditionalCostAmount', 'profitAmount'].forEach((field) => {
+      current[field] = current[field] == null || item[field] == null ? null : current[field] + item[field];
+    });
+    current.missingCostCount = (current.missingCostCount || 0) + (item.missingCostCount || 0);
+    current.marginBps = current.revenueAmount > 0 && current.profitAmount != null
+      ? Math.round((current.profitAmount / current.revenueAmount) * 10000)
+      : null;
+  });
+  return [...grouped.values()];
+}
+
+function summarizeMergedProfitability(items = []) {
+  return [...new Set(items.map((item) => item.currency))].sort().map((currency) => {
+    const rows = items.filter((item) => item.currency === currency);
+    const costed = rows.filter((item) => !item.missingCostCount);
+    const revenueAmount = rows.reduce((sum, item) => sum + (item.revenueAmount || 0), 0);
+    const profitAmount = costed.reduce((sum, item) => sum + (item.profitAmount || 0), 0);
+    const costedRevenueAmount = costed.reduce((sum, item) => sum + (item.revenueAmount || 0), 0);
+    return {
+      currency,
+      orderCount: rows.length,
+      costedOrderCount: costed.length,
+      missingCostOrderCount: rows.length - costed.length,
+      revenueAmount,
+      totalCostAmount: costed.reduce((sum, item) => sum + (item.totalCostAmount || 0), 0),
+      profitAmount,
+      profitableOrderCount: costed.filter((item) => (item.profitAmount || 0) > 0).length,
+      lossOrderCount: costed.filter((item) => (item.profitAmount || 0) < 0).length,
+      marginBps: costedRevenueAmount > 0 ? Math.round((profitAmount / costedRevenueAmount) * 10000) : null,
+    };
+  });
 }
 
 async function summarizeAdsByChannel(query = {}) {
@@ -644,7 +731,9 @@ async function calculateAndUpsertOrderItem(orderItemId, authContext, session) {
   ]);
   const revenue = calculateRevenue(item, { feeAmount, refundAmount });
   const cost = calculateCost(fulfillmentPlan);
-  const margin = calculateMargin(revenue, cost.totalCostAmount, cost.costStatus);
+  const effectiveTotalCostAmount = existingSnapshot?.actualVendorTotalAmount
+    ?? cost.totalCostAmount;
+  const margin = calculateMargin(revenue, effectiveTotalCostAmount, cost.costStatus);
   const payload = {
     orderId: item.orderId,
     orderItemId,
@@ -664,7 +753,10 @@ async function calculateAndUpsertOrderItem(orderItemId, authContext, session) {
     ...margin,
     calculatedAt: new Date(),
   };
-  payload.profitStatus = profitStatusFor(payload);
+  payload.profitStatus = profitStatusFor({
+    ...payload,
+    actualVendorTotalAmount: existingSnapshot?.actualVendorTotalAmount,
+  });
   payload.calculationHistory = [
     {
       calculatedAt: payload.calculatedAt,
@@ -698,6 +790,30 @@ async function recalculateOrderItem(orderItemId, authContext, httpContext) {
     );
     return result;
   });
+}
+
+async function updateActualVendorCost(orderItemId, vendorCost = {}) {
+  const existingSnapshot = await repository.findByOrderItem(orderItemId);
+  if (!existingSnapshot) return null;
+  const actualCost = {
+    actualVendorBaseCostAmount: vendorCost.vendorBaseCostAmount ?? null,
+    actualVendorShippingAmount: vendorCost.shippingAmount ?? null,
+    actualVendorTaxAmount: vendorCost.taxAmount ?? null,
+    actualVendorTotalAmount: vendorCost.totalAmount ?? null,
+    actualVendorCurrency: vendorCost.currency || null,
+    actualVendorSource: vendorCost.source || null,
+    actualVendorCapturedAt: vendorCost.capturedAt || new Date(),
+  };
+  const orderPnl = calculateOrderPnl({ ...existingSnapshot, ...actualCost });
+  const updated = await repository.updateActualVendorCost(orderItemId, {
+    ...actualCost,
+    grossProfitAmount: orderPnl.profitAmount,
+    grossMarginBps: orderPnl.totalCostAmount !== null && existingSnapshot.customerPaidAmount > 0
+      ? Math.round((orderPnl.profitAmount / existingSnapshot.customerPaidAmount) * 10000)
+      : null,
+    profitStatus: financeProfitStatuses.ACTUAL,
+  });
+  return toFinanceSnapshotDto({ ...(updated || existingSnapshot), orderPnl });
 }
 
 function orderRecalculateSummary(orderId, snapshots = []) {
@@ -788,6 +904,7 @@ module.exports = {
   listSnapshotsByOrderItemIds,
   recalculateOrder,
   recalculateOrderItem,
+  updateActualVendorCost,
   summarizeBySeller,
   summarizeSellerDaily,
   summarizeByTeam,

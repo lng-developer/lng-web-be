@@ -182,6 +182,12 @@ const updateVendorProductSchema = Joi.object({
   metadata,
 }).min(1);
 
+const cloneVendorProductSchema = Joi.object({
+  vendorId: objectId.required(),
+  code: Joi.string().trim().uppercase().min(1).max(80),
+  name: Joi.string().trim().min(1).max(200),
+});
+
 const shippingCostSchema = Joi.object({
   economyAmount: Joi.number().integer().min(0),
   additionalAmount: Joi.number().integer().min(0),
@@ -300,6 +306,7 @@ module.exports = {
   importVendorTemplateSchema,
   createVendorProductSchema,
   updateVendorProductSchema,
+  cloneVendorProductSchema,
   listVendorCostCentersQuerySchema,
   createVendorCostCenterSchema,
   updateVendorCostCenterSchema,

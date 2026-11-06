@@ -3,6 +3,7 @@ const printway = require('./printway.adapter');
 const lenful = require('./lenful.adapter');
 const merchfox = require('./merchfox.adapter');
 const lngGroup = require('./lngGroup.adapter');
+const mangotee = require('./mangotee.adapter');
 const AppError = require('../../../../shared/errors/appError');
 const errorCodes = require('../../../../shared/constants/errorCodes');
 const httpStatus = require('../../../../shared/constants/httpStatus');
@@ -13,6 +14,7 @@ const adapters = new Map([
   [lenful.provider, lenful],
   [merchfox.provider, merchfox],
   [lngGroup.provider, lngGroup],
+  [mangotee.provider, mangotee],
 ]);
 
 function getAdapter(provider) {

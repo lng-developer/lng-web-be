@@ -244,6 +244,7 @@ function normalizeVendorTrackingPayload(provider, payload = {}) {
     trackingNumber: picked.trackingNumber,
     carrier: picked.carrier,
     trackingUrl: picked.trackingUrl,
+    shippedAt: picked.updatedAt || null,
     vendorStatus,
     shipmentStatus,
     delivered: shipmentStatus === 'DELIVERED',

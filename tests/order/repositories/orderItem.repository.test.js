@@ -113,7 +113,7 @@ describe('orderItem.repository findIds', () => {
 
     await expect(repository.findIds({ externalOrderId: '114-1' })).resolves.toEqual(ids);
     expect(OrderItem.distinct).toHaveBeenCalledWith('_id', {
-      externalOrderId: { $regex: '114-1', $options: 'i' },
+      externalOrderId: '114-1',
     });
   });
 

@@ -5,8 +5,56 @@ const {
 } = require('../../../src/modules/shipment/services/vendorTrackingAdapterRegistry.service');
 const printwayAdapter = require('../../../src/modules/shipment/services/vendorTrackingAdapters/printway.adapter');
 const merchizeAdapter = require('../../../src/modules/shipment/services/vendorTrackingAdapters/merchize.adapter');
+const mangoteeAdapter = require('../../../src/modules/shipment/services/vendorTrackingAdapters/mangotee.adapter');
 
 describe('vendorTrackingAdapterRegistry.service', () => {
+  test('fetches MangoTee order detail and normalizes shipment tracking', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        status: true,
+        data: {
+          order_id: 'AMZ-1',
+          status: 'shipped',
+          tracking_number: '9400111899',
+          tracking_status: 'in_transit',
+          tracking_provider: 'USPS',
+          shipped_at: '2026-11-05T12:30:00Z',
+        },
+      }),
+    });
+
+    await expect(getTrackingAdapter('MANGOTEE').fetchTrackingByExternalOrderId('AMZ-1', {
+      credential: {
+        baseUrl: 'https://v3.mangoteeprints.com/api/public/v1',
+        accessToken: 'api-key',
+      },
+    })).resolves.toMatchObject({
+      provider: 'MANGOTEE',
+      externalOrderId: 'AMZ-1',
+      carrier: 'USPS',
+      trackingNumber: '9400111899',
+      vendorStatus: 'IN_TRANSIT',
+      shippedAt: '2026-11-05T12:30:00Z',
+    });
+  });
+
+  test('uses MangoTee tracking event created_at for shippedAt', () => {
+    expect(mangoteeAdapter.normalizeMangoteeTracking('AMZ-2', {
+      data: {
+        order_id: 'AMZ-2',
+        updated_at: '2026-11-06T15:00:00Z',
+        events: [{
+          created_at: '2026-11-05T12:30:00Z',
+          carrier: 'USPS',
+          tracking_number: '9400111899',
+          tracking_status: 'in_transit',
+        }],
+      },
+    })).toMatchObject({ shippedAt: '2026-11-05T12:30:00Z' });
+  });
+
   test('fetches Merchfox order tracking with configured API credentials', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,

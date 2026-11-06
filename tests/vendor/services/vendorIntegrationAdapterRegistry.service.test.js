@@ -99,3 +99,7 @@ describe('vendorIntegrationAdapterRegistry.service', () => {
     expect(JSON.parse(options.body)).toMatchObject({ keyword: 'AMZ-1', keywordType: 'order' });
   });
 });
+
+test('exposes MangoTee production lines from the provider API', () => {
+  expect(getAdapter('MANGOTEE')).toEqual(expect.objectContaining({ fetchProductionLines: expect.any(Function) }));
+});

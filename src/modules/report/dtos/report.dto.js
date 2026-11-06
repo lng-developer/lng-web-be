@@ -15,6 +15,7 @@ function toFinanceDailyDto(row = {}) {
     marketplaceCode: row.marketplaceCode || null,
     itemCount: numberValue(row.itemCount),
     revenueAmount: numberValue(row.revenueAmount),
+    netRevenueAmount: numberValue(row.netRevenueAmount),
     baseCostAmount: numberValue(row.baseCostAmount),
     totalCostAmount: nullableNumber(row.totalCostAmount),
     additionalFulfillmentCostAmount: nullableNumber(row.additionalFulfillmentCostAmount),
@@ -25,6 +26,9 @@ function toFinanceDailyDto(row = {}) {
     grossMarginBps:
       row.grossMarginBps === null || row.grossMarginBps === undefined ? null : numberValue(row.grossMarginBps),
     missingCostCount: numberValue(row.missingCostCount),
+    cancelledCount: numberValue(row.cancelledCount),
+    partiallyRefundedCount: numberValue(row.partiallyRefundedCount),
+    refundedCount: numberValue(row.refundedCount),
     estimatedFeeCount: numberValue(row.estimatedFeeCount),
     estimatedCostCount: numberValue(row.estimatedCostCount),
     currency: row.currency || null,
@@ -43,6 +47,7 @@ function toFinanceOrderProfitabilityDto(row = {}) {
     currency: row.currency || null,
     itemCount: numberValue(row.itemCount),
     revenueAmount: numberValue(row.revenueAmount),
+    netRevenueAmount: numberValue(row.netRevenueAmount),
     baseCostAmount: numberValue(row.baseCostAmount),
     totalCostAmount: nullableNumber(row.totalCostAmount),
     lngFulfillmentFeeAmount: nullableNumber(row.lngFulfillmentFeeAmount),
@@ -54,6 +59,9 @@ function toFinanceOrderProfitabilityDto(row = {}) {
     profitAmount: nullableNumber(row.profitAmount),
     marginBps: nullableNumber(row.marginBps),
     missingCostCount: numberValue(row.missingCostCount),
+    cancelledCount: numberValue(row.cancelledCount),
+    partiallyRefundedCount: numberValue(row.partiallyRefundedCount),
+    refundedCount: numberValue(row.refundedCount),
   };
 }
 

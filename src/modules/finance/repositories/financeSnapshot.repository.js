@@ -42,6 +42,7 @@ function buildFilter(query = {}) {
   }
   if (query.snapshotStatus) filter.snapshotStatus = query.snapshotStatus;
   if (query.costStatus) filter.costStatus = query.costStatus;
+  if (query.financialStatus) filter.financialStatus = query.financialStatus;
   if (query.dateFrom || query.dateTo) {
     const dateField = profitabilityDateField(query);
     filter[dateField] = {};
@@ -264,12 +265,16 @@ async function summarizeDaily(query = {}) {
         },
         itemCount: { $sum: 1 },
         revenueAmount: { $sum: '$customerPaidAmount' },
+        netRevenueAmount: { $sum: { $ifNull: ['$netRevenueAmount', { $subtract: ['$customerPaidAmount', { $ifNull: ['$refundAmount', 0] }] }] } },
         baseCostAmount: { $sum: { $ifNull: ['$baseCostAmount', 0] } },
         totalCostAmount: { $sum: { $ifNull: ['$totalCostAmount', 0] } },
         marketplaceFeeAmount: { $sum: { $ifNull: ['$feeAmount', 0] } },
         refundAmount: { $sum: { $ifNull: ['$refundAmount', 0] } },
         discountAmount: { $sum: { $ifNull: ['$discountAmount', 0] } },
         grossProfitAmount: { $sum: { $ifNull: ['$grossProfitAmount', 0] } },
+        cancelledCount: { $sum: { $cond: [{ $eq: ['$financialStatus', 'CANCELLED'] }, 1, 0] } },
+        partiallyRefundedCount: { $sum: { $cond: [{ $eq: ['$financialStatus', 'PARTIALLY_REFUNDED'] }, 1, 0] } },
+        refundedCount: { $sum: { $cond: [{ $eq: ['$financialStatus', 'REFUNDED'] }, 1, 0] } },
         missingCostCount: { $sum: { $cond: [{ $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] } },
         estimatedFeeCount: { $sum: { $cond: [{ $eq: ['$feeConfidence', 'ESTIMATED'] }, 1, 0] } },
         estimatedCostCount: { $sum: { $cond: [{ $eq: ['$costBasis', 'RATE_CARD'] }, 1, 0] } },
@@ -285,6 +290,7 @@ async function summarizeDaily(query = {}) {
         currency: '$_id.currency',
         itemCount: 1,
         revenueAmount: 1,
+        netRevenueAmount: 1,
         baseCostAmount: 1,
         totalCostAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$totalCostAmount', null] },
         additionalFulfillmentCostAmount: {
@@ -293,6 +299,9 @@ async function summarizeDaily(query = {}) {
         marketplaceFeeAmount: 1,
         refundAmount: 1,
         discountAmount: 1,
+        cancelledCount: 1,
+        partiallyRefundedCount: 1,
+        refundedCount: 1,
         grossProfitAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$grossProfitAmount', null] },
         grossMarginBps: {
           $cond: [
@@ -496,6 +505,7 @@ async function listOrderProfitability(query = {}) {
         reportDate: { $min: dateField },
         itemCount: { $sum: 1 },
         revenueAmount: { $sum: '$customerPaidAmount' },
+        netRevenueAmount: { $sum: { $ifNull: ['$netRevenueAmount', { $subtract: ['$customerPaidAmount', { $ifNull: ['$refundAmount', 0] }] }] } },
         baseCostAmount: { $sum: { $ifNull: ['$baseCostAmount', 0] } },
         totalCostAmount: { $sum: { $ifNull: ['$totalCostAmount', 0] } },
         lngFulfillmentFeeAmount: {
@@ -541,6 +551,9 @@ async function listOrderProfitability(query = {}) {
         marketplaceFeeAmount: { $sum: { $ifNull: ['$feeAmount', 0] } },
         refundAmount: { $sum: { $ifNull: ['$refundAmount', 0] } },
         discountAmount: { $sum: { $ifNull: ['$discountAmount', 0] } },
+        cancelledCount: { $sum: { $cond: [{ $eq: ['$financialStatus', 'CANCELLED'] }, 1, 0] } },
+        partiallyRefundedCount: { $sum: { $cond: [{ $eq: ['$financialStatus', 'PARTIALLY_REFUNDED'] }, 1, 0] } },
+        refundedCount: { $sum: { $cond: [{ $eq: ['$financialStatus', 'REFUNDED'] }, 1, 0] } },
         missingCostCount: { $sum: { $cond: [{ $eq: [{ $ifNull: ['$totalCostAmount', null] }, null] }, 1, 0] } },
       },
     },
@@ -557,6 +570,7 @@ async function listOrderProfitability(query = {}) {
         reportDate: 1,
         itemCount: 1,
         revenueAmount: 1,
+        netRevenueAmount: 1,
         baseCostAmount: 1,
         totalCostAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$totalCostAmount', null] },
         lngFulfillmentFeeAmount: { $cond: [{ $eq: ['$missingCostCount', 0] }, '$lngFulfillmentFeeAmount', null] },
@@ -581,6 +595,9 @@ async function listOrderProfitability(query = {}) {
         marketplaceFeeAmount: 1,
         refundAmount: 1,
         discountAmount: 1,
+        cancelledCount: 1,
+        partiallyRefundedCount: 1,
+        refundedCount: 1,
         profitAmount: {
           $cond: [
             { $eq: ['$missingCostCount', 0] },
@@ -962,6 +979,14 @@ async function upsertByOrderItem(orderItemId, payload, { session } = {}) {
   ).lean();
 }
 
+async function updateActualVendorCost(orderItemId, payload) {
+  return FinanceSnapshot.findOneAndUpdate(
+    { orderItemId },
+    { $set: payload },
+    { returnDocument: 'after', runValidators: true },
+  ).lean();
+}
+
 module.exports = {
   buildFilter,
   findByOrderItem,
@@ -983,4 +1008,5 @@ module.exports = {
   summarizeDaily,
   summarizeDailyProfit,
   upsertByOrderItem,
+  updateActualVendorCost,
 };
