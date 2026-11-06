@@ -116,8 +116,6 @@ function toOrderItemSummaryDto(snapshot, task) {
     status: snapshot?.status || null,
   };
 }
-  };
-}
 
 function toOrderDto(snapshot) {
   if (!snapshot) return null;
