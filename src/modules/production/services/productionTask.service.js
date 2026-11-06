@@ -1619,10 +1619,6 @@ async function attachEtsyListingIds(tasks = []) {
     };
   });
 }
-      },
-    };
-  });
-}
 
 async function attachOrderSnapshots(tasks = []) {
   const missing = tasks.filter((task) => task && !task.orderSnapshot && task.orderId);
