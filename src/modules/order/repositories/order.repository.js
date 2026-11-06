@@ -169,7 +169,13 @@ function applyTabFilter(filter, tab = orderListTabs.ALL) {
   const next = { ...filter };
 
   if (tab === orderListTabs.NEW_ORDER) applyNewOrderWindow(next);
-  if (tab === orderListTabs.NO_COST_CENTER) next.costCenterStatus = { $in: [costCenterStatuses.MISSING, null] };
+  if (tab === orderListTabs.NO_COST_CENTER) {
+    next.costCenterStatus = { $in: [costCenterStatuses.MISSING, null] };
+    mergeStatusFilter(
+      next,
+      Object.values(orderStatuses).filter((status) => status !== orderStatuses.CANCELLED),
+    );
+  }
   if (tab === orderListTabs.ADDRESS_ISSUE) {
     next.addressValidationStatus = { $nin: [addressValidationStatuses.VALID, addressValidationStatuses.OVERRIDDEN] };
   }
@@ -194,9 +200,14 @@ function itemProjection() {
     listingImage: 1,
     'externalData.etsy.listingImageUrl': 1,
     'externalData.etsy.listingImageThumbnailUrl': 1,
+    'externalData.etsy.listingId': 1,
     _id: 1,
     orderId: 1,
     externalItemId: 1,
+    externalListingId: 1,
+    variantRaw: 1,
+    variations: 1,
+    customizationRawSummary: 1,
     sku: 1,
     title: 1,
     asin: 1,
@@ -647,7 +658,18 @@ function tabCountGroupStage({ includeItemStatus = false, currentPsd = false } = 
       $sum: { $cond: [{ $gte: ['$orderedAt', cutoff] }, 1, 0] },
     },
     [orderListTabs.NO_COST_CENTER]: {
-      $sum: { $cond: [{ $in: ['$costCenterStatus', [costCenterStatuses.MISSING, null]] }, 1, 0] },
+      $sum: {
+        $cond: [
+          {
+            $and: [
+              { $in: ['$costCenterStatus', [costCenterStatuses.MISSING, null]] },
+              { $ne: ['$status', orderStatuses.CANCELLED] },
+            ],
+          },
+          1,
+          0,
+        ],
+      },
     },
     [orderListTabs.NO_PSD]: {
       $sum: { $cond: [currentPsd ? { $eq: ['$hasCurrentPsd', false] } : { $in: ['$psdStatus', [psdStatuses.MISSING, null]] }, 1, 0] },

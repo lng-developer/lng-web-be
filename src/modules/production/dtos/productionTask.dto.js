@@ -79,6 +79,7 @@ function toOrderItemDto(snapshot, task) {
   const etsyListingId = snapshot?.etsyListingId
     || task?.listingSnapshot?.etsyListingId
     || task?.orderItemSnapshot?.externalListingId
+    || snapshot?.externalListingId
     || null;
   return {
     externalOrderId: snapshot?.externalOrderId || null,
@@ -88,6 +89,7 @@ function toOrderItemDto(snapshot, task) {
     marketplaceCode: snapshot?.marketplaceCode || null,
     asin: snapshot?.asin || null,
     etsyListingId,
+    externalListingId: snapshot?.externalListingId || etsyListingId,
     sku: snapshot?.sku || null,
     title: snapshot?.title || null,
     status: snapshot?.status || null,
@@ -100,6 +102,7 @@ function toOrderItemSummaryDto(snapshot, task) {
   const etsyListingId = snapshot?.etsyListingId
     || task?.listingSnapshot?.etsyListingId
     || task?.orderItemSnapshot?.externalListingId
+    || snapshot?.externalListingId
     || null;
   return {
     externalOrderId: snapshot?.externalOrderId || null,
@@ -107,6 +110,7 @@ function toOrderItemSummaryDto(snapshot, task) {
     salesChannelCode,
     asin: snapshot?.asin || null,
     etsyListingId,
+    externalListingId: snapshot?.externalListingId || etsyListingId,
     sku: snapshot?.sku || null,
     title: snapshot?.title || null,
     status: snapshot?.status || null,
@@ -154,6 +158,7 @@ function toScaleListingDto(snapshot) {
   const previewAssetId = toId(snapshot.previewAssetId);
   return {
     id: toId(snapshot),
+    salesChannelCode: snapshot.salesChannelCode || null,
     sku: snapshot.sku || null,
     asin: snapshot.asin || null,
     etsyListingId: snapshot.etsyListingId || null,

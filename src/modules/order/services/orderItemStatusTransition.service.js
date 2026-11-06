@@ -189,6 +189,18 @@ async function syncParentOrderStatus(orderId, context = {}) {
       ? await orderRepository.updateStatus(orderId, nextStatus, patch)
       : await orderRepository.updateStatus(orderId, nextStatus);
   await appendOrderStatusTimeline(order, nextStatus, context);
+  if (updated) {
+    const projectionPatch = { status: updated.status, 'order.status': updated.status };
+    if (updated.paymentStatus !== undefined) {
+      projectionPatch.paymentStatus = updated.paymentStatus;
+      projectionPatch['order.paymentStatus'] = updated.paymentStatus;
+    }
+    await orderWorkbenchProjectionService.updateOrderWorkbenchOrder(
+      orderId,
+      projectionPatch,
+      { source: 'ORDER_STATUS', ...(context.session ? { session: context.session } : {}) },
+    );
+  }
   return updated;
 }
 
@@ -290,6 +302,7 @@ module.exports = {
   canTransition,
   deriveOrderStatusFromItems,
   markOrderDelivered,
+  syncParentOrderStatus,
   transitionItemStatus,
   updateItemAsin,
   updateItemListingId,

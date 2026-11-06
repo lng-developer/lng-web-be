@@ -1,6 +1,11 @@
 const { Queue, Worker, QueueEvents } = require('bullmq');
 const config = require('./index');
 
+const DEFAULT_JOB_OPTIONS = {
+  removeOnComplete: 100,
+  removeOnFail: 500,
+};
+
 function createQueueConnection() {
   return {
     ...config.redis,
@@ -9,9 +14,14 @@ function createQueueConnection() {
 }
 
 function createQueue(name, options = {}) {
+  const { defaultJobOptions, ...restOptions } = options;
   return new Queue(name, {
     connection: createQueueConnection(),
-    ...options,
+    defaultJobOptions: {
+      ...DEFAULT_JOB_OPTIONS,
+      ...defaultJobOptions,
+    },
+    ...restOptions,
   });
 }
 
@@ -34,4 +44,5 @@ module.exports = {
   createWorker,
   createQueueEvents,
   createQueueConnection,
+  DEFAULT_JOB_OPTIONS,
 };

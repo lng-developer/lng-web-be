@@ -123,7 +123,7 @@ router.get(
 router.get(
   '/tasks/summary',
   authPublic.authenticate,
-  requireRead,
+  requirePsdRequestRead,
   asyncHandler(controller.summarizeTasks),
 );
 

@@ -72,13 +72,15 @@ function orderFinancialSnapshot(row) {
   ]);
 }
 
-const customizationVariationKeyPattern = /(^|[,;\n])\s*(custom|personalization|enter your custom|custom name|names|event date|initials|ink color|photo|choose your design|type printing option)\s*:/i;
+const customizationVariationKeyPattern = /(^|[,;\n])\s*(custom|personalization|enter\s*(?:your\s*)?(?:custom|name|text|info)?|custom\s*name|names?|your\s*name|engrav|message|note|quote|text|monogram|initials?|song|title|date|year|event date|ink color|photo|image|upload|choose your design|type printing option)\s*:/i;
 
 function hasCustomization(row) {
+  const variations = value(row, 'Variations');
   return Boolean(
     value(row, 'Personalization')
     || value(row, 'customization_url')
-    || customizationVariationKeyPattern.test(value(row, 'Variations')),
+    || customizationVariationKeyPattern.test(variations)
+    || (variations && variations.includes('\n')),
   );
 }
 

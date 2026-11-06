@@ -6,6 +6,7 @@ const logger = require('../../../../shared/utils/logger');
 const authPublic = require('../../../auth/public');
 const repository = require('../repositories/extensionCommand.repository');
 const { extensionCommandTypes, extensionCommandStatuses } = require('../constants/extensionCommand.constants');
+const { calculateNextRunAt } = require('./scheduleTimeUtils');
 const { toManagementAgentDto } = require('../dtos/extensionCommand.dto');
 const { transactionWindow, yesterday } = require('./transactionScheduleWindow');
 
@@ -20,9 +21,7 @@ const conflict = (message) => new AppError(message, httpStatus.CONFLICT, true, e
 const financeCommandTypes = [extensionCommandTypes.IMPORT_ADS_SPEND, extensionCommandTypes.IMPORT_TRANSACTIONS, extensionCommandTypes.IMPORT_SETTLEMENTS];
 const lockedImportTypes = [extensionCommandTypes.IMPORT_NEW_ORDERS, extensionCommandTypes.UPLOAD_TRACKING, ...financeCommandTypes];
 const invalid = (message) => new AppError(message, httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
-function rejectEtsyAutomation(agent) {
-  if (agent.provider === 'ETSY') throw invalid('Etsy supports web-requested Orders only');
-}
+function rejectEtsyAutomation() {}
 
 async function createLockedImportCommand(payload) {
   try {
@@ -46,6 +45,7 @@ function isOnline(agent, now) {
 function financeSourceForCommand(type) {
   if (type === extensionCommandTypes.IMPORT_TRANSACTIONS) return 'TRANSACTIONS';
   if (type === extensionCommandTypes.IMPORT_SETTLEMENTS) return 'SETTLEMENTS';
+  if (type === extensionCommandTypes.IMPORT_ADS_SPEND) return 'ADS';
   return null;
 }
 function canReadShop(auth, shopId) {
@@ -92,10 +92,28 @@ async function createCommand(input, auth) {
   const agent = await repository.findAgentById(input.agentId);
   if (!agent || String(agent.shopId) !== String(input.shopId)) throw notFound('Extension agent not found for shop');
   const etsy = agent.provider === 'ETSY';
-  const maxOrders = input.maxOrders ?? 1;
-  if (etsy && (input.type !== extensionCommandTypes.IMPORT_NEW_ORDERS || !Number.isInteger(maxOrders) || maxOrders < 1 || maxOrders > 200)) throw invalid('Etsy requires an Orders request with maxOrders from 1 to 200');
-  if (etsy) await repository.releaseExpired(agent._id, new Date(), 'ETSY');
-  const payload = { origin: 'WEB', ...(etsy ? { provider: 'ETSY', maxOrders } : {}), type: input.type, shopId: input.shopId, agentId: input.agentId, numDays: input.numDays, dateFrom: input.dateFrom || null, dateTo: input.dateTo || null, createdByAccountId: auth.accountId || null };
+  const maxOrders = input.maxOrders ?? (input.type === extensionCommandTypes.IMPORT_NEW_ORDERS ? 1 : null);
+  if (etsy) {
+    if (input.type === extensionCommandTypes.IMPORT_NEW_ORDERS) {
+      if (!Number.isInteger(maxOrders) || maxOrders < 1 || maxOrders > 200) {
+        throw invalid('Etsy requires an Orders request with maxOrders from 1 to 200');
+      }
+    } else if (![extensionCommandTypes.IMPORT_ADS_SPEND, extensionCommandTypes.IMPORT_SETTLEMENTS].includes(input.type)) {
+      throw invalid(`Unsupported Etsy command type: ${input.type}`);
+    }
+    await repository.releaseExpired(agent._id, new Date(), 'ETSY');
+  }
+  const payload = {
+    origin: 'WEB',
+    ...(etsy ? { provider: 'ETSY', ...(maxOrders ? { maxOrders } : {}) } : {}),
+    type: input.type,
+    shopId: input.shopId,
+    agentId: input.agentId,
+    numDays: input.numDays,
+    dateFrom: input.dateFrom || null,
+    dateTo: input.dateTo || null,
+    createdByAccountId: auth.accountId || null,
+  };
   return lockedImportTypes.includes(input.type) ? createLockedImportCommand(payload) : repository.createCommand(payload);
 }
 
@@ -115,14 +133,29 @@ async function getCurrentAgent(auth, input) {
 
 async function queueCurrentOrderImport(input, auth) {
   const agent = await getCurrentAgent(auth, input);
-  rejectEtsyAutomation(agent);
-  return createLockedImportCommand({ origin: 'EXTENSION', type: extensionCommandTypes.IMPORT_NEW_ORDERS, shopId: agent.shopId, agentId: agent._id || agent.id, numDays: input.numDays || 1, createdByAccountId: null });
+  return createLockedImportCommand({
+    origin: 'EXTENSION',
+    type: extensionCommandTypes.IMPORT_NEW_ORDERS,
+    shopId: agent.shopId,
+    agentId: agent._id || agent.id,
+    numDays: input.numDays || 1,
+    createdByAccountId: null,
+    ...(agent.provider === 'ETSY' ? { provider: 'ETSY', maxOrders: 50 } : {}),
+  });
 }
 
 async function queueCurrentAdsImport(input, auth) {
   const agent = await getCurrentAgent(auth, input);
-  rejectEtsyAutomation(agent);
-  return createLockedImportCommand({ origin: 'EXTENSION', type: extensionCommandTypes.IMPORT_ADS_SPEND, shopId: agent.shopId, agentId: agent._id || agent.id, dateFrom: input.dateFrom, dateTo: input.dateTo, createdByAccountId: null });
+  return createLockedImportCommand({
+    origin: 'EXTENSION',
+    type: extensionCommandTypes.IMPORT_ADS_SPEND,
+    shopId: agent.shopId,
+    agentId: agent._id || agent.id,
+    dateFrom: input.dateFrom,
+    dateTo: input.dateTo,
+    createdByAccountId: null,
+    ...(agent.provider === 'ETSY' ? { provider: 'ETSY' } : {}),
+  });
 }
 
 async function claimNext(input, auth) {
@@ -173,6 +206,19 @@ async function completeCommand(commandId, input, auth) {
   if (command.imageSyncJobId) await require('../../listingImageSync/public').dispatchJob(command.imageSyncJobId);
   const financeSource = financeSourceForCommand(command.type);
   if (financeSource && command.financeScheduleId) {
+    let computedNextRunAt = null;
+    const financeSchedule = await repository.findFinanceScheduleById(command.financeScheduleId);
+    if (financeSource === 'TRANSACTIONS' && input.success && command.dateTo < yesterday(new Date())) {
+      computedNextRunAt = new Date(Date.now() + 60_000);
+    } else if (financeSchedule) {
+      computedNextRunAt = calculateNextRunAt({
+        scheduleType: financeSchedule.scheduleType,
+        intervalMinutes: financeSchedule.intervalMinutes,
+        fixedTimes: financeSchedule.fixedTimes,
+        timezone: financeSchedule.timezone,
+        now: new Date(),
+      });
+    }
     await repository.markFinanceScheduleCompleted({
       agentId: command.agentId,
       source: financeSource,
@@ -182,7 +228,7 @@ async function completeCommand(commandId, input, auth) {
       lastSuccessfulDate: input.success && financeSource === 'TRANSACTIONS' ? command.dateTo : null,
       ...(financeSource === 'TRANSACTIONS' ? {
         nextRunAt: new Date(Date.now() + (input.success && command.dateTo < yesterday(new Date()) ? 60_000 : 24 * 60 * 60 * 1000)),
-      } : {}),
+      } : computedNextRunAt ? { nextRunAt: computedNextRunAt } : {}),
     });
   }
   return command;
@@ -194,12 +240,18 @@ async function validateEtsyJob(commandId, jobId, agent, auth) {
 }
 
 async function dispatchDueOrderSchedules(now = new Date()) {
-  const schedules = await repository.listDueOrderSchedules(now);
+  const schedules = (await repository.listDueOrderSchedules(now)) || [];
   for (const schedule of schedules) {
     const agentId = schedule.agentId?._id || schedule.agentId;
     const agent = await repository.findAgentById(agentId);
-    if (agent?.provider === 'ETSY') continue;
-    if (!await repository.claimDueOrderSchedule(schedule._id, now, schedule.intervalMinutes)) continue;
+    const nextRunAt = calculateNextRunAt({
+      scheduleType: schedule.scheduleType,
+      intervalMinutes: schedule.intervalMinutes,
+      fixedTimes: schedule.fixedTimes,
+      timezone: schedule.timezone,
+      now,
+    });
+    if (!await repository.claimDueOrderSchedule(schedule._id, now, nextRunAt)) continue;
     if (!isOnline(agent, now)) {
       await repository.postponeOrderSchedule(schedule._id, now, 'AGENT_OFFLINE');
       continue;
@@ -208,17 +260,24 @@ async function dispatchDueOrderSchedules(now = new Date()) {
       await repository.postponeOrderSchedule(schedule._id, now, 'ACTIVE_ORDER_COMMAND');
       continue;
     }
-    await createLockedImportCommand({ origin: 'SCHEDULE', type: extensionCommandTypes.IMPORT_NEW_ORDERS, shopId: schedule.shopId, agentId, numDays: 7, createdByAccountId: null });
+    await createLockedImportCommand({
+      origin: 'SCHEDULE',
+      type: extensionCommandTypes.IMPORT_NEW_ORDERS,
+      shopId: schedule.shopId,
+      agentId,
+      numDays: 7,
+      createdByAccountId: null,
+      ...(agent?.provider === 'ETSY' ? { provider: 'ETSY', maxOrders: 50 } : {}),
+    });
     await repository.markOrderScheduleQueued(schedule._id, now);
   }
 }
 
 async function dispatchDueFinanceSchedules(now = new Date()) {
-  const schedules = await repository.listDueFinanceSchedules(now);
+  const schedules = (await repository.listDueFinanceSchedules(now)) || [];
   for (const schedule of schedules) {
     const agentId = schedule.agentId?._id || schedule.agentId;
     const agent = await repository.findAgentById(agentId);
-    if (agent?.provider === 'ETSY') continue;
     if (!await repository.claimDueFinanceSchedule(schedule._id, now)) continue;
     if (!isOnline(agent, now)) {
       await repository.postponeFinanceSchedule(schedule._id, now, 'AGENT_OFFLINE');
@@ -228,12 +287,29 @@ async function dispatchDueFinanceSchedules(now = new Date()) {
       await repository.postponeFinanceSchedule(schedule._id, now, 'ACTIVE_IMPORT_COMMAND');
       continue;
     }
-    const payload = schedule.source === 'TRANSACTIONS'
-      ? { type: extensionCommandTypes.IMPORT_TRANSACTIONS, ...transactionWindow(schedule, now) }
-      : { type: extensionCommandTypes.IMPORT_SETTLEMENTS };
-    await createLockedImportCommand({ origin: 'SCHEDULE', ...payload, financeScheduleId: schedule._id, shopId: schedule.shopId, agentId, createdByAccountId: null });
-    await repository.markFinanceScheduleQueued(schedule._id, now,
-      schedule.source === 'TRANSACTIONS' && !schedule.lastSuccessfulDate && !schedule.backfillStartDate ? payload.dateFrom : null);
+    let payload;
+    if (schedule.source === 'TRANSACTIONS') {
+      payload = { type: extensionCommandTypes.IMPORT_TRANSACTIONS, ...transactionWindow(schedule, now) };
+    } else if (schedule.source === 'ADS') {
+      const ymd = yesterday(now);
+      payload = { type: extensionCommandTypes.IMPORT_ADS_SPEND, dateFrom: ymd, dateTo: ymd };
+    } else {
+      payload = { type: extensionCommandTypes.IMPORT_SETTLEMENTS };
+    }
+    await createLockedImportCommand({
+      origin: 'SCHEDULE',
+      ...payload,
+      financeScheduleId: schedule._id,
+      shopId: schedule.shopId,
+      agentId,
+      createdByAccountId: null,
+      ...(agent?.provider === 'ETSY' ? { provider: 'ETSY' } : {}),
+    });
+    await repository.markFinanceScheduleQueued(
+      schedule._id,
+      now,
+      schedule.source === 'TRANSACTIONS' && !schedule.lastSuccessfulDate && !schedule.backfillStartDate ? payload.dateFrom : null,
+    );
   }
 }
 
@@ -256,11 +332,28 @@ async function upsertOrderSchedule(agentId, input, auth) {
   const agent = await repository.findAgentById(agentId);
   if (!agent) throw notFound('Extension agent not found');
   assertUserShopAccess(auth, agent.shopId, 'ORDERS:WRITE');
-  if (input.enabled) rejectEtsyAutomation(agent);
   const now = new Date();
   const existing = await repository.findOrderScheduleByAgentId(agentId);
   const runImmediately = input.enabled && !existing?.enabled;
-  const schedule = await repository.upsertOrderSchedule({ shopId: agent.shopId, agentId: agent._id || agent.id, enabled: input.enabled, intervalMinutes: input.intervalMinutes, now, runImmediately });
+  const nextRunAt = calculateNextRunAt({
+    scheduleType: input.scheduleType,
+    intervalMinutes: input.intervalMinutes,
+    fixedTimes: input.fixedTimes,
+    timezone: input.timezone,
+    now,
+  });
+  const schedule = await repository.upsertOrderSchedule({
+    shopId: agent.shopId,
+    agentId: agent._id || agent.id,
+    enabled: input.enabled,
+    scheduleType: input.scheduleType,
+    fixedTimes: input.fixedTimes,
+    timezone: input.timezone,
+    intervalMinutes: input.intervalMinutes,
+    nextRunAt,
+    now,
+    runImmediately,
+  });
   if (!runImmediately) return schedule;
   await dispatchDueOrderSchedules(now);
   return repository.findOrderScheduleByAgentId(agentId);
@@ -271,13 +364,25 @@ async function upsertFinanceSchedule(agentId, source, input, auth) {
   const agent = await repository.findAgentById(agentId);
   if (!agent) throw notFound('Extension agent not found');
   assertUserShopAccess(auth, agent.shopId, 'FINANCE:WRITE');
-  if (input.enabled) rejectEtsyAutomation(agent);
+  const now = new Date();
+  const nextRunAt = calculateNextRunAt({
+    scheduleType: input.scheduleType,
+    intervalMinutes: input.intervalMinutes || 1440,
+    fixedTimes: input.fixedTimes,
+    timezone: input.timezone,
+    now,
+  });
   return repository.upsertFinanceSchedule({
     shopId: agent.shopId,
     agentId: agent._id || agent.id,
     source,
     enabled: input.enabled,
-    now: new Date(),
+    scheduleType: input.scheduleType,
+    fixedTimes: input.fixedTimes,
+    timezone: input.timezone,
+    intervalMinutes: input.intervalMinutes || 1440,
+    nextRunAt,
+    now,
   });
 }
 
@@ -286,7 +391,6 @@ async function requestFinanceScheduleNow(agentId, source, auth) {
   const agent = await repository.findAgentById(agentId);
   if (!agent) throw notFound('Extension agent not found');
   assertUserShopAccess(auth, agent.shopId, 'FINANCE:WRITE');
-  rejectEtsyAutomation(agent);
   const schedule = await repository.findFinanceSchedule({ agentId, source });
   if (!schedule?.enabled) throw conflict('Enable this Finance schedule before requesting it');
   const now = new Date();

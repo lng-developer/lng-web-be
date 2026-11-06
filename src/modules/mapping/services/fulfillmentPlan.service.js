@@ -237,7 +237,10 @@ function normalizePrintMethod(value) {
 function supportsPrintMethod(candidate = {}, printMethod) {
   const normalized = normalizePrintMethod(printMethod);
   if (!normalized) return true;
-  return normalizePrintMethod(candidate.printMethod) === normalized;
+  const candidateMethod = normalizePrintMethod(candidate.printMethod);
+  if (candidateMethod === normalized) return true;
+  if (normalized === "OTHER" && !candidateMethod) return true;
+  return false;
 }
 
 function isTwoSidedConfig(configCode) {
@@ -429,10 +432,33 @@ function templateNeedsCustomization(template) {
   return Boolean(template && Array.isArray(template.requiredFields) && template.requiredFields.some((field) => field.required));
 }
 
+function parseVariantRawString(raw) {
+  if (!raw || typeof raw !== "string") return {};
+  const result = {};
+  const matches = [...raw.matchAll(/(?:^|[,;\n])\s*([^:,]+?)\s*:\s*([\s\S]*?)(?=(?:[,;\n]\s*[^:,]+?\s*:)|$)/g)];
+  for (const match of matches) {
+    const key = match[1].trim();
+    const val = match[2].trim();
+    if (/(?:choose\s+)?size(?:s)?/i.test(key)) {
+      result.standardSize = val;
+    } else if (/(?:border\s+)?colou?r/i.test(key)) {
+      result.standardColor = val;
+    }
+  }
+  return result;
+}
+
 function termsFromItem(item, normalizedInputs = []) {
-  const variant = item.variantRaw || {};
+  let variant = item.variantRaw || {};
+  if (typeof variant === "string") {
+    variant = parseVariantRawString(variant);
+  } else if ((!variant.size && !variant.standardSize) && typeof item.variations === "string") {
+    const fromVariations = parseVariantRawString(item.variations);
+    variant = { ...fromVariations, ...variant };
+  }
   const byRole = normalizedInputs.reduce((result, input) => {
-    result[input.semanticRole] = input.value;
+    const role = input.semanticRole || input.role;
+    if (role && !result[role]) result[role] = input.value;
     return result;
   }, {});
   return {
@@ -455,6 +481,7 @@ function normalizeCostCenterValue(value) {
   const pcsMatch = withoutUnits.match(costCenterNormalizationPatterns.PCS);
   if (pcsMatch) return `${pcsMatch[1]} PCS`;
   return withoutUnits
+    .replace(/(\d+),(\d+)/g, '$1.$2')
     .replace(costCenterNormalizationPatterns.NON_ALNUM_DECIMAL, '')
     .trim();
 }
@@ -465,7 +492,7 @@ function normalizeComparableSize(value) {
   return dimension ? `${dimension[1]}X${dimension[2]}` : normalized;
 }
 
-function scoreCostCenter(costCenter, item, normalizedInputs = []) {
+function scoreCostCenter(costCenter, item, normalizedInputs = [], options = {}) {
   const terms = termsFromItem(item, normalizedInputs);
   let score = 0;
   let matchTier = 0;
@@ -521,7 +548,19 @@ function scoreCostCenter(costCenter, item, normalizedInputs = []) {
     matchTier = Math.max(matchTier, 1);
   }
   const colorAgnostic = !costCenter.standardColor && !costCenter.vendorColor && !attributes.color;
-  const confidence = score >= 80 || (colorAgnostic && standardSizeMatch && vendorSizeMatch)
+  const productCostCenters = Array.isArray(options.productCostCenters) ? options.productCostCenters : [];
+  const hasMultipleProductColors = (() => {
+    if (!productCostCenters.length) return false;
+    const colors = new Set();
+    for (const cc of productCostCenters) {
+      const colorVal = normalizeCostCenterValue(cc.standardColor || cc.vendorColor || cc.attributes?.color);
+      if (colorVal) colors.add(colorVal);
+    }
+    return colors.size > 1;
+  })();
+  const isEffectivelyColorAgnostic = colorAgnostic || (!terms.color && !hasMultipleProductColors && productCostCenters.length > 0);
+  const sizeMatched = (standardSizeMatch && vendorSizeMatch) || standardSizeMatch;
+  const confidence = score >= 80 || (isEffectivelyColorAgnostic && sizeMatched)
     ? confidenceLevels.HIGH
     : score >= 40 ? confidenceLevels.MEDIUM : confidenceLevels.LOW;
   return { score, matchReasons, confidence, matchTier };
@@ -752,9 +791,21 @@ async function searchVendorCandidatesForOrderItem(orderItemId, query = {}, authC
     })
     : null;
 
+  const productCostCentersMap = new Map();
+  for (const row of result.items || []) {
+    const pId = String(row.vendorProduct?._id || row.vendorProduct?.id || row.vendorCostCenter?.vendorProductId || '');
+    if (pId) {
+      if (!productCostCentersMap.has(pId)) productCostCentersMap.set(pId, []);
+      productCostCentersMap.get(pId).push(row.vendorCostCenter || {});
+    }
+  }
+
   const rows = (result.items || []).map((row) => {
     const costCenter = row.vendorCostCenter || {};
-    const scored = scoreCostCenter(costCenter, item, scoringInputs);
+    const pId = String(row.vendorProduct?._id || row.vendorProduct?.id || costCenter.vendorProductId || '');
+    const scored = scoreCostCenter(costCenter, item, scoringInputs, {
+      productCostCenters: productCostCentersMap.get(pId) || [],
+    });
     return {
       vendor: compactVendor(row.vendor),
       vendorProduct: toSearchProduct(row.vendorProduct),
@@ -1177,7 +1228,9 @@ async function buildPreview(orderItemId, authContext, options = {}) {
       routingSpecificity: route.specificity,
       routingPriority: route.priority,
       ...(() => {
-        const scored = scoreCostCenter(row, effectiveItem, preview.normalizedInputs);
+        const scored = scoreCostCenter(row, effectiveItem, preview.normalizedInputs, {
+          productCostCenters: rows,
+        });
         return {
           matchScore: scored.score,
           matchReasons: scored.matchReasons,

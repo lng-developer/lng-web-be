@@ -572,7 +572,7 @@ async function getAuthorizedDownloadUrl(assetId, authContext, options = {}) {
   });
 }
 
-async function getPublicAssetUrl(assetId) {
+async function getPublicAssetUrl(assetId, options = {}) {
   const asset = await getAsset(assetId);
   if (asset.uploadStatus && asset.uploadStatus !== 'READY') return null;
   if (asset.provider === 'cloudinary') return asset.secureUrl || null;
@@ -583,10 +583,11 @@ async function getPublicAssetUrl(assetId) {
     if (publicBaseUrl) {
       return `${publicBaseUrl}/api/media/public/assets/${asset._id || asset.id}/download`;
     }
+    const expiresIn = options.expiresIn || (7 * 24 * 3600);
     return wasabi.presignDownload({
       key: asset.providerAssetId,
       filename: asset.originalFilename || 'asset.bin',
-      expiresIn: 7 * 24 * 3600,
+      expiresIn,
     });
   }
   return null;

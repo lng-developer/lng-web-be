@@ -667,4 +667,36 @@ describe('productionTask.dto', () => {
       },
     });
   });
+
+  test('summary task exposes etsyListingId and salesChannelCode for Etsy scale tasks', () => {
+    const dto = toProductionTaskSummaryDto({
+      _id: '660000000000000000100099',
+      salesChannelCode: 'ETSY',
+      orderItemSnapshot: {
+        externalOrderId: '4220617020',
+        externalItemId: '987654321',
+        salesChannelCode: 'ETSY',
+        etsyListingId: '1793859852095',
+        externalListingId: '1793859852095',
+        sku: 'TEST-SKU',
+      },
+      listingSnapshot: {
+        _id: '660000000000000000000999',
+        salesChannelCode: 'ETSY',
+        etsyListingId: '1793859852095',
+        sku: 'TEST-SKU',
+      },
+    });
+
+    expect(dto).not.toHaveProperty('listing');
+    expect(dto.orderItem).toMatchObject({
+      salesChannelCode: 'ETSY',
+      etsyListingId: '1793859852095',
+      externalListingId: '1793859852095',
+    });
+    expect(dto.scaleContext.use.listing).toMatchObject({
+      salesChannelCode: 'ETSY',
+      etsyListingId: '1793859852095',
+    });
+  });
 });

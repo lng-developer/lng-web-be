@@ -78,4 +78,33 @@ describe('extension command validation', () => {
     expect(validate(upsertFinanceScheduleSchema, { enabled: true }).value).toEqual({ enabled: true });
     expect(validate(upsertFinanceScheduleSchema, { enabled: true, intervalMinutes: 60 }).value).toEqual({ enabled: true });
   });
+
+  test('validates fixedTimes and scheduleType for order and finance schedules', () => {
+    expect(validate(upsertOrderScheduleSchema, {
+      enabled: true,
+      scheduleType: 'FIXED_TIMES',
+      fixedTimes: ['10:00', '17:00'],
+      timezone: 'Asia/Ho_Chi_Minh',
+    }).details).toBeUndefined();
+
+    // Invalid time format
+    expect(validate(upsertOrderScheduleSchema, {
+      enabled: true,
+      scheduleType: 'FIXED_TIMES',
+      fixedTimes: ['25:00'],
+    }).details).toBeDefined();
+
+    // Enabled with FIXED_TIMES but empty fixedTimes
+    expect(validate(upsertOrderScheduleSchema, {
+      enabled: true,
+      scheduleType: 'FIXED_TIMES',
+      fixedTimes: [],
+    }).details).toBeDefined();
+
+    expect(validate(upsertFinanceScheduleSchema, {
+      enabled: true,
+      scheduleType: 'FIXED_TIMES',
+      fixedTimes: ['03:00', '17:00'],
+    }).details).toBeUndefined();
+  });
 });

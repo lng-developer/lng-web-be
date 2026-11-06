@@ -195,9 +195,10 @@ describe('report.service', () => {
         date: '2026-09-05',
         sellerEmployeeCode: 'J2502',
         adSpendAmount: 800,
+        grossProfitAmount: 3700,
         netProfitAmount: 700,
-        partialGrossProfitAmount: 3000,
-        partialNetProfitAmount: 2100,
+        partialGrossProfitAmount: 2600,
+        partialNetProfitAmount: 1100,
         costedItemCount: 1,
       }),
     ]);

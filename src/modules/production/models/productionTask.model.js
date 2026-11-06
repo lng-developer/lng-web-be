@@ -63,6 +63,7 @@ const orderItemSnapshotSchema = new mongoose.Schema(
     marketplaceCode: { type: String, trim: true, uppercase: true, default: null },
     asin: { type: String, trim: true, default: null },
     etsyListingId: { type: String, trim: true, default: null },
+    externalListingId: { type: String, trim: true, default: null },
     sku: { type: String, trim: true, default: null },
     title: { type: String, trim: true, default: null },
     productImageUrl: { type: String, trim: true, default: null },
@@ -88,6 +89,7 @@ const orderSnapshotSchema = new mongoose.Schema(
 const listingSnapshotSchema = new mongoose.Schema(
   {
     id: { type: String, default: null },
+    salesChannelCode: { type: String, trim: true, uppercase: true, default: null },
     sku: { type: String, trim: true, default: null },
     asin: { type: String, trim: true, default: null },
     etsyListingId: { type: String, trim: true, default: null },

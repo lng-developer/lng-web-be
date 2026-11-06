@@ -1,5 +1,6 @@
 const logger = require('../../../shared/utils/logger');
 const snapshotService = require('./mongoIndexUsageSnapshot.service');
+const { withDistributedLock } = require('../../../shared/utils/distributedLock');
 
 let timer = null;
 let running = false;
@@ -14,17 +15,20 @@ function intervalMs() {
 
 async function runOnce() {
   if (running) return null;
-  running = true;
-  try {
-    const result = await snapshotService.collectAndStore();
-    logger.info('mongo_index_usage_snapshot_completed', result);
-    return result;
-  } catch (error) {
-    logger.warn('mongo_index_usage_snapshot_failed', { error });
-    return null;
-  } finally {
-    running = false;
-  }
+  return withDistributedLock('scheduler:mongo_index_usage_snapshot', 300000, async () => {
+    if (running) return null;
+    running = true;
+    try {
+      const result = await snapshotService.collectAndStore();
+      logger.info('mongo_index_usage_snapshot_completed', result);
+      return result;
+    } catch (error) {
+      logger.warn('mongo_index_usage_snapshot_failed', { error });
+      return null;
+    } finally {
+      running = false;
+    }
+  });
 }
 
 function startMongoIndexUsageSnapshotScheduler() {

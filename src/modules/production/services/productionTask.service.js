@@ -972,6 +972,7 @@ function toListingSnapshot(listing, fallbackEtsyListingId = null) {
   if (!listing) return null;
   return {
     id: toId(listing),
+    salesChannelCode: listing.salesChannelCode || null,
     sku: listing.sku || null,
     asin: listing.asin || null,
     etsyListingId: listing.etsyListingId || fallbackEtsyListingId || null,
@@ -1057,6 +1058,7 @@ function snapshotPayload({ item, order, plan, listing, template, customization, 
       marketplaceCode: item.marketplaceCode || null,
       asin: item.asin || null,
       etsyListingId,
+      externalListingId: item.externalListingId || null,
       sku: item.sku || null,
       title: item.title || null,
       productImageUrl: productImageUrlFrom(item, listing, customization),
@@ -1516,9 +1518,9 @@ async function getTaskByOrderItem(orderItemId, authContext) {
     if (!sellerIds.map(String).includes(String(orderItemId))) throw forbidden();
   } else assertCanAccessShop(item.shopId, productionPermissions.READ, authContext);
   const [task] = await attachVendorSubmissions(await attachProductionUsers(await attachShops([
-    ...(await attachOrderSnapshots([
+    ...(await attachOrderItemIdentifiers(await attachOrderSnapshots([
       await attachCustomizationSnapshot(await repository.findByOrderItem(orderItemId), authContext),
-    ])),
+    ]))),
   ])));
   return toProductionTaskDto(task);
 }
@@ -1608,10 +1610,15 @@ async function attachEtsyListingIds(tasks = []) {
       orderItemSnapshot: {
         ...(task.orderItemSnapshot || {}),
         etsyListingId: task.orderItemSnapshot?.etsyListingId || etsyListingId,
+        externalListingId: task.orderItemSnapshot?.externalListingId || etsyListingId,
       },
       listingSnapshot: {
         ...(task.listingSnapshot || {}),
         etsyListingId: task.listingSnapshot?.etsyListingId || etsyListingId,
+      },
+    };
+  });
+}
       },
     };
   });
@@ -2459,7 +2466,11 @@ async function submitQc(taskId, payload = {}, authContext) {
   const isOutputWorker = reviewerId && outputs.some((check) => toId(check.outputWorkerId) === reviewerId);
   const isLegacyAssignee = reviewerId && outputs.some((check) => !check.outputWorkerId)
     && [task.assignedDesignUserId, task.csAssigneeId].some((id) => toId(id) === reviewerId);
-  if (isOutputWorker || isLegacyAssignee) throw forbidden('You cannot review your own production output');
+  const isSuperAdmin = (authContext?.roles || [])
+    .some((role) => String(role).toUpperCase() === 'SUPER_ADMIN');
+  if (!isSuperAdmin && (isOutputWorker || isLegacyAssignee)) {
+    throw forbidden('You cannot review your own production output');
+  }
   const fileDecisions = Array.isArray(payload.fileDecisions) ? payload.fileDecisions : [];
   const decisionByFileCheckId = new Map(fileDecisions.map((item) => [toId(item.fileCheckId), item]));
   const reviewableChecks = (task.fileChecks || []).filter(

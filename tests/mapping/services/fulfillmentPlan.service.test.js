@@ -2769,6 +2769,125 @@ describe('fulfillmentPlan.service', () => {
     });
   });
 
+  test('preview auto matches when vendor product has uniform color (e.g. Mica) and buyer custom does not provide color', async () => {
+    mappingRuleService.buildNormalizedInputs.mockResolvedValueOnce({
+      normalizedInputs: [
+        { semanticRole: 'SIZE', value: '3.5 in' },
+      ],
+      blockingReasons: [],
+    });
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([
+      {
+        ...costCenter,
+        _id: '660000000000000000005303',
+        sku: 'OTHER-SKU-1',
+        standardSize: '3,5 in',
+        standardColor: 'Mica',
+        vendorSize: '3,5 in',
+        vendorColor: 'Mica',
+        baseCostAmount: 500,
+      },
+      {
+        ...costCenter,
+        _id: '660000000000000000005304',
+        sku: 'OTHER-SKU-2',
+        standardSize: '4 in',
+        standardColor: 'Mica',
+        vendorSize: '4 in',
+        vendorColor: 'Mica',
+        baseCostAmount: 600,
+      },
+    ]);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.costCenterCandidates[0]).toMatchObject({
+      id: '660000000000000000005303',
+      confidence: 'HIGH',
+      matchReasons: expect.arrayContaining(['STANDARD_SIZE', 'VENDOR_SIZE']),
+    });
+    expect(result.autoMatch).toMatchObject({
+      vendorCostCenterId: '660000000000000000005303',
+      confidence: 'HIGH',
+    });
+  });
+
+  test('preview auto matches when item has raw string variantRaw or variations with size', async () => {
+    mappingRuleService.buildNormalizedInputs.mockResolvedValueOnce({
+      normalizedInputs: [],
+      blockingReasons: [],
+    });
+    orderPublic.findItemById.mockResolvedValueOnce({
+      ...item,
+      variantRaw: 'Choose Size: 4 Inches, Number Name: 3 Name, Enter Your Name: The Leeper Family \nGrace, Seth, Parker\n2026',
+    });
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([
+      {
+        ...costCenter,
+        _id: '6600000000000000005303',
+        sku: 'OTHER-SKU-1',
+        standardSize: '3,5 in',
+        standardColor: 'Mica',
+        vendorSize: '3,5 in',
+        vendorColor: 'Mica',
+        baseCostAmount: 500,
+      },
+      {
+        ...costCenter,
+        _id: '6600000000000000005304',
+        sku: 'OTHER-SKU-2',
+        standardSize: '4 in',
+        standardColor: 'Mica',
+        vendorSize: '4 in',
+        vendorColor: 'Mica',
+        baseCostAmount: 600,
+      },
+    ]);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.autoMatch).toMatchObject({
+      vendorCostCenterId: '6600000000000000005304',
+      confidence: 'HIGH',
+    });
+  });
+
+  test('preview does not auto match when vendor product has multiple colors and buyer custom does not provide color', async () => {
+    mappingRuleService.buildNormalizedInputs.mockResolvedValueOnce({
+      normalizedInputs: [
+        { semanticRole: 'SIZE', value: '3.5 in' },
+      ],
+      blockingReasons: [],
+    });
+    vendorPublic.listActiveVendorCostCentersByProductIds.mockResolvedValueOnce([
+      {
+        ...costCenter,
+        _id: '660000000000000000005305',
+        sku: 'OTHER-SKU-BLACK',
+        standardSize: '3.5 in',
+        standardColor: 'Black',
+        vendorSize: '3.5 in',
+        vendorColor: 'Black',
+        baseCostAmount: 500,
+      },
+      {
+        ...costCenter,
+        _id: '660000000000000000005306',
+        sku: 'OTHER-SKU-WHITE',
+        standardSize: '3.5 in',
+        standardColor: 'White',
+        vendorSize: '3.5 in',
+        vendorColor: 'White',
+        baseCostAmount: 500,
+      },
+    ]);
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+
+    expect(result.autoMatch).toBeNull();
+    expect(result.blockingReasons).toContain('NO_HIGH_CONFIDENCE_VENDOR_CANDIDATE');
+  });
+
   test('scoped user cannot access another shop item', async () => {
     authPublic.canAccessScope.mockReturnValue(false);
 

@@ -165,17 +165,48 @@ function buildFilter(query = {}) {
       } }] : []),
     ] });
   }
-  if (query.status) filter.status = query.status;
+  if (query.status) {
+    if (Array.isArray(query.status)) {
+      filter.status = { $in: query.status };
+    } else if (typeof query.status === 'string' && query.status.includes(',')) {
+      filter.status = { $in: query.status.split(',').map((s) => s.trim()) };
+    } else {
+      filter.status = query.status;
+    }
+  }
   if (query.scaleStatus) filter.scaleStatus = query.scaleStatus;
   if (query.qcStatus) filter.qcStatus = query.qcStatus;
   if (query.scaleQueueOnly) {
     const scaleQueueStatuses = [productionTaskStatuses.NEED_SCALE, productionTaskStatuses.QC_REJECTED];
     filter.status = scaleQueueStatuses.includes(query.status) ? query.status : { $in: scaleQueueStatuses };
   }
-  if (query.qcQueueOnly) filter.qcStatus = productionQcStatuses.PENDING;
-  if (query.view === 'QC') filter.qcStatus = productionQcStatuses.PENDING;
+  if (query.qcQueueOnly) {
+    filter.qcStatus = productionQcStatuses.PENDING;
+    if (!filter.status) filter.status = { $ne: productionTaskStatuses.CANCELLED };
+  }
+  if (query.view === 'QC') {
+    if (!filter.status) filter.status = { $ne: productionTaskStatuses.CANCELLED };
+    if (!query.qcStatus && !query.status) {
+      filter.qcStatus = {
+        $in: [
+          productionQcStatuses.PENDING,
+          productionQcStatuses.PASSED,
+          productionQcStatuses.REJECTED,
+        ],
+      };
+    }
+  }
   if (query.view === 'SCALE' && !query.status && query.designType !== 'CUSTOM_IMAGE') {
-    filter.status = { $in: [productionTaskStatuses.NEED_SCALE, productionTaskStatuses.QC_REJECTED] };
+    filter.status = {
+      $in: [
+        productionTaskStatuses.NEED_SCALE,
+        productionTaskStatuses.QC_REJECTED,
+        productionTaskStatuses.QC_PENDING,
+        productionTaskStatuses.READY_TO_SEND_VENDOR,
+        productionTaskStatuses.SENT_TO_VENDOR,
+        productionTaskStatuses.BLOCKED,
+      ],
+    };
   }
   if (query.salesChannelCode) filter['orderItemSnapshot.salesChannelCode'] = query.salesChannelCode;
   if (query.psdReadyOnly === true) {
@@ -314,7 +345,16 @@ async function summarize(query = {}) {
               needScale: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.NEED_SCALE] }, 1, 0] } },
               qcPending: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.QC_PENDING] }, 1, 0] } },
               scaleQueue: { $sum: { $cond: [{ $in: ['$status', [productionTaskStatuses.NEED_SCALE, productionTaskStatuses.QC_REJECTED]] }, 1, 0] } },
-              qcQueue: { $sum: { $cond: [{ $eq: ['$qcStatus', productionQcStatuses.PENDING] }, 1, 0] } },
+              qcQueue: {
+                $sum: {
+                  $cond: [{
+                    $and: [
+                      { $ne: ['$status', productionTaskStatuses.CANCELLED] },
+                      { $eq: ['$qcStatus', productionQcStatuses.PENDING] },
+                    ],
+                  }, 1, 0],
+                },
+              },
               readyToSendVendor: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.READY_TO_SEND_VENDOR] }, 1, 0] } },
               sentToVendor: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.SENT_TO_VENDOR] }, 1, 0] } },
               cancelled: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.CANCELLED] }, 1, 0] } },
@@ -470,7 +510,13 @@ async function summarizeQueueCounts(query = {}) {
         },
         qcQueue: {
           $sum: {
-            $cond: [{ $and: [psdReady, { $eq: ['$qcStatus', productionQcStatuses.PENDING] }] }, 1, 0],
+            $cond: [{
+              $and: [
+                psdReady,
+                { $ne: ['$status', productionTaskStatuses.CANCELLED] },
+                { $eq: ['$qcStatus', productionQcStatuses.PENDING] },
+              ],
+            }, 1, 0],
           },
         },
         ready: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.READY_TO_SEND_VENDOR] }, 1, 0] } },

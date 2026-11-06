@@ -1,5 +1,6 @@
 const logger = require('../../../shared/utils/logger');
 const vendorSubmissionPublic = require('../public');
+const { withDistributedLock } = require('../../../shared/utils/distributedLock');
 
 let timer = null;
 let running = false;
@@ -18,21 +19,24 @@ function limit() {
 
 async function runOnce() {
   if (running) return null;
-  running = true;
-  try {
-    const result = await vendorSubmissionPublic.recheckReadyProductionTasks(
-      { limit: limit() },
-      { system: true, source: 'VENDOR_SUBMISSION_RECOVERY_SCHEDULER' },
-    );
-    const level = result.checked || result.createdOrExisting || result.skipped ? 'info' : 'debug';
-    logger[level]('vendor_submission_recovery_completed', result);
-    return result;
-  } catch (error) {
-    logger.warn('vendor_submission_recovery_failed', { error });
-    return null;
-  } finally {
-    running = false;
-  }
+  return withDistributedLock('scheduler:vendor_submission_recovery', 120000, async () => {
+    if (running) return null;
+    running = true;
+    try {
+      const result = await vendorSubmissionPublic.recheckReadyProductionTasks(
+        { limit: limit() },
+        { system: true, source: 'VENDOR_SUBMISSION_RECOVERY_SCHEDULER' },
+      );
+      const level = result.checked || result.createdOrExisting || result.skipped ? 'info' : 'debug';
+      logger[level]('vendor_submission_recovery_completed', result);
+      return result;
+    } catch (error) {
+      logger.warn('vendor_submission_recovery_failed', { error });
+      return null;
+    } finally {
+      running = false;
+    }
+  });
 }
 
 function startVendorSubmissionRecoveryScheduler() {

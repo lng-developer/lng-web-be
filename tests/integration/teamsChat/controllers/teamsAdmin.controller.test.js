@@ -37,3 +37,44 @@ describe('teamsAdminController.getOAuthStatus', () => {
     });
   });
 });
+
+describe("teamsAdminController.ensureSubscription", () => {
+  it("sanitizes clientState and raw MongoDB fields from the subscription payload", async () => {
+    const teamsSyncService = require("../../../../src/modules/integration/teamsChat/services/teamsSync.service");
+    jest.spyOn(teamsSyncService, "ensureWebhookSubscription").mockResolvedValue({
+      status: "ACTIVE",
+      subscription: {
+        _id: "507f1f77bcf86cd799439011",
+        subscriptionId: "sub-123",
+        resource: "/chats/getAllMessages",
+        clientState: "super-secret-client-state",
+        notificationUrl: "https://example.com/webhook",
+        status: "ACTIVE",
+        __v: 0,
+      },
+    });
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+
+    await teamsAdminController.ensureSubscription({}, res);
+
+    expect(res.json).toHaveBeenCalledWith({
+      success: true,
+      data: {
+        status: "ACTIVE",
+        subscription: {
+          id: "sub-123",
+          subscriptionId: "sub-123",
+          resource: "/chats/getAllMessages",
+          notificationUrl: "https://example.com/webhook",
+          expirationDateTime: undefined,
+          status: "ACTIVE",
+          createdAt: undefined,
+          updatedAt: undefined,
+        },
+      },
+    });
+    expect(res.json.mock.calls[0][0].data.subscription).not.toHaveProperty("clientState");
+    expect(res.json.mock.calls[0][0].data.subscription).not.toHaveProperty("_id");
+    expect(res.json.mock.calls[0][0].data.subscription).not.toHaveProperty("__v");
+  });
+});

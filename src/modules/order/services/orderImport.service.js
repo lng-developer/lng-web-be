@@ -12,6 +12,7 @@ const orderItemRepository = require('../repositories/orderItem.repository');
 const orderReadinessService = require('./orderCostCenterStatus.service');
 const orderTimelineService = require('./orderTimeline.service');
 const orderWorkbenchProjectionService = require('./orderWorkbenchProjection.service');
+const orderItemStatusTransitionService = require('./orderItemStatusTransition.service');
 const {
   buildExternalIdentity,
   compactObject,
@@ -341,6 +342,7 @@ async function importExternalOrder(externalOrderDto = {}) {
 
   await orderReadinessService.updateCostCenterStatusForOrder(orderId);
   await orderReadinessService.updatePsdStatusForOrder(orderId);
+  await orderItemStatusTransitionService.syncParentOrderStatus(orderId, { source: orderTimelineSources.IMPORT });
   await orderWorkbenchProjectionService.rebuildOrderWorkbenchProjection(orderId, {
     system: true,
     permissions: ['ORDERS:READ'],

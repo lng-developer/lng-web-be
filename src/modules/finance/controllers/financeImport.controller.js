@@ -16,6 +16,7 @@ const {
   refundParamsSchema,
   refundOrderItemParamsSchema,
   allocateRefundSchema,
+  listRefundsQuerySchema,
 } = require('../validators/financeSnapshot.validator');
 const settlementService = require('../services/financeSettlement.service');
 const { assertValid } = require('./requestValidation');
@@ -167,10 +168,12 @@ async function allocateRefund(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: await importService.allocateRefund(refundId, allocations, req.auth, getHttpContext(req)) });
 }
 async function listUnallocatedRefunds(req, res) {
-  res.status(httpStatus.OK).json({ success: true, data: await importService.listUnallocatedRefunds(req.query, req.auth) });
+  const query = assertValid(listRefundsQuerySchema, req.query);
+  res.status(httpStatus.OK).json({ success: true, data: await importService.listUnallocatedRefunds(query, req.auth) });
 }
 async function listRefundReviews(req, res) {
-  res.status(httpStatus.OK).json({ success: true, data: await importService.listRefundReviews(req.query, req.auth) });
+  const query = assertValid(listRefundsQuerySchema, req.query);
+  res.status(httpStatus.OK).json({ success: true, data: await importService.listRefundReviews(query, req.auth) });
 }
 async function confirmRefund(req, res) {
   const { orderItemId } = assertValid(refundOrderItemParamsSchema, req.params);

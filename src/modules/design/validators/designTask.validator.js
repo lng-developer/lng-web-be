@@ -43,6 +43,8 @@ function normalizeSellerAlias(value, helpers) {
 const taskFilterQuery = {
   orderId: Joi.string().trim().max(160),
   search: Joi.string().trim().max(200),
+  asin: Joi.string().trim().max(100),
+  etsyListingId: Joi.string().trim().max(100),
   salesChannelCode: Joi.string().trim().uppercase().valid('AMAZON', 'ETSY'),
   status: Joi.string().trim().uppercase().valid(...Object.values(designTaskStatuses)),
   taskType: Joi.string().trim().uppercase().valid(...Object.values(designTaskTypes)),

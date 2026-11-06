@@ -96,7 +96,7 @@ const vendorTrackingRecheckSchema = Joi.object({
 const vendorTrackingBatchRecheckSchema = Joi.object({
   provider: Joi.string().trim().uppercase().valid('LENFUL', 'MERCHIZE', 'MERCHFOX', 'PRINTWAY'),
   shopId: objectId,
-  limit: Joi.number().integer().min(1),
+  limit: Joi.number().integer().min(1).max(200),
 });
 
 const trackingSyncConfigSchema = Joi.object({

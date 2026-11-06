@@ -5,6 +5,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const config = require('../../../config');
 const repository = require('../repositories/mediaAsset.repository');
 const wasabi = require('./wasabiStorage.service');
+const logger = require('../../../shared/utils/logger');
 
 const PACKAGE_EXTENSIONS = new Set(['.psd', '.zip', '.rar']);
 const ALLOWED_PURPOSES = new Set(['PSD_TEMPLATE', 'DESIGN_PACKAGE', 'PRINT_READY']);
@@ -153,6 +154,11 @@ async function completeUpload(assetId, parts, auth) {
       wasabi.readObjectRange({ key: asset.providerAssetId, start: 0, end: 11 }),
     ]);
     if (Number(head.ContentLength) !== asset.size || !hasValidSignature(asset.originalFilename, signature)) {
+      try {
+        await wasabi.deleteObject({ key: asset.providerAssetId });
+      } catch (cleanupError) {
+        logger.warn('wasabi_delete_failed_after_verification_failure', { assetId, key: asset.providerAssetId, error: cleanupError?.message });
+      }
       fail('Uploaded file verification failed', httpStatus.UNPROCESSABLE_ENTITY, 'MEDIA_FILE_TYPE_INVALID');
     }
     return repository.transitionUploadStatus(assetId, 'VERIFYING', 'READY', {

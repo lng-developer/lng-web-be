@@ -234,6 +234,7 @@ async function listMyPayrollResults(query = {}, authContext = {}) {
     items: result.items.map((item) => toPayrollResultDto(item, { markPaid: false }, {
       teamName: teamNamesById.get(toId(item.employeeSnapshot?.teamId)) || null,
       departmentName: departmentNamesById.get(toId(item.employeeSnapshot?.departmentId)) || null,
+      includePayrollSettings: false,
     })),
     pagination: result.pagination,
   };
