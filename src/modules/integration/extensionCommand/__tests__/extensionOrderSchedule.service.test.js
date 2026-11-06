@@ -104,6 +104,40 @@ describe('extension finance schedules', () => {
     }));
   });
 
+  test('queues a seven-day Ads window at the first Sunday fixed time', async () => {
+    const now = new Date('2026-09-12T23:00:00.000Z'); // Sunday 06:00 in Asia/Ho_Chi_Minh
+    repository.listDueFinanceSchedules.mockResolvedValue([{
+      _id: 'schedule-1', source: 'ADS', shopId: 'shop-1', agentId: 'agent-1',
+      scheduleType: 'FIXED_TIMES', fixedTimes: ['06:00', '18:00'], timezone: 'Asia/Ho_Chi_Minh',
+    }]);
+    repository.claimDueFinanceSchedule.mockResolvedValue(true);
+    repository.findAgentById.mockResolvedValue({ _id: 'agent-1', lastSeenAt: now });
+    repository.hasActiveImportCommand.mockResolvedValue(false);
+
+    await service.dispatchDueFinanceSchedules(now);
+
+    expect(repository.createCommand).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'IMPORT_ADS_SPEND', dateFrom: '2026-09-06', dateTo: '2026-09-12',
+    }));
+  });
+
+  test('keeps the second Sunday Ads run daily', async () => {
+    const now = new Date('2026-09-13T11:00:00.000Z'); // Sunday 18:00 in Asia/Ho_Chi_Minh
+    repository.listDueFinanceSchedules.mockResolvedValue([{
+      _id: 'schedule-1', source: 'ADS', shopId: 'shop-1', agentId: 'agent-1',
+      scheduleType: 'FIXED_TIMES', fixedTimes: ['06:00', '18:00'], timezone: 'Asia/Ho_Chi_Minh',
+    }]);
+    repository.claimDueFinanceSchedule.mockResolvedValue(true);
+    repository.findAgentById.mockResolvedValue({ _id: 'agent-1', lastSeenAt: now });
+    repository.hasActiveImportCommand.mockResolvedValue(false);
+
+    await service.dispatchDueFinanceSchedules(now);
+
+    expect(repository.createCommand).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'IMPORT_ADS_SPEND', dateFrom: '2026-09-12', dateTo: '2026-09-12',
+    }));
+  });
+
   test('caps a transaction catch-up window at yesterday when fewer than seven dates are pending', async () => {
     const now = new Date('2026-09-09T12:00:00.000Z');
     repository.listDueFinanceSchedules.mockResolvedValue([{

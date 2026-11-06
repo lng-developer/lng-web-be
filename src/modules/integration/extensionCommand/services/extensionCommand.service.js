@@ -8,7 +8,7 @@ const repository = require('../repositories/extensionCommand.repository');
 const { extensionCommandTypes, extensionCommandStatuses } = require('../constants/extensionCommand.constants');
 const { calculateNextRunAt } = require('./scheduleTimeUtils');
 const { toManagementAgentDto } = require('../dtos/extensionCommand.dto');
-const { transactionWindow, yesterday } = require('./transactionScheduleWindow');
+const { transactionWindow, yesterday, adsWindow } = require('./transactionScheduleWindow');
 
 const LEASE_MS = 5 * 60 * 1000;
 // Allow the five-minute inactivity window plus renewal throttling and request latency.
@@ -291,8 +291,7 @@ async function dispatchDueFinanceSchedules(now = new Date()) {
     if (schedule.source === 'TRANSACTIONS') {
       payload = { type: extensionCommandTypes.IMPORT_TRANSACTIONS, ...transactionWindow(schedule, now) };
     } else if (schedule.source === 'ADS') {
-      const ymd = yesterday(now);
-      payload = { type: extensionCommandTypes.IMPORT_ADS_SPEND, dateFrom: ymd, dateTo: ymd };
+      payload = { type: extensionCommandTypes.IMPORT_ADS_SPEND, ...adsWindow(schedule, now) };
     } else {
       payload = { type: extensionCommandTypes.IMPORT_SETTLEMENTS };
     }
