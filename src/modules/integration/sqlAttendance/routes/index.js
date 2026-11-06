@@ -5,7 +5,7 @@ const controller = require('../controllers/sqlAttendance.controller');
 const { validateSync } = require('../validators/sqlAttendance.validator');
 
 const router = express.Router();
-const requireManage = authPublic.authorizeAnyPermission('HR_INTEGRATIONS:MANAGE');
+const requireManage = authPublic.authorizeAnyPermission('HR_INTEGRATIONS:MANAGE', 'HR_ATTENDANCE:MANAGE');
 
 router.post('/sync', authPublic.authenticate, requireManage, validateSync, asyncHandler(controller.sync));
 router.get('/status', authPublic.authenticate, requireManage, asyncHandler(controller.status));

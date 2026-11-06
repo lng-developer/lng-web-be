@@ -12496,7 +12496,7 @@
             {
               "name": "POST /api/media/assets",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE, PRODUCTION:WRITE, DESIGN:WORK.",
+                "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE, PRODUCTION:WRITE, DESIGN:WORK, CHAT:WRITE.",
                 "method": "POST",
                 "header": [],
                 "url": {
@@ -12535,7 +12535,7 @@
             {
               "name": "GET /api/media/assets/:assetId",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): MEDIA:READ, CATALOG:READ, DESIGN:READ, DESIGN:WORK, DESIGN:REVIEW, ORDERS:READ, PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:REVIEW, WORK_SCORES:READ, WORK_SCORES:ADJUST.",
+                "description": "Bearer token required.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -12571,7 +12571,7 @@
             {
               "name": "GET /api/media/assets/:assetId/download",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): MEDIA:READ, CATALOG:READ, DESIGN:READ, DESIGN:WORK, DESIGN:REVIEW, ORDERS:READ, PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:REVIEW, WORK_SCORES:READ, WORK_SCORES:ADJUST.",
+                "description": "Bearer token required.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -12637,7 +12637,7 @@
             {
               "name": "DELETE /api/media/multipart/:assetId",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE, PRODUCTION:WRITE, DESIGN:WORK.",
+                "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE, PRODUCTION:WRITE, DESIGN:WORK, CHAT:WRITE.",
                 "method": "DELETE",
                 "header": [],
                 "url": {
@@ -12673,7 +12673,7 @@
             {
               "name": "POST /api/media/multipart/:assetId/complete",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE, PRODUCTION:WRITE, DESIGN:WORK.",
+                "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE, PRODUCTION:WRITE, DESIGN:WORK, CHAT:WRITE.",
                 "method": "POST",
                 "header": [],
                 "url": {
@@ -12710,7 +12710,7 @@
             {
               "name": "POST /api/media/multipart/:assetId/presign-parts",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE, PRODUCTION:WRITE, DESIGN:WORK.",
+                "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE, PRODUCTION:WRITE, DESIGN:WORK, CHAT:WRITE.",
                 "method": "POST",
                 "header": [],
                 "url": {
@@ -12747,7 +12747,7 @@
             {
               "name": "POST /api/media/multipart/initiate",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE, PRODUCTION:WRITE, DESIGN:WORK.",
+                "description": "Bearer token required. Permissions (ANY): MEDIA:WRITE, PRODUCTION:WRITE, DESIGN:WORK, CHAT:WRITE.",
                 "method": "POST",
                 "header": [],
                 "url": {
@@ -12769,6 +12769,39 @@
                       "key": "token",
                       "value": "{{accessToken}}",
                       "type": "string"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Public",
+          "item": [
+            {
+              "name": "GET /api/media/public/assets/:assetId/download",
+              "request": {
+                "description": "Public endpoint.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/media/public/assets/{{assetId}}/download",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "media",
+                    "public",
+                    "assets",
+                    "{{assetId}}",
+                    "download"
+                  ],
+                  "variable": [
+                    {
+                      "key": "assetId",
+                      "value": "{{assetId}}"
                     }
                   ]
                 }

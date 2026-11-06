@@ -85,6 +85,20 @@ const shipmentSchema = new Schema({
     trim: true,
     default: null,
   },
+  marketplaceConfirmationStatus: {
+    type: String,
+    enum: ['PENDING', 'SUBMITTED', 'CONFIRMED', 'FAILED'],
+    default: 'PENDING',
+    index: true,
+  },
+  marketplaceConfirmedAt: {
+    type: Date,
+    default: null,
+  },
+  marketplaceSubmissionId: {
+    type: Schema.Types.ObjectId,
+    default: null,
+  },
 }, {
   timestamps: true,
 });

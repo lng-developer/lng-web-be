@@ -131,8 +131,10 @@ function assertOrderOwnedByShop(order, requestedShopId, identity) {
   });
 }
 
-function shouldSkipExistingOrder(dto) {
-  return dto.source === externalOrderSources.AMAZON_EXTENSION_REPORT;
+function shouldSkipExistingOrder(dto, existingOrder) {
+  if (dto.source !== externalOrderSources.AMAZON_EXTENSION_REPORT) return false;
+  if (dto.externalStatus && existingOrder?.externalStatus !== dto.externalStatus) return false;
+  return true;
 }
 
 async function relinkExistingOrderFinance({ orderId, dto, identity }) {
@@ -177,7 +179,7 @@ async function upsertOrder(dto, identity, now) {
       }
 
       assertOrderOwnedByShop(recoveredOrder, dto.shopId, identity);
-      if (shouldSkipExistingOrder(dto)) {
+      if (shouldSkipExistingOrder(dto, recoveredOrder)) {
         return { order: recoveredOrder, created: false, updated: false, skipped: true };
       }
       const order = await orderRepository.updateFromExternalImport(
@@ -190,7 +192,7 @@ async function upsertOrder(dto, identity, now) {
   }
 
   assertOrderOwnedByShop(existingOrder, dto.shopId, identity);
-  if (shouldSkipExistingOrder(dto)) {
+  if (shouldSkipExistingOrder(dto, existingOrder)) {
     return { order: existingOrder, created: false, updated: false, skipped: true };
   }
   const order = await orderRepository.updateFromExternalImport(
@@ -347,7 +349,12 @@ async function importExternalOrder(externalOrderDto = {}) {
   }, { source: 'ORDER_IMPORT' });
   await syncWorkbenchSellers(orderId, persistedItems, sellerProfiles);
   await projectCustomerSnapshot(externalOrderDto, identity, order, itemResults);
-  const terminal = await require('./etsyOrderStatus.service').reconcile(order);
+  let terminal = false;
+  if (order.salesChannelCode === 'ETSY') {
+    terminal = await require('./etsyOrderStatus.service').reconcile(order);
+  } else if (order.salesChannelCode === 'AMAZON') {
+    terminal = await require('./amazonOrderStatus.service').reconcile(order);
+  }
   const financePublic = require('../../finance/public');
   await Promise.all(itemResults.map((itemResult) => financePublic.relinkFinanceRowsForOrderItem({
     shopId: externalOrderDto.shopId,

@@ -587,6 +587,35 @@ describe('productionTask.dto', () => {
     });
   });
 
+  test('exposes etsyListingId and salesChannelCode on orderItem and scaleContext listing', () => {
+    const dto = toProductionTaskSummaryDto({
+      _id: '660000000000000000100001',
+      salesChannelCode: 'ETSY',
+      orderItemSnapshot: {
+        externalOrderId: 'ETSY-123',
+        externalItemId: 'TX-456',
+        salesChannelCode: 'ETSY',
+        etsyListingId: '987654321',
+        title: 'Customized Etsy Mug',
+      },
+      listingSnapshot: {
+        _id: '660000000000000000000501',
+        etsyListingId: '987654321',
+        sku: 'ETSY-SKU-1',
+      },
+    });
+
+    expect(dto.orderItem).toMatchObject({
+      salesChannelCode: 'ETSY',
+      etsyListingId: '987654321',
+      externalOrderId: 'ETSY-123',
+    });
+    expect(dto.scaleContext.use.listing).toMatchObject({
+      etsyListingId: '987654321',
+      sku: 'ETSY-SKU-1',
+    });
+  });
+
   test('scaleContext allows manual output without internal template', () => {
     const dto = toProductionTaskSummaryDto({
       _id: '660000000000000000100001',

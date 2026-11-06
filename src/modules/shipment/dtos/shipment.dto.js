@@ -21,6 +21,9 @@ function toShipmentDto(shipment) {
     deliveredAt: shipment.deliveredAt || null,
     note: shipment.note || null,
     createdAt: shipment.createdAt,
+    marketplaceConfirmationStatus: shipment.marketplaceConfirmationStatus || 'PENDING',
+    marketplaceConfirmedAt: shipment.marketplaceConfirmedAt || null,
+    marketplaceSubmissionId: toId(shipment.marketplaceSubmissionId),
     updatedAt: shipment.updatedAt,
   };
 }
@@ -39,6 +42,9 @@ function toShipmentSummaryDto(shipment) {
     status: shipment.status,
     shippedAt: shipment.shippedAt || null,
     deliveredAt: shipment.deliveredAt || null,
+    marketplaceConfirmationStatus: shipment.marketplaceConfirmationStatus || 'PENDING',
+    marketplaceConfirmedAt: shipment.marketplaceConfirmedAt || null,
+    marketplaceSubmissionId: toId(shipment.marketplaceSubmissionId),
     note: shipment.note || null,
   };
 }

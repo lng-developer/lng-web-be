@@ -19,7 +19,7 @@ const forbidden = () => new AppError('Forbidden', httpStatus.FORBIDDEN, true, er
 const notFound = (message) => new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
 const conflict = (message) => new AppError(message, httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR);
 const financeCommandTypes = [extensionCommandTypes.IMPORT_ADS_SPEND, extensionCommandTypes.IMPORT_TRANSACTIONS, extensionCommandTypes.IMPORT_SETTLEMENTS];
-const lockedImportTypes = [extensionCommandTypes.IMPORT_NEW_ORDERS, ...financeCommandTypes];
+const lockedImportTypes = [extensionCommandTypes.IMPORT_NEW_ORDERS, extensionCommandTypes.UPLOAD_TRACKING, ...financeCommandTypes];
 const invalid = (message) => new AppError(message, httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
 function rejectEtsyAutomation() {}
 
@@ -197,7 +197,7 @@ async function completeCommand(commandId, input, auth) {
   const agent = await getCurrentAgent(auth, input);
   if (agent.provider === 'ETSY' && input.importJobId) await validateEtsyJob(commandId, input.importJobId, agent, auth);
   let command = await repository.updateClaimed({
-    commandId, agentId: agent._id, leaseTokenHash: hashString(input.leaseToken), statuses: [extensionCommandStatuses.CLAIMED, extensionCommandStatuses.RUNNING],
+    commandId, agentId: agent._id, leaseTokenHash: hashString(input.leaseToken), statuses: [extensionCommandStatuses.CLAIMED, extensionCommandStatuses.RUNNING, extensionCommandStatuses.WAITING_AMAZON],
     patch: { status: input.success ? extensionCommandStatuses.SUCCEEDED : extensionCommandStatuses.FAILED, completedAt: new Date(), leaseExpiresAt: null, ...(agent.provider === 'ETSY' ? {} : { leaseTokenHash: null }), ...(agent.provider === 'ETSY' && !input.importJobId ? {} : { importJobId: input.importJobId || null }), result: { importedCount: input.importedCount, failedCount: input.failedCount }, errorMessage: input.success ? null : (input.errorMessage || 'Extension task failed') }, unset: { activeOrderKey: 1 },
   });
   // A completed Etsy lease can acknowledge the same request, never reopen work.

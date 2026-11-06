@@ -13,6 +13,10 @@ const orderAccess = require('./orderAccess.service');
 const orderNotificationService = require('./orderNotification.service');
 const { recordOrderOperation, withOrderOperation } = require('./orderOperationAudit.service');
 
+function getProductionPublic() {
+  return require('../../production/public');
+}
+
 function notFound(message) {
   return new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
 }
@@ -68,6 +72,25 @@ async function cancelOrderItem(orderItemId, payload = {}, authContext = {}) {
 
     return updated;
   });
+  const productionPublic = getProductionPublic();
+  if (typeof productionPublic?.cancelTaskByOrderItem === 'function') {
+    await productionPublic.cancelTaskByOrderItem(orderItemId, { reason: payload.reason }, {
+      ...authContext,
+      system: true,
+      source: 'ORDER_CANCEL',
+    });
+  }
+
+  if (submission && submission.status !== 'CANCELLED' && typeof vendorSubmissionPublic.cancel === 'function') {
+    await vendorSubmissionPublic.cancel(submission.id, {
+      cancelReason: payload.reason || 'Order item cancelled',
+    }, {
+      ...authContext,
+      system: true,
+      source: 'ORDER_CANCEL',
+    });
+  }
+
   await orderNotificationService.notifyAssignedStaff({
     order,
     actorAccountId: authContext.accountId || null,

@@ -337,6 +337,10 @@ describe('financeImport.service', () => {
 
     expect(repository.setRefundAllocationsIfUnallocated).not.toHaveBeenCalled();
     expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
+    expect(orderPublic.ensureOpenOrderCase).toHaveBeenCalledWith(
+      expect.objectContaining({ orderId, caseType: 'REFUND' }),
+      expect.any(Object),
+    );
   });
 
   test('groups multiple order-level refunds before confirming the whole order', async () => {

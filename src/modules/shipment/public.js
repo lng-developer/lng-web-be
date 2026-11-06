@@ -25,6 +25,12 @@ const publicPort = {
   summarizeShipments(...args) {
     return service().summarizeShipments(...args);
   },
+  findByIds(...args) {
+    return service().findByIds(...args);
+  },
+  updateMarketplaceConfirmation(...args) {
+    return service().updateMarketplaceConfirmation(...args);
+  },
   getVendorTrackingAdapter(provider) {
     const adapter = getTrackingAdapter(provider);
     return adapter === genericTrackingAdapter ? null : adapter;

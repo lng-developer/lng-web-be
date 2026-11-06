@@ -91,4 +91,9 @@ router.get(
   asyncHandler(controller.downloadAsset),
 );
 
+router.get(
+  '/public/assets/:assetId/download',
+  asyncHandler(controller.downloadPublicAsset),
+);
+
 module.exports = router;

@@ -6,6 +6,7 @@ const {
   AbortMultipartUploadCommand,
   HeadObjectCommand,
   GetObjectCommand,
+  PutObjectCommand,
   DeleteObjectCommand,
 } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
@@ -89,10 +90,6 @@ async function readObjectRange({ key, start, end }) {
   return Buffer.from(await result.Body.transformToByteArray());
 }
 
-async function deleteObject({ key }) {
-  return getClient().send(new DeleteObjectCommand({ Bucket: settings().bucket, Key: key }));
-}
-
 function presignDownload({ key, filename, expiresIn, disposition = 'attachment' }) {
   const command = new GetObjectCommand({
     Bucket: settings().bucket,
@@ -100,6 +97,27 @@ function presignDownload({ key, filename, expiresIn, disposition = 'attachment' 
     ResponseContentDisposition: `${disposition}; filename*=UTF-8''${encodeURIComponent(filename)}`,
   });
   return getSignedUrl(getClient(), command, { expiresIn });
+}
+
+async function putObject({ key, body, contentType, contentLength, bucket = null }) {
+  const targetBucket = bucket || settings().bucket;
+  const command = new PutObjectCommand({
+    Bucket: targetBucket,
+    Key: key,
+    Body: body,
+    ContentType: contentType,
+    ...(contentLength ? { ContentLength: contentLength } : {}),
+  });
+  return getClient().send(command);
+}
+
+async function deleteObject({ key, bucket = null }) {
+  const targetBucket = bucket || settings().bucket;
+  const command = new DeleteObjectCommand({
+    Bucket: targetBucket,
+    Key: key,
+  });
+  return getClient().send(command);
 }
 
 module.exports = {
@@ -110,5 +128,6 @@ module.exports = {
   headObject,
   readObjectRange,
   presignDownload,
+  putObject,
   deleteObject,
 };

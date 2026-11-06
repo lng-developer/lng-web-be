@@ -561,6 +561,22 @@ async function upsertByOrderItem(orderItemId, payload, { session } = {}) {
   ).lean();
 }
 
+async function cancelTask(taskId, { session } = {}) {
+  return ProductionTask.findOneAndUpdate(
+    {
+      _id: taskId,
+      status: { $ne: productionTaskStatuses.SENT_TO_VENDOR },
+    },
+    {
+      $set: {
+        status: productionTaskStatuses.CANCELLED,
+        'orderSnapshot.status': 'CANCELLED',
+      },
+    },
+    { returnDocument: 'after', runValidators: true, session },
+  ).lean();
+}
+
 async function updateById(taskId, patch, { session } = {}) {
   return ProductionTask.findByIdAndUpdate(
     taskId,
@@ -702,6 +718,14 @@ function findSellerTaskReferencingAsset(assetId, orderItemIds) {
   ] }).select('_id').lean();
 }
 
+async function removeFileCheck(taskId, fileCheckId) {
+  return ProductionTask.findByIdAndUpdate(
+    taskId,
+    { $pull: { fileChecks: { _id: fileCheckId, outputAssetId: null } } },
+    { returnDocument: 'after' },
+  ).lean();
+}
+
 module.exports = {
   findSellerTaskReferencingAsset,
   findAssignedTaskReferencingInputAsset,
@@ -718,9 +742,11 @@ module.exports = {
   listSummariesByOrderItemIds,
   summarize,
   summarizeQueueCounts,
+  cancelTask,
   updateById,
   updateByIdIf,
   appendFileCheckIfMutable,
+  removeFileCheck,
   updateFileCheckOutputIfMutable,
   updateScaledOutputIfMutable,
   updateOrderAddressSnapshot,

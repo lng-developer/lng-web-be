@@ -830,12 +830,22 @@ async function summarizeShippedByOrderItemIds(orderItemIds = []) {
   return repository.summarizeShippedByOrderItemIds(uniqueIds);
 }
 
+async function findByIds(shipmentIds) {
+  return shipmentRepository.findByIds(shipmentIds);
+}
+
+async function updateMarketplaceConfirmation(shipmentIds, data) {
+  return shipmentRepository.updateMarketplaceConfirmation(shipmentIds, data);
+}
+
 module.exports = {
   applyTrackingUpdate,
   createFromVendorSubmission,
   exportShipmentsCsv,
   getShipment,
   getShipmentByOrderItem,
+  findByIds,
+  updateMarketplaceConfirmation,
   listShipments,
   listSummariesByOrderItemIds,
   recheckSubmittedVendorTracking,

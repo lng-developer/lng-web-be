@@ -190,10 +190,15 @@ function forbidden(message = 'Forbidden') {
 }
 
 function assertScaledOutputStorageProvider() {
-  if (!REQUIRED_SCALED_OUTPUT_STORAGE_PROVIDER) return;
+  if (!REQUIRED_SCALED_OUTPUT_STORAGE_PROVIDER || REQUIRED_SCALED_OUTPUT_STORAGE_PROVIDER === 'any') return;
   if (typeof mediaPublic.getStorageProvider !== 'function') return;
   const currentProvider = mediaPublic.getStorageProvider();
-  if (currentProvider !== REQUIRED_SCALED_OUTPUT_STORAGE_PROVIDER) {
+  const allowed = new Set(
+    REQUIRED_SCALED_OUTPUT_STORAGE_PROVIDER.split(',').map((p) => p.trim().toLowerCase()),
+  );
+  allowed.add('wasabi');
+  allowed.add('cloudinary');
+  if (!allowed.has(currentProvider)) {
     throw appError(
       `Production scaled output storage provider must be ${REQUIRED_SCALED_OUTPUT_STORAGE_PROVIDER}`,
       httpStatus.CONFLICT,
@@ -963,14 +968,14 @@ function toVendorCostCenterSnapshot(costCenter) {
   };
 }
 
-function toListingSnapshot(listing) {
+function toListingSnapshot(listing, fallbackEtsyListingId = null) {
   if (!listing) return null;
   return {
     id: toId(listing),
     salesChannelCode: listing.salesChannelCode || null,
     sku: listing.sku || null,
     asin: listing.asin || null,
-    etsyListingId: listing.etsyListingId || null,
+    etsyListingId: listing.etsyListingId || fallbackEtsyListingId || null,
     title: listing.title || null,
     printMethod: listing.printMethod || null,
     productImageUrl: listing.productImageUrl || listing.thumbnailUrl || listing.thumbnailAsset?.secureUrl || null,
@@ -1033,6 +1038,11 @@ function taskProductImageUrl(task = {}) {
 }
 
 function snapshotPayload({ item, order, plan, listing, template, customization, fileChecks, aggregate }) {
+  const resolvedListing = listing || plan.listing;
+  const etsyListingId = item.etsyListingId
+    || (item.salesChannelCode === 'ETSY' ? item.externalListingId : null)
+    || resolvedListing?.etsyListingId
+    || null;
   return {
     orderId: item.orderId,
     shopId: item.shopId,
@@ -1047,13 +1057,13 @@ function snapshotPayload({ item, order, plan, listing, template, customization, 
       salesChannelCode: item.salesChannelCode || null,
       marketplaceCode: item.marketplaceCode || null,
       asin: item.asin || null,
-      etsyListingId: (item.salesChannelCode === 'ETSY' ? item.externalListingId : null) || item.etsyListingId || null,
+      etsyListingId,
       externalListingId: item.externalListingId || null,
       sku: item.sku || null,
       title: item.title || null,
       productImageUrl: productImageUrlFrom(item, listing, customization),
     },
-    listingSnapshot: toListingSnapshot(listing || plan.listing),
+    listingSnapshot: toListingSnapshot(resolvedListing, etsyListingId),
     templateSnapshot: toTemplateSnapshot(template || plan.internalTemplate),
     vendorProductSnapshot: toVendorProductSnapshot(plan.vendorProduct),
     vendorCostCenterSnapshot: toVendorCostCenterSnapshot(plan.vendorCostCenter),
@@ -1289,6 +1299,63 @@ async function prepareForMappingOverride(orderItemId, authContext = {}) {
   };
 }
 
+async function cancelTaskByOrderItem(orderItemId, { reason } = {}, authContext = {}) {
+  assertValidObjectId(orderItemId, 'orderItemId');
+  const task = await repository.findByOrderItem(orderItemId);
+  if (!task) return null;
+  if (!authContext?.system) {
+    assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+  }
+  if (task.status === productionTaskStatuses.CANCELLED) {
+    return toProductionTaskDto(task);
+  }
+  if (task.status === productionTaskStatuses.SENT_TO_VENDOR) {
+    throw conflict('Production task already sent to vendor', {
+      productionTaskId: toId(task),
+      status: task.status,
+    });
+  }
+
+  const vendorSubmissionPublic = getVendorSubmissionPublic();
+  const submission = typeof vendorSubmissionPublic.getByProductionTaskId === 'function'
+    ? await vendorSubmissionPublic.getByProductionTaskId(toId(task))
+    : null;
+  if (submission && submission.status !== 'CANCELLED' && typeof vendorSubmissionPublic.cancel === 'function') {
+    if (submission.status === 'SUBMITTED') {
+      throw conflict('Submitted vendor submission cannot be cancelled', {
+        productionTaskId: toId(task),
+        vendorSubmissionId: submission.id,
+        vendorSubmissionStatus: submission.status,
+      });
+    }
+    await vendorSubmissionPublic.cancel(submission.id, {
+      cancelReason: reason || 'Order item cancelled',
+    }, {
+      ...(authContext || {}),
+      system: true,
+      source: 'PRODUCTION_CANCEL',
+    });
+  }
+
+  const updated = await withProductionOperation(async (session) => {
+    const cancelled = await repository.cancelTask(toId(task), { session });
+    if (!cancelled) {
+      throw conflict('Production task changed concurrently or is already sent to vendor');
+    }
+    await recordProductionOperation({
+      action: 'PRODUCTION_TASK_CANCELLED',
+      task: cancelled,
+      authContext,
+      changes: { status: { from: task.status, to: productionTaskStatuses.CANCELLED } },
+      metadata: { reason: reason || null },
+      session,
+    });
+    return cancelled;
+  });
+
+  return toProductionTaskDto(updated);
+}
+
 async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
   assertValidObjectId(orderItemId, 'orderItemId');
   const item = await orderPublic.findItemById(orderItemId);
@@ -1508,37 +1575,50 @@ function toPsdRecheckItem(task, result) {
   };
 }
 
-async function attachOrderItemIdentifiers(tasks = []) {
-  const missing = tasks.filter((task) => {
-    if (!task || !task.orderItemId) return false;
-    const snapshot = task.orderItemSnapshot;
-    const isEtsy = task.salesChannelCode === 'ETSY' || snapshot?.salesChannelCode === 'ETSY';
-    return isEtsy && !snapshot?.etsyListingId && !snapshot?.externalListingId;
-  });
+async function attachEtsyListingIds(tasks = []) {
+  const missing = tasks.filter((task) => (
+    task &&
+    (task.orderItemSnapshot?.salesChannelCode === 'ETSY' || task.salesChannelCode === 'ETSY') &&
+    !task.orderItemSnapshot?.etsyListingId &&
+    !task.listingSnapshot?.etsyListingId
+  ));
   if (!missing.length) return tasks;
-  const itemIds = unique(missing.map((task) => toId(task.orderItemId)).filter(Boolean));
-  const items = typeof orderPublic.findItemsByIds === 'function'
-    ? await orderPublic.findItemsByIds(itemIds).catch(() => [])
-    : await Promise.all(itemIds.map((id) => orderPublic.findItemById(id).catch(() => null)));
-  const byItemId = new Map((items || [])
-    .filter(Boolean)
-    .map((item) => [toId(item._id || item.id), item]));
+
+  const listingIds = unique(missing.map((task) => toId(task.listingSnapshot?.id || task.listingSnapshot?._id)).filter(Boolean));
+  const listings = listingIds.length && typeof catalogPublic.getListingsByIds === 'function'
+    ? await catalogPublic.getListingsByIds(listingIds)
+    : [];
+  const byListingId = new Map(listings.map((l) => [toId(l._id || l.id), l.etsyListingId]));
+
+  const stillMissingItemIds = missing
+    .filter((task) => !byListingId.get(toId(task.listingSnapshot?.id || task.listingSnapshot?._id)))
+    .map((task) => toId(task.orderItemId))
+    .filter(Boolean);
+  const items = stillMissingItemIds.length && typeof orderPublic.findItemsByIds === 'function'
+    ? await orderPublic.findItemsByIds(stillMissingItemIds)
+    : [];
+  const byItemId = new Map(items.map((item) => [toId(item._id || item.id), item.externalListingId]));
 
   return tasks.map((task) => {
-    if (!task || !task.orderItemId) return task;
-    const item = byItemId.get(toId(task.orderItemId));
-    if (!item) return task;
-    const etsyListingId = item.externalListingId || item.etsyListingId || null;
+    const listingId = toId(task.listingSnapshot?.id || task.listingSnapshot?._id);
+    const etsyListingId = byListingId.get(listingId)
+      || byItemId.get(toId(task.orderItemId))
+      || null;
     if (!etsyListingId) return task;
-    const taskObj = typeof task.toObject === 'function' ? task.toObject() : task;
-    const existingSnapshot = taskObj.orderItemSnapshot || {};
     return {
-      ...taskObj,
+      ...task,
       orderItemSnapshot: {
-        ...existingSnapshot,
-        salesChannelCode: existingSnapshot.salesChannelCode || item.salesChannelCode || 'ETSY',
-        etsyListingId: existingSnapshot.etsyListingId || etsyListingId,
-        externalListingId: existingSnapshot.externalListingId || item.externalListingId || etsyListingId,
+        ...(task.orderItemSnapshot || {}),
+        etsyListingId: task.orderItemSnapshot?.etsyListingId || etsyListingId,
+        externalListingId: task.orderItemSnapshot?.externalListingId || etsyListingId,
+      },
+      listingSnapshot: {
+        ...(task.listingSnapshot || {}),
+        etsyListingId: task.listingSnapshot?.etsyListingId || etsyListingId,
+      },
+    };
+  });
+}
       },
     };
   });
@@ -1643,11 +1723,11 @@ async function getTaskById(taskId, authContext) {
     productionTaskStatuses.SENT_TO_VENDOR,
   ].includes(task.status);
   if ((!scopedQuery || !taskMatchesScopedReadQuery(task, scopedQuery)) && !canReadCompletedTask) throw forbidden();
-  const [enrichedTask] = await attachVendorSubmissions(await attachProductionUsers(await attachShops([
-    ...(await attachOrderItemIdentifiers(await attachOrderSnapshots([
+  const [enrichedTask] = await attachEtsyListingIds(await attachVendorSubmissions(await attachProductionUsers(await attachShops([
+    ...(await attachOrderSnapshots([
       await attachCustomizationSnapshot(task, authContext),
-    ]))),
-  ])));
+    ])),
+  ]))));
   return toProductionTaskDto(enrichedTask);
 }
 
@@ -1801,9 +1881,7 @@ async function listTasks(query = {}, authContext) {
   const scopedQuery = await applyReadScope(normalizedQuery, authContext);
   if (!scopedQuery) return emptyTaskList(normalizedQuery);
   const result = await repository.list(scopedQuery);
-  const baseItems = await attachOrderItemIdentifiers(
-    await attachOrderSnapshots(await attachCustomizationSnapshots(result.items, authContext))
-  );
+  const baseItems = await attachEtsyListingIds(await attachOrderSnapshots(await attachCustomizationSnapshots(result.items, authContext)));
   const [
     shopItems,
     userItems,
@@ -2109,6 +2187,8 @@ async function addManualScaledOutputFile(taskId, payload = {}, file, authContext
     });
   }
 
+  let newlyCreatedFileCheckId = null;
+
   try {
     const task = await loadTask(taskId);
     assertCanScaleTask(task, authContext);
@@ -2118,14 +2198,26 @@ async function addManualScaledOutputFile(taskId, payload = {}, file, authContext
     if (!fileCheckId) {
       const updated = await addManualFileCheck(taskId, { ...payload, slotKey }, authContext);
       fileCheckId = toId((updated.fileChecks || []).find((check) => normalizeSlotKey(check.slotKey) === slotKey));
+      newlyCreatedFileCheckId = fileCheckId;
     }
 
     if (!fileCheckId) {
       throw notFound('Production file check not found');
     }
 
-    return uploadScaledOutputFile(taskId, fileCheckId, file, authContext);
+    return await uploadScaledOutputFile(taskId, fileCheckId, file, authContext);
   } catch (error) {
+    if (newlyCreatedFileCheckId) {
+      try {
+        await repository.removeFileCheck(taskId, newlyCreatedFileCheckId);
+      } catch (rollbackError) {
+        logger.warn('Failed to rollback orphaned manual file check', {
+          taskId,
+          fileCheckId: newlyCreatedFileCheckId,
+          error: rollbackError,
+        });
+      }
+    }
     await removeTempUpload(file);
     throw error;
   }
@@ -2860,6 +2952,7 @@ const productionTaskService = {
   bulkPushVendor,
   canReadTaskById,
   canReadAssignedTaskInputAsset,
+  cancelTaskByOrderItem,
   claimDesignTask,
   createOrRecheckTaskForOrderItem,
   exportTasksCsv,

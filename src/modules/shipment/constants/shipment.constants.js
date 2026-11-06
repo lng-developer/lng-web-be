@@ -7,6 +7,13 @@ const shipmentStatuses = Object.freeze({
   CANCELLED: 'CANCELLED',
 });
 
+const marketplaceConfirmationStatuses = Object.freeze({
+  PENDING: 'PENDING',
+  SUBMITTED: 'SUBMITTED',
+  CONFIRMED: 'CONFIRMED',
+  FAILED: 'FAILED',
+});
+
 const shipmentPermissions = Object.freeze({
   READ: 'SHIPMENTS:READ',
   WRITE: 'SHIPMENTS:WRITE',
@@ -19,6 +26,7 @@ const vendorWebhookOutcomes = Object.freeze({
 });
 
 module.exports = {
+  marketplaceConfirmationStatuses,
   shipmentPermissions,
   shipmentStatuses,
   vendorWebhookOutcomes,

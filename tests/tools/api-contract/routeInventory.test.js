@@ -38,7 +38,7 @@ describe('API contract route inventory', () => {
         method: 'POST',
         path: '/api/hr/integrations/sql-attendance/sync',
         authenticated: true,
-        permissions: ['HR_INTEGRATIONS:MANAGE'],
+        permissions: ['HR_INTEGRATIONS:MANAGE', 'HR_ATTENDANCE:MANAGE'],
       }),
     ]));
   });
