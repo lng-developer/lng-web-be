@@ -7,7 +7,12 @@ const schemas = require('../modules/chat/validators/chat.validator');
 const presenceRegistry = require('./presenceRegistry');
 const socketMetrics = require('./socketMetrics');
 const logger = require('../shared/utils/logger');
-const { createAdapter } = require('@socket.io/redis-adapter');
+let createAdapter;
+try {
+  ({ createAdapter } = require('@socket.io/redis-adapter'));
+} catch (e) {
+  /* optional redis adapter */
+}
 const { getRedisClient } = require('../config/redis');
 
 function getToken(socket) {
@@ -57,7 +62,7 @@ function attachChatSocket(server) {
   let pubClient;
   let subClient;
 
-  if (config.redis?.enabled && typeof io.adapter === 'function') {
+  if (config.redis?.enabled && typeof io.adapter === 'function' && typeof createAdapter === 'function') {
     try {
       const baseRedis = getRedisClient();
       pubClient = baseRedis.duplicate();
