@@ -110,6 +110,7 @@ async function listParticipants(query = {}, authContext = {}, onlineAccountIds =
           displayName: profile?.displayName || profile?.fullName || null,
           fullName: profile?.fullName || null,
           employeeCode: profile?.employeeCode || null,
+          avatarUrl: profile?.avatarUrl || null,
           presence: onlineAccountIds.has(String(account.id)) ? 'ONLINE' : 'OFFLINE',
         };
       })

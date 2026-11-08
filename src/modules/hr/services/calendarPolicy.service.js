@@ -6,7 +6,7 @@ const authPublic = require('../../auth/public');
 const auditPublic = require('../../audit/public');
 const organizationPublic = require('../../organization/public');
 const logger = require('../../../shared/utils/logger');
-const { hrHolidayTypes } = require('../constants/hr.constants');
+const { hrHolidayTypes, hrEmployeeStatuses } = require('../constants/hr.constants');
 const {
   toHolidayDto,
   toPaginatedDto,
@@ -347,7 +347,10 @@ function saturdaysInMonth(year, month) {
 }
 
 async function activeProfileIds(teamId) {
-  return uniqueIds((await profileRepository.listIds({ teamId, status: 'ACTIVE' })).map(toId));
+  return uniqueIds((await profileRepository.listIds({
+    teamId,
+    status: { $in: [hrEmployeeStatuses.ACTIVE, hrEmployeeStatuses.PROBATION] },
+  })).map(toId));
 }
 
 function isSaturday(dateKey) {

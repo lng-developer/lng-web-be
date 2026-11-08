@@ -13,7 +13,7 @@ function buildFilter({ departmentId, includeDeleted, profileIds, q, scopeFilters
   if (profileIds) filter._id = { $in: profileIds };
   if (departmentId) filter.departmentId = departmentId;
   if (teamId) filter.teamId = teamId;
-  if (status) filter.status = status;
+  if (status) filter.status = Array.isArray(status) ? { $in: status } : status;
 
   const search = normalizeSearchTerm(q);
   if (search) {

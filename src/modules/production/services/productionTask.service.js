@@ -1936,6 +1936,7 @@ async function summarizeQueueCounts(query = {}, authContext) {
     ...(normalizedQuery.search ? { search: normalizedQuery.search } : {}),
     ...(normalizedQuery.salesChannelCode ? { salesChannelCode: normalizedQuery.salesChannelCode } : {}),
     ...(normalizedQuery.shopId ? { shopId: normalizedQuery.shopId } : {}),
+    ...(normalizedQuery.designType ? { designType: normalizedQuery.designType } : {}),
   }, authContext);
   const counts = scopedQuery ? await repository.summarizeQueueCounts(scopedQuery) : emptyQueueCounts();
   if (hasAnyTeamScopedPermission(authContext, [DESIGN_REVIEW_PERMISSION])
@@ -1946,6 +1947,7 @@ async function summarizeQueueCounts(query = {}, authContext) {
       ...(normalizedQuery.search ? { search: normalizedQuery.search } : {}),
       ...(normalizedQuery.salesChannelCode ? { salesChannelCode: normalizedQuery.salesChannelCode } : {}),
       ...(normalizedQuery.shopId ? { shopId: normalizedQuery.shopId } : {}),
+      ...(normalizedQuery.designType ? { designType: normalizedQuery.designType } : {}),
     }, authContext);
     const qcCounts = qcQuery ? await repository.summarizeQueueCounts(qcQuery) : emptyQueueCounts();
     return { ...counts, qcQueue: qcCounts.qcQueue };

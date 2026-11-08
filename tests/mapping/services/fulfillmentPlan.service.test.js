@@ -78,6 +78,8 @@ jest.mock('../../../src/modules/mapping/services/mappingRule.service', () => ({
   listActiveSkuConfigRulesForContext: jest.fn(),
   listVendorRoutingRules: jest.fn(),
   listActiveVendorRoutingRulesForContext: jest.fn(),
+  listActiveNormalizationRulesForContext: jest.fn(),
+  normalizeSemanticValue: jest.fn((val) => val),
 }));
 
 jest.mock('../../../src/shared/utils/logger', () => ({
@@ -387,6 +389,8 @@ describe('fulfillmentPlan.service', () => {
     mappingRuleService.listActiveSkuNormalizeRulesForContext.mockResolvedValue([]);
     mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValue([]);
     mappingRuleService.listActiveVendorRoutingRulesForContext.mockResolvedValue([]);
+    mappingRuleService.listActiveNormalizationRulesForContext.mockResolvedValue([]);
+    mappingRuleService.normalizeSemanticValue.mockImplementation((val) => val);
     mappingRuleService.listSkuConfigRules.mockResolvedValue({ items: [], pagination: { total: 2, page: 1, limit: 20 } });
     mappingRuleService.listSkuNormalizeRules.mockResolvedValue({ items: [], pagination: { total: 1, page: 1, limit: 20 } });
     mappingRuleService.listNormalizationRules.mockResolvedValue({ items: [], pagination: { total: 3, page: 1, limit: 20 } });
@@ -2945,5 +2949,24 @@ describe('fulfillmentPlan.service', () => {
     expect(orderPublic.findItemById).not.toHaveBeenCalled();
     expect(repository.listByOrderItemIds).toHaveBeenCalledWith([orderItemId, secondOrderItemId]);
     expect(result).toHaveLength(2);
+  });
+
+  test('preview passes normalizationRules to cost center scoring for size matching', async () => {
+    mappingRuleService.listActiveNormalizationRulesForContext.mockResolvedValueOnce([
+      {
+        semanticRole: 'SIZE',
+        matchTarget: 'VALUE',
+        matchType: 'EXACT',
+        matchValues: ['XXL'],
+        normalizedValue: '2XL',
+      },
+    ]);
+    mappingRuleService.normalizeSemanticValue.mockImplementation((val) => {
+      if (String(val).toUpperCase() === 'XXL') return '2XL';
+      return val;
+    });
+
+    const result = await service.previewFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:READ'] });
+    expect(mappingRuleService.listActiveNormalizationRulesForContext).toHaveBeenCalled();
   });
 });

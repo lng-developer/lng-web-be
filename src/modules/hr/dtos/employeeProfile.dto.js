@@ -110,6 +110,10 @@ function toEmployeePersonalProfileDto(profile, { department = null, team = null 
   dto.taxIdentification = profile.taxIdentification || null;
   dto.socialInsuranceNumber = profile.socialInsuranceNumber || null;
   dto.bankAccount = profile.bankAccount || null;
+  dto.baseCurrency = profile.baseCurrency || 'VND';
+  dto.baseSalary = profile.baseSalary ?? 0;
+  dto.allowances = profile.allowances || { lunch: 0, fuel: 0, other: 0 };
+  dto.responsibilityAllowance = profile.responsibilityAllowance ?? 0;
   return dto;
 }
 

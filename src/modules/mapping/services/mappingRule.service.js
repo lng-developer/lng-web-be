@@ -256,8 +256,18 @@ function scopedQuery(query = {}, authContext = {}, permission = MAPPING_READ) {
 }
 
 function normalizeRulePayload(payload = {}, { defaults = false } = {}) {
-  if (String(payload.matchType || '').toUpperCase() === matchTypes.REGEX) {
-    throw validationError('REGEX matchType is disabled in V1', { field: 'matchType' });
+  const matchType = String(payload.matchType || '').toUpperCase();
+  if (matchType === matchTypes.REGEX) {
+    const rawPatterns = cleanStringArray(payload.matchValues).length
+      ? cleanStringArray(payload.matchValues)
+      : [payload.matchValue].filter(Boolean);
+    for (const pattern of rawPatterns) {
+      try {
+        new RegExp(pattern);
+      } catch (err) {
+        throw validationError(`Invalid regex pattern: ${pattern}`, { field: 'matchValues', error: err.message });
+      }
+    }
   }
   return {
     ...payload,
@@ -951,6 +961,14 @@ function ruleMatches(rule, input) {
     : lower(target);
 
   return ruleMatchValues(rule).some((value) => {
+    if (rule.matchType === matchTypes.REGEX) {
+      try {
+        return new RegExp(value, 'i').test(String(target || '').trim())
+          || new RegExp(value, 'i').test(String(comparableTarget || '').trim());
+      } catch (_e) {
+        return false;
+      }
+    }
     const comparableValue = rule.matchTarget === matchTargets.VALUE
       ? parseDecoratedValue(value).value
       : lower(value);
@@ -965,8 +983,28 @@ function specificity(rule = {}, context = {}) {
     .filter((field) => rule[field] && String(rule[field]) === String(context[field])).length;
 }
 
+function expandRegexNormalizedValue(rule, rawValue) {
+  let normalized = rule.normalizedValue || rawValue;
+  if (rule.matchType === matchTypes.REGEX && normalized && normalized.includes('$')) {
+    const matchPattern = ruleMatchValues(rule).find((val) => {
+      try {
+        return new RegExp(val, 'i').test(rawValue);
+      } catch (_e) {
+        return false;
+      }
+    }) || rule.matchValue;
+    try {
+      normalized = String(rawValue || '').replace(new RegExp(matchPattern, 'i'), normalized).trim();
+    } catch (_e) {
+      // keep normalized
+    }
+  }
+  return normalized;
+}
+
 function ruleInput(rule, input, context) {
-  const parsed = parseDecoratedValue(rule.normalizedValue || input.value);
+  const expanded = expandRegexNormalizedValue(rule, input.value);
+  const parsed = parseDecoratedValue(expanded);
   const dimensionSize = rule.semanticRole === semanticRoles.SIZE && (
     normalizeDimensionSize(parsed.value)
     || parsed.annotations.map(normalizeDimensionSize).find(Boolean)
@@ -995,7 +1033,8 @@ function isCompositeSemanticRole(role) {
 }
 
 function combinedRuleInputs(rule, input, context, roles) {
-  const parsed = parseDecoratedValue(rule.normalizedValue || input.value);
+  const expanded = expandRegexNormalizedValue(rule, input.value);
+  const parsed = parseDecoratedValue(expanded);
   return combinedBucketInputs(input, roles, parsed.value).map((item) => ({
     ...item,
     confidence: confidenceLevels.HIGH,
@@ -1197,8 +1236,38 @@ async function listActiveVendorRoutingRulesForContext(context = {}) {
   ));
 }
 
+async function listActiveNormalizationRulesForContext(context = {}) {
+  return normalizationRepository.listActiveForContext(context);
+}
+
+function normalizeSemanticValue(value, semanticRole, rules = []) {
+  if (value == null) return '';
+  const raw = String(value).trim();
+  if (!raw) return '';
+  const targetInput = { value: raw, label: '' };
+  const matched = (rules || [])
+    .filter((rule) => (
+      rule.semanticRole === semanticRole
+      && (rule.matchTarget === matchTargets.VALUE || rule.matchTarget === matchTargets.LABEL_AND_VALUE)
+      && rule.normalizedValue
+      && ruleMatches(rule, targetInput)
+    ))
+    .sort((a, b) => (
+      (a.priority || 100) - (b.priority || 100)
+      || String(b.matchValue || '').length - String(a.matchValue || '').length
+    ));
+
+  if (matched.length > 0) {
+    const bestRule = matched[0];
+    return expandRegexNormalizedValue(bestRule, raw);
+  }
+  return raw;
+}
+
 module.exports = {
   buildNormalizedInputs,
+  listActiveNormalizationRulesForContext,
+  normalizeSemanticValue,
   createNormalizationRule,
   createSkuConfigRule,
   createSkuNormalizeRule,

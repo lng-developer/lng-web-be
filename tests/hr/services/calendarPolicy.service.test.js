@@ -478,7 +478,10 @@ describe('calendar policy service', () => {
 
     await expect(service.updateRotation('r1', { employeeProfileIds: ['p1'] }))
       .resolves.toMatchObject({ id: 'r1', employeeProfileIds: ['p1'], source: 'MANUAL' });
-    expect(profileRepository.listIds).toHaveBeenCalledWith({ teamId: 't1', status: 'ACTIVE' });
+    expect(profileRepository.listIds).toHaveBeenCalledWith({
+      teamId: 't1',
+      status: { $in: ['ACTIVE', 'PROBATION'] },
+    });
   });
 
   test('keeps manually edited Saturdays when generating the month again', async () => {

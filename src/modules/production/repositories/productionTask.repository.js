@@ -452,6 +452,7 @@ function psdReadyExpression() {
 async function summarizeQueueCounts(query = {}) {
   const filter = buildFilter(query);
   const psdReady = psdReadyExpression();
+  const scaleDesignType = query.designType === 'CUSTOM_IMAGE' ? 'CUSTOM_IMAGE' : 'NORMAL';
   const [result = {}] = await ProductionTask.aggregate([
     { $match: filter },
     {
@@ -464,7 +465,7 @@ async function summarizeQueueCounts(query = {}) {
             $cond: [{
               $and: [
                 psdReady,
-                { $eq: ['$designType', 'NORMAL'] },
+                { $eq: ['$designType', scaleDesignType] },
                 { $in: ['$status', [productionTaskStatuses.NEED_SCALE, productionTaskStatuses.QC_REJECTED]] },
               ],
             }, 1, 0],
@@ -475,7 +476,7 @@ async function summarizeQueueCounts(query = {}) {
             $cond: [{
               $and: [
                 psdReady,
-                { $eq: ['$designType', 'NORMAL'] },
+                { $eq: ['$designType', scaleDesignType] },
                 { $eq: ['$status', productionTaskStatuses.NEED_SCALE] },
               ],
             }, 1, 0],
@@ -486,7 +487,7 @@ async function summarizeQueueCounts(query = {}) {
             $cond: [{
               $and: [
                 psdReady,
-                { $eq: ['$designType', 'NORMAL'] },
+                { $eq: ['$designType', scaleDesignType] },
                 { $eq: ['$status', productionTaskStatuses.QC_REJECTED] },
               ],
             }, 1, 0],

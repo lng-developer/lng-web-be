@@ -38,7 +38,7 @@ describe('employeeProfile DTO', () => {
     expect(dto.allowances).toEqual({ lunch: 30000, fuel: 0, other: 0 });
   });
 
-  test('includes self-owned personal fields but never compensation', () => {
+  test('includes self-owned personal fields including compensation', () => {
     const dto = toEmployeePersonalProfileDto(profile, {
       includeSensitive: true,
       capabilities: { edit: true, delete: true, restore: false },
@@ -48,7 +48,7 @@ describe('employeeProfile DTO', () => {
     expect(dto.taxIdentification).toBe('TAX-1');
     expect(dto.socialInsuranceNumber).toBe('BHXH-1');
     expect(dto.bankAccount).toEqual({ bankName: 'VCB', accountNumber: '123' });
-    expect(dto.baseSalary).toBeUndefined();
+    expect(dto.baseSalary).toBe(10000000);
     expect(dto.accountId).toBeUndefined();
     expect(dto.capabilities).toBeUndefined();
   });

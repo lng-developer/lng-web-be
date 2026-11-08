@@ -567,12 +567,8 @@ function toQcTaskSummaryDto(task) {
     orderItemId: toId(task.orderItemId),
     orderItem: toOrderItemSummaryDto(task.orderItemSnapshot, task),
     customization: toQcCustomizationDto(task.customizationSnapshot),
-    vendorProduct: task.vendorProductSnapshot
-      ? { name: task.vendorProductSnapshot.name || null, vendor: task.vendorProductSnapshot.vendor?.name || null }
-      : null,
-    vendorCostCenter: task.vendorCostCenterSnapshot
-      ? { name: task.vendorCostCenterSnapshot.name || null }
-      : null,
+    vendorProduct: toVendorProductDto(task.vendorProductSnapshot),
+    vendorCostCenter: toVendorCostCenterDto(task.vendorCostCenterSnapshot),
     productionStatus: task.status,
     scaleStatus: task.scaleStatus,
     qcStatus: task.qcStatus,

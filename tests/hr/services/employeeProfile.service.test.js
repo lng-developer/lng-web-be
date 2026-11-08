@@ -491,9 +491,9 @@ describe('employeeProfile service', () => {
       team: { id: teamId, name: 'Design A' },
       ...personalPayload,
     });
-    expect(result.baseSalary).toBeUndefined();
-    expect(result.allowances).toBeUndefined();
-    expect(result.responsibilityAllowance).toBeUndefined();
+    expect(result.baseSalary).toBe(10000000);
+    expect(result.allowances).toEqual({ lunch: 0, fuel: 0, other: 0 });
+    expect(result.responsibilityAllowance).toBe(0);
   });
 
   test('creates a draft self profile when missing', async () => {

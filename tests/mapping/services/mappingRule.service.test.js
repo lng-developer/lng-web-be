@@ -1630,4 +1630,52 @@ describe('mappingRule.service', () => {
     expect(skuNormalizeRepository.list).toHaveBeenCalledWith(expect.objectContaining({ page: 2, limit: 100 }));
     expect(result.conflicts).toEqual([expect.objectContaining({ id: '660000000000000000010055' })]);
   });
+
+  describe('normalizeSemanticValue', () => {
+    test('normalizes semantic value with exact value match', () => {
+      const rules = [
+        {
+          semanticRole: 'SIZE',
+          matchTarget: 'VALUE',
+          matchType: 'EXACT',
+          matchValues: ['XXL'],
+          normalizedValue: '2XL',
+          priority: 10,
+        },
+      ];
+      expect(service.normalizeSemanticValue('XXL', 'SIZE', rules)).toBe('2XL');
+      expect(service.normalizeSemanticValue('xxl', 'SIZE', rules)).toBe('2XL');
+      expect(service.normalizeSemanticValue('M', 'SIZE', rules)).toBe('M');
+    });
+
+    test('normalizes semantic value using regex pattern with capture group expansion', () => {
+      const rules = [
+        {
+          semanticRole: 'SIZE',
+          matchTarget: 'VALUE',
+          matchType: 'REGEX',
+          matchValues: ['^size\\s+(.+)$'],
+          normalizedValue: '$1',
+          priority: 50,
+        },
+      ];
+      expect(service.normalizeSemanticValue('size XL', 'SIZE', rules)).toBe('XL');
+      expect(service.normalizeSemanticValue('Size 2XL', 'SIZE', rules)).toBe('2XL');
+      expect(service.normalizeSemanticValue('XL', 'SIZE', rules)).toBe('XL');
+    });
+
+    test('ignores non-matching semantic roles', () => {
+      const rules = [
+        {
+          semanticRole: 'COLOR',
+          matchTarget: 'VALUE',
+          matchType: 'EXACT',
+          matchValues: ['BLK'],
+          normalizedValue: 'BLACK',
+        },
+      ];
+      expect(service.normalizeSemanticValue('BLK', 'SIZE', rules)).toBe('BLK');
+      expect(service.normalizeSemanticValue('BLK', 'COLOR', rules)).toBe('BLACK');
+    });
+  });
 });

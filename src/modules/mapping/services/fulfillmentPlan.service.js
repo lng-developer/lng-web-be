@@ -448,7 +448,7 @@ function parseVariantRawString(raw) {
   return result;
 }
 
-function termsFromItem(item, normalizedInputs = []) {
+function termsFromItem(item, normalizedInputs = [], normalizationRules = []) {
   let variant = item.variantRaw || {};
   if (typeof variant === "string") {
     variant = parseVariantRawString(variant);
@@ -461,10 +461,21 @@ function termsFromItem(item, normalizedInputs = []) {
     if (role && !result[role]) result[role] = input.value;
     return result;
   }, {});
+
+  const rawSize = byRole.SIZE || variant.standardSize || variant.size || variant.Size;
+  const rawColor = byRole.COLOR || variant.standardColor || variant.color || variant.Color;
+
+  const normalizedSize = normalizationRules && normalizationRules.length > 0 && typeof mappingRuleService.normalizeSemanticValue === 'function'
+    ? mappingRuleService.normalizeSemanticValue(rawSize, semanticRoles.SIZE, normalizationRules)
+    : rawSize;
+  const normalizedColor = normalizationRules && normalizationRules.length > 0 && typeof mappingRuleService.normalizeSemanticValue === 'function'
+    ? mappingRuleService.normalizeSemanticValue(rawColor, semanticRoles.COLOR, normalizationRules)
+    : rawColor;
+
   return {
     sku: item.sku && String(item.sku).trim().toUpperCase(),
-    size: normalizeComparableSize(byRole.SIZE || variant.standardSize || variant.size || variant.Size),
-    color: normalizeCostCenterValue(byRole.COLOR || variant.standardColor || variant.color || variant.Color),
+    size: normalizeComparableSize(normalizedSize),
+    color: normalizeCostCenterValue(normalizedColor),
   };
 }
 
@@ -493,7 +504,8 @@ function normalizeComparableSize(value) {
 }
 
 function scoreCostCenter(costCenter, item, normalizedInputs = [], options = {}) {
-  const terms = termsFromItem(item, normalizedInputs);
+  const normalizationRules = options.normalizationRules || [];
+  const terms = termsFromItem(item, normalizedInputs, normalizationRules);
   let score = 0;
   let matchTier = 0;
   const matchReasons = [];
@@ -507,13 +519,45 @@ function scoreCostCenter(costCenter, item, normalizedInputs = [], options = {}) 
     matchTier = Math.max(matchTier, 4);
     matchReasons.push(costCenterMatchReasons.LNG_CODE_EXACT);
   }
-  const standardSizeMatch = terms.size && normalizeComparableSize(costCenter.standardSize) === terms.size;
-  const standardColorMatch = terms.color && normalizeCostCenterValue(costCenter.standardColor) === terms.color;
-  const vendorSizeMatch = terms.size && normalizeComparableSize(costCenter.vendorSize) === terms.size;
-  const vendorColorMatch = terms.color && normalizeCostCenterValue(costCenter.vendorColor) === terms.color;
+
+  const ccStandardSize = normalizeComparableSize(
+    normalizationRules.length > 0 && typeof mappingRuleService.normalizeSemanticValue === 'function'
+      ? mappingRuleService.normalizeSemanticValue(costCenter.standardSize, semanticRoles.SIZE, normalizationRules)
+      : costCenter.standardSize
+  );
+  const ccStandardColor = normalizeCostCenterValue(
+    normalizationRules.length > 0 && typeof mappingRuleService.normalizeSemanticValue === 'function'
+      ? mappingRuleService.normalizeSemanticValue(costCenter.standardColor, semanticRoles.COLOR, normalizationRules)
+      : costCenter.standardColor
+  );
+  const ccVendorSize = normalizeComparableSize(
+    normalizationRules.length > 0 && typeof mappingRuleService.normalizeSemanticValue === 'function'
+      ? mappingRuleService.normalizeSemanticValue(costCenter.vendorSize, semanticRoles.SIZE, normalizationRules)
+      : costCenter.vendorSize
+  );
+  const ccVendorColor = normalizeCostCenterValue(
+    normalizationRules.length > 0 && typeof mappingRuleService.normalizeSemanticValue === 'function'
+      ? mappingRuleService.normalizeSemanticValue(costCenter.vendorColor, semanticRoles.COLOR, normalizationRules)
+      : costCenter.vendorColor
+  );
   const attributes = costCenter.attributes || {};
-  const attrSizeMatch = terms.size && normalizeComparableSize(attributes.size) === terms.size;
-  const attrColorMatch = terms.color && normalizeCostCenterValue(attributes.color) === terms.color;
+  const ccAttrSize = normalizeComparableSize(
+    normalizationRules.length > 0 && typeof mappingRuleService.normalizeSemanticValue === 'function'
+      ? mappingRuleService.normalizeSemanticValue(attributes.size, semanticRoles.SIZE, normalizationRules)
+      : attributes.size
+  );
+  const ccAttrColor = normalizeCostCenterValue(
+    normalizationRules.length > 0 && typeof mappingRuleService.normalizeSemanticValue === 'function'
+      ? mappingRuleService.normalizeSemanticValue(attributes.color, semanticRoles.COLOR, normalizationRules)
+      : attributes.color
+  );
+
+  const standardSizeMatch = Boolean(terms.size && ccStandardSize === terms.size);
+  const standardColorMatch = Boolean(terms.color && ccStandardColor === terms.color);
+  const vendorSizeMatch = Boolean(terms.size && ccVendorSize === terms.size);
+  const vendorColorMatch = Boolean(terms.color && ccVendorColor === terms.color);
+  const attrSizeMatch = Boolean(terms.size && ccAttrSize === terms.size);
+  const attrColorMatch = Boolean(terms.color && ccAttrColor === terms.color);
   if (standardSizeMatch) {
     score += 40;
     matchReasons.push(costCenterMatchReasons.STANDARD_SIZE);
@@ -560,6 +604,15 @@ function scoreCostCenter(costCenter, item, normalizedInputs = [], options = {}) 
   })();
   const isEffectivelyColorAgnostic = colorAgnostic || (!terms.color && !hasMultipleProductColors && productCostCenters.length > 0);
   const sizeMatched = (standardSizeMatch && vendorSizeMatch) || standardSizeMatch;
+  const isBackVariant = /(_|-|\b)BACK$/i.test(String(costCenter.code || ''))
+    || /(_|-|\b)BACK$/i.test(String(costCenter.sku || ''));
+  const isBackRequested = /\bBACK\b/i.test(String(terms.sku || ''))
+    || normalizedInputs.some((input) => /\bBACK\b/i.test(String(input.value || '')));
+  if (isBackVariant && !isBackRequested) {
+    score = Math.max(0, score - 10);
+  } else if (!isBackVariant && isBackRequested) {
+    score = Math.max(0, score - 10);
+  }
   const confidence = score >= 80 || (isEffectivelyColorAgnostic && sizeMatched)
     ? confidenceLevels.HIGH
     : score >= 40 ? confidenceLevels.MEDIUM : confidenceLevels.LOW;
@@ -672,6 +725,8 @@ function buildAutoMatch(preview) {
       && (candidate.matchScore || 0) === (top.matchScore || 0)
       && (candidate.baseCostAmount ?? 999999999) === (top.baseCostAmount ?? 999999999)
     : costEstimateAmount(candidate) === costEstimateAmount(top)
+      && (candidate.matchTier || 0) === (top.matchTier || 0)
+      && (candidate.matchScore || 0) === (top.matchScore || 0)
   ));
   if (tied.length !== 1) return null;
   return {
@@ -767,7 +822,13 @@ async function searchVendorCandidatesForOrderItem(orderItemId, query = {}, authC
     }] : []),
   ];
 
-  const result = await vendorPublic.searchVendorCostCenters({
+  const [normalizationRules, result] = await Promise.all([
+    mappingRuleService.listActiveNormalizationRulesForContext({
+      shopId: item.shopId,
+      salesChannelCode: item.salesChannelCode,
+      marketplaceCode: item.marketplaceCode,
+    }),
+    vendorPublic.searchVendorCostCenters({
     q: query.q || undefined,
     vendorId: query.vendorId || undefined,
     vendorProductId: query.vendorProductId || undefined,
@@ -780,7 +841,8 @@ async function searchVendorCandidatesForOrderItem(orderItemId, query = {}, authC
     includeTotal: query.includeTotal !== false,
     page: query.page || 1,
     limit: query.limit || 20,
-  });
+  }),
+  ]);
 
   const productResult = query.manualBrowse && query.vendorId
     ? await vendorPublic.listVendorProducts({
@@ -805,6 +867,7 @@ async function searchVendorCandidatesForOrderItem(orderItemId, query = {}, authC
     const pId = String(row.vendorProduct?._id || row.vendorProduct?.id || costCenter.vendorProductId || '');
     const scored = scoreCostCenter(costCenter, item, scoringInputs, {
       productCostCenters: productCostCentersMap.get(pId) || [],
+      normalizationRules,
     });
     return {
       vendor: compactVendor(row.vendor),
@@ -1179,9 +1242,15 @@ async function buildPreview(orderItemId, authContext, options = {}) {
     preview.checks.internalTemplate = { ok: true, status: fulfillmentCheckStatuses.FOUND };
   }
 
-  const [customization, vendorProducts] = await Promise.all([
+  const [customization, vendorProducts, normalizationRules] = await Promise.all([
     getCustomizationCheck(item, internalTemplate, customizationView),
     vendorPublic.listActiveVendorProductsByProductTypeGroup(selectedProductTypeGroupId),
+    mappingRuleService.listActiveNormalizationRulesForContext({
+      shopId: toId(item.shopId),
+      salesChannelCode: item.salesChannelCode,
+      marketplaceCode: item.marketplaceCode,
+      productTypeGroupId: selectedProductTypeGroupId || null,
+    }),
   ]);
   preview.checks.customization = customization;
   if (!customization.ok) pushBlock(preview, fulfillmentBlockingReasons.CUSTOMIZATION_NOT_READY);
@@ -1190,7 +1259,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
   preview.checks.vendorProducts = { ok: preview.vendorProductCandidates.length > 0, count: preview.vendorProductCandidates.length };
   if (preview.vendorProductCandidates.length === 0) pushBlock(preview, fulfillmentBlockingReasons.NO_VENDOR_PRODUCT_CANDIDATE);
 
-  const routingTerms = termsFromItem(effectiveItem, preview.normalizedInputs);
+  const routingTerms = termsFromItem(effectiveItem, preview.normalizedInputs, normalizationRules);
   const productIds = preview.vendorProductCandidates.map((product) => product._id || product.id).filter(Boolean);
   const loadLightweightCandidates = Boolean(options.lightweightCandidates)
     && typeof vendorPublic.listActiveVendorCostCenterMatchProbesByProductIds === 'function';
@@ -1230,6 +1299,7 @@ async function buildPreview(orderItemId, authContext, options = {}) {
       ...(() => {
         const scored = scoreCostCenter(row, effectiveItem, preview.normalizedInputs, {
           productCostCenters: rows,
+          normalizationRules,
         });
         return {
           matchScore: scored.score,
