@@ -101,8 +101,8 @@ jobs:
           npm ci --omit=dev
           npm run indexes:finance-import
           node src/modules/integration/listingImageSync/scripts/ensureListingImageSyncIndexes.js
-          pm2 reload lng-web-be --update-env || pm2 restart lng-web-be --update-env
-          pm2 save
+          sudo -n /usr/bin/pm2 reload lng-web-be --update-env || sudo -n /usr/bin/pm2 restart lng-web-be --update-env
+          sudo -n /usr/bin/pm2 save
           healthy=0
           for i in {1..60}; do
             curl -fsS http://127.0.0.1:3000/api/mapping/health >/dev/null && break
