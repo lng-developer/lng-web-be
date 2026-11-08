@@ -94,7 +94,7 @@ jobs:
         run: |
           test -n "$ECOMATRIX_HOST"
           test -n "$ECOMATRIX_USER"
-          git archive --format=tar HEAD | gzip | ssh "$ECOMATRIX_USER@$ECOMATRIX_HOST" 'tar -xzf - -C /srv/lng-web-be'
+          git archive --format=tar HEAD | gzip | ssh "$ECOMATRIX_USER@$ECOMATRIX_HOST" 'tar -xzf - --no-same-owner --no-same-permissions --touch -C /srv/lng-web-be'
           ssh "$ECOMATRIX_USER@$ECOMATRIX_HOST" <<'REMOTE'
           set -euo pipefail
           cd /srv/lng-web-be
