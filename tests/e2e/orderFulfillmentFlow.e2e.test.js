@@ -123,6 +123,7 @@ jest.mock('../../src/modules/mapping/services/mappingRule.service', () => ({
   buildNormalizedInputs: jest.fn(),
   listActiveSkuConfigRulesForContext: jest.fn(),
   listActiveSkuNormalizeRulesForContext: jest.fn(),
+  listActiveNormalizationRulesForContext: jest.fn(),
   listActiveVendorRoutingRulesForContext: jest.fn(),
 }));
 
@@ -449,6 +450,7 @@ describe('order fulfillment E2E contract', () => {
 
     mappingRuleService.listActiveSkuNormalizeRulesForContext.mockResolvedValue([]);
     mappingRuleService.listActiveSkuConfigRulesForContext.mockResolvedValue([]);
+    mappingRuleService.listActiveNormalizationRulesForContext.mockResolvedValue([]);
     mappingRuleService.listActiveVendorRoutingRulesForContext.mockResolvedValue([]);
     mappingRuleService.buildNormalizedInputs.mockResolvedValue({
       normalizedInputs: [
