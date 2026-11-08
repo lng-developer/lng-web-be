@@ -67,66 +67,46 @@ jobs:
     name: Deploy to VPS
     if: github.ref == 'refs/heads/develop' && github.event_name != 'pull_request'
     needs: [core-test, windows-powershell-test]
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      - name: Show deploy info
+      - name: Configure deployment SSH
+        env:
+          ECOMATRIX_SSH_PRIVATE_KEY: ${{ secrets.ECOMATRIX_SSH_PRIVATE_KEY }}
+          ECOMATRIX_KNOWN_HOSTS: ${{ secrets.ECOMATRIX_KNOWN_HOSTS }}
         run: |
-          echo "===== Runner Info ====="
-          whoami
-          pwd
-          node -v
-          npm -v
+          test -n "$ECOMATRIX_SSH_PRIVATE_KEY"
+          test -n "$ECOMATRIX_KNOWN_HOSTS"
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$ECOMATRIX_SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$ECOMATRIX_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
 
-          echo "===== Commit Info ====="
-          git log -1 --oneline
-
-      - name: Install dependencies and build in workspace
+      - name: Deploy backend source and restart service
+        env:
+          ECOMATRIX_HOST: ${{ secrets.ECOMATRIX_HOST }}
+          ECOMATRIX_USER: ${{ secrets.ECOMATRIX_USER }}
         run: |
-          npx --yes npm@11.6.2 ci
-          npm run build --if-present
-
-      - name: Pull production folder
-        working-directory: /home/lng/apps/lng-web-be
-        run: |
-          git fetch origin --prune "${{ github.sha }}"
-          git checkout --detach "${{ github.sha }}"
-          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
-          git rev-parse HEAD > .release
-          git log -1 --oneline > .release-info
-
-      - name: Install production dependencies
-        working-directory: /home/lng/apps/lng-web-be
-        run: |
-          npx --yes npm@11.6.2 ci --omit=dev
-
-      - name: Create finance import indexes
-        working-directory: /home/lng/apps/lng-web-be
-        run: npm run indexes:finance-import
-
-      - name: Create listing image sync indexes
-        working-directory: /home/lng/apps/lng-web-be
-        run: node src/modules/integration/listingImageSync/scripts/ensureListingImageSyncIndexes.js
-
-      - name: Reload PM2 and verify health
-        working-directory: /home/lng/apps/lng-web-be
-        run: |
+          test -n "$ECOMATRIX_HOST"
+          test -n "$ECOMATRIX_USER"
+          git archive --format=tar HEAD | gzip | ssh "$ECOMATRIX_USER@$ECOMATRIX_HOST" 'tar -xzf - -C /srv/lng-web-be'
+          ssh "$ECOMATRIX_USER@$ECOMATRIX_HOST" <<'REMOTE'
+          set -euo pipefail
+          cd /srv/lng-web-be
+          npm ci --omit=dev
+          npm run indexes:finance-import
+          node src/modules/integration/listingImageSync/scripts/ensureListingImageSyncIndexes.js
           pm2 reload lng-web-be --update-env || pm2 restart lng-web-be --update-env
           pm2 save
-          pm2 list
-          health_port="$(grep -E '^PORT=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '[:space:]')"
-          health_port="${health_port:-3000}"
           healthy=0
           for i in {1..60}; do
-            curl -fsS "http://127.0.0.1:${health_port}/api/mapping/health" && break
+            curl -fsS http://127.0.0.1:3000/api/mapping/health >/dev/null && break
             healthy=$i
             sleep 2
           done
-          if [ "$healthy" = "60" ]; then
-            pm2 logs lng-web-be --nostream --lines 120
-          fi
           test "$healthy" != "60"
-          cat .release-info
+          REMOTE
+
