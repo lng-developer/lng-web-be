@@ -400,6 +400,7 @@ function toSellerDto(task = {}) {
   return {
     employeeCode,
     name: task.sellerUser?.fullName || null,
+    avatarUrl: task.sellerUser?.avatarUrl || null,
   };
 }
 
