@@ -10,6 +10,9 @@ jest.mock('mongoose', () => ({
 jest.mock('../../../src/shared/clients/smartyClient', () => ({
   validateUsStreetAddress: jest.fn(),
 }));
+jest.mock('../../../src/shared/clients/uspsAddressClient', () => ({
+  validateUsAddress: jest.fn(),
+}));
 
 jest.mock('../../../src/modules/order/repositories/order.repository', () => ({
   findById: jest.fn(),
@@ -38,6 +41,7 @@ jest.mock('../../../src/modules/order/services/orderWorkbenchProjection.service'
 jest.mock('../../../src/modules/audit/public', () => ({ record: jest.fn() }));
 
 const smartyClient = require('../../../src/shared/clients/smartyClient');
+const uspsAddressClient = require('../../../src/shared/clients/uspsAddressClient');
 const orderRepository = require('../../../src/modules/order/repositories/order.repository');
 const orderTimelineService = require('../../../src/modules/order/services/orderTimeline.service');
 const orderCaseService = require('../../../src/modules/order/services/orderCase.service');
@@ -53,6 +57,7 @@ describe('orderAddressValidation.service', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    delete process.env.ADDRESS_VALIDATION_PROVIDER;
     orderRepository.findById.mockReset();
     orderCaseService.resolveOpenOrderCaseByType.mockReset();
     orderRepository.findById.mockResolvedValue({
@@ -140,6 +145,33 @@ describe('orderAddressValidation.service', () => {
       changes: { fields: ['addressValidationStatus', 'shippingAddress'] },
       metadata: { status: 'VALID', skipped: false },
     }), { session: mockSession });
+  });
+
+  test('USPS provider marks DPV-confirmed address valid and normalizes shipping address', async () => {
+    process.env.ADDRESS_VALIDATION_PROVIDER = 'usps';
+    uspsAddressClient.validateUsAddress.mockResolvedValue({
+      address: {
+        streetAddress: '102 Bluebonnet Cir',
+        city: 'Sunnyvale',
+        state: 'TX',
+        ZIPCode: '75182',
+        ZIPPlus4: '5007',
+        DPVConfirmationIndicator: 'Y',
+      },
+    });
+
+    const result = await service.validateAddress(orderId);
+
+    expect(uspsAddressClient.validateUsAddress).toHaveBeenCalledWith(expect.objectContaining({
+      addressLine1: '102 BLUEBONNET CIR',
+    }));
+    expect(smartyClient.validateUsStreetAddress).not.toHaveBeenCalled();
+    expect(result.addressValidationStatus).toBe('VALID');
+    expect(orderRepository.updateAddressValidation).toHaveBeenCalledWith(orderId, expect.objectContaining({
+      addressValidationStatus: 'VALID',
+      shippingAddress: expect.objectContaining({ postalCode: '75182-5007' }),
+      'externalData.addressValidation': expect.objectContaining({ provider: 'usps', status: 'VALID' }),
+    }), expect.any(Object));
   });
 
   test('non-US address skips Smarty, remains not checked, and syncs production', async () => {

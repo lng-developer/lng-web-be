@@ -2,6 +2,7 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const smartyClient = require('../../../shared/clients/smartyClient');
+const uspsAddressClient = require('../../../shared/clients/uspsAddressClient');
 const orderRepository = require('../repositories/order.repository');
 const { addressValidationStatuses, orderCaseTypes } = require('../constants/orderStatuses');
 const { orderTimelineEventTypes } = require('../constants/orderTimelineEventTypes');
@@ -38,7 +39,7 @@ function skipped(order) {
     externalData: {
       ...(order.externalData || {}),
       addressValidation: {
-        provider: 'smarty',
+        provider: process.env.ADDRESS_VALIDATION_PROVIDER || 'smarty',
         skipped: true,
         reason: 'Only US addresses are supported in V1',
         checkedAt: new Date(),
@@ -183,6 +184,39 @@ function buildPatch(order, candidates) {
   return patch;
 }
 
+function activeProvider() {
+  return (process.env.ADDRESS_VALIDATION_PROVIDER || 'smarty').toLowerCase();
+}
+
+async function validateUsAddress(address) {
+  if (activeProvider() === 'usps') return uspsAddressClient.validateUsAddress(address);
+  return smartyClient.validateUsStreetAddress(address);
+}
+
+function buildUspsPatch(order, result) {
+  const normalized = result?.address ? {
+    addressLine1: result.address.streetAddress || null,
+    addressLine2: result.address.secondaryAddress || null,
+    city: result.address.city || null,
+    stateOrProvince: result.address.state || null,
+    stateOrProvinceCode: result.address.state || null,
+    postalCode: [result.address.ZIPCode, result.address.ZIPPlus4].filter(Boolean).join('-') || null,
+    countryCode: 'US',
+  } : null;
+  const confirmed = result?.address?.DPVConfirmationIndicator === 'Y';
+  const status = confirmed ? addressValidationStatuses.VALID : addressValidationStatuses.WARNING;
+  return {
+    addressValidationStatus: status,
+    'externalData.addressValidation': {
+      provider: 'usps', checkedAt: new Date(), status,
+      reason: confirmed ? 'USPS DPV confirmed' : 'USPS did not confirm delivery point',
+      normalizedAddress: normalized,
+      raw: result || null,
+    },
+    ...(confirmed && normalized ? { shippingAddress: { ...(order.shippingAddress || {}), ...normalized } } : {}),
+  };
+}
+
 async function validateAddress(orderId) {
   return validateAddressForOrder(orderId);
 }
@@ -202,7 +236,11 @@ async function validateAddressForOrder(orderId, authContext = null) {
     }, authContext, true);
   }
 
-  const candidates = await smartyClient.validateUsStreetAddress(order.shippingAddress);
+  if (activeProvider() === 'usps') {
+    const result = await validateUsAddress(order.shippingAddress);
+    return persistAddressValidation(order, buildUspsPatch(order, result), authContext, false);
+  }
+  const candidates = await validateUsAddress(order.shippingAddress);
   return persistAddressValidation(order, buildPatch(order, candidates), authContext, false);
 }
 
@@ -258,7 +296,7 @@ async function updateShippingAddress(orderId, shippingAddressPatch = {}, authCon
       shippingAddress,
       addressValidationStatus: addressValidationStatuses.NOT_CHECKED,
       'externalData.addressValidation': {
-        provider: 'smarty',
+        provider: activeProvider(),
         status: addressValidationStatuses.NOT_CHECKED,
         reason: 'Shipping address updated manually',
         checkedAt: null,

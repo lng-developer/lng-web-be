@@ -179,10 +179,10 @@ function listDueFinanceSchedules(now) {
   return ExtensionFinanceSchedule.find({ enabled: true, nextRunAt: { $lte: now } }).lean();
 }
 
-async function claimDueFinanceSchedule(scheduleId, now) {
+async function claimDueFinanceSchedule(scheduleId, now, nextRunAt) {
   const result = await ExtensionFinanceSchedule.updateOne(
     { _id: scheduleId, enabled: true, nextRunAt: { $lte: now } },
-    { $set: { nextRunAt: new Date(now.getTime() + (24 * 60 * 60 * 1000)), lastError: null } },
+    { $set: { nextRunAt: nextRunAt || new Date(now.getTime() + (24 * 60 * 60 * 1000)), lastError: null } },
   );
   return result.modifiedCount === 1;
 }

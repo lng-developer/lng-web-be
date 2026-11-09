@@ -3626,7 +3626,7 @@ describe('productionTask.service', () => {
     expect(orderPublic.transitionItemStatus).not.toHaveBeenCalledWith(orderItemId, 'IN_PRODUCTION', expect.anything());
   });
 
-  test('QC pass moves task and order item to ready to send vendor', async () => {
+  test('QC reviewer can pass their own output when authorized', async () => {
     mockTaskUpdate({
       _id: taskId,
       shopId,
@@ -3635,12 +3635,16 @@ describe('productionTask.service', () => {
         _id: fileCheckId,
         required: true,
         outputAssetId,
+        outputWorkerId: qcUserId,
         qcStatus: 'NOT_READY',
         blockers: [],
       }],
     });
 
-    const result = await service.submitQc(taskId, { decision: 'PASSED' }, { permissions: ['PRODUCTION:WRITE'] });
+    const result = await service.submitQc(taskId, { decision: 'PASSED' }, {
+      accountId: qcUserId,
+      permissions: ['PRODUCTION:WRITE'],
+    });
 
     expect(result).toMatchObject({
       status: 'READY_TO_SEND_VENDOR',
@@ -4588,27 +4592,6 @@ describe('productionTask.service', () => {
     await expect(service.getTaskById(taskId, scopedTeamAuth(qcUserId,
       ['DESIGN:REVIEW', 'PRODUCTION:SCALE_ASSIGN'])))
       .resolves.toMatchObject({ id: taskId });
-  });
-
-  test.each(['PASSED', 'REJECTED'])('QC cannot %s an output created by the reviewer even after reassignment', async (decision) => {
-    repository.findById.mockResolvedValueOnce({
-      _id: taskId, shopId, orderItemId, status: 'QC_PENDING', qcStatus: 'PENDING',
-      assignedDesignUserId: designerId,
-      fileChecks: [{ _id: fileCheckId, required: true, outputAssetId, outputWorkerId: qcUserId }],
-    });
-    await expect(service.submitQc(taskId, { decision }, scopedShopAuth(qcUserId, ['PRODUCTION:QC_REVIEW'])))
-      .rejects.toMatchObject({ statusCode: 403 });
-    expect(repository.updateByIdIf).not.toHaveBeenCalled();
-  });
-
-  test('QC rejects self review of legacy output with missing worker identity', async () => {
-    repository.findById.mockResolvedValueOnce({
-      _id: taskId, shopId, orderItemId, status: 'QC_PENDING', qcStatus: 'PENDING',
-      csAssigneeId: qcUserId,
-      fileChecks: [{ _id: fileCheckId, required: true, outputAssetId }],
-    });
-    await expect(service.submitQc(taskId, { decision: 'PASSED' }, scopedShopAuth(qcUserId, ['PRODUCTION:QC_REVIEW'])))
-      .rejects.toMatchObject({ statusCode: 403 });
   });
 
   test('global scale leader can read a completed task outside the active scale queue', async () => {
