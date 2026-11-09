@@ -60,6 +60,22 @@ describe('extension command validation', () => {
     expect(result.value.apiBaseUrl).toBe('https://dev-api.lngmerch.co');
   });
 
+  test('accepts legacy Amazon heartbeats without Etsy protocol fields', () => {
+    expect(validate(require('../validators/extensionCommand.validator').heartbeatSchema, {
+      clientId: 'amazon-1', label: 'Amazon Extension', version: '0.3.8',
+      apiBaseUrl: 'https://ecomatrix.lngmerch.co',
+    }).details).toBeUndefined();
+  });
+
+  test('requires both Etsy protocol fields when either is provided', () => {
+    expect(validate(require('../validators/extensionCommand.validator').heartbeatSchema, {
+      clientId: 'etsy-1', label: 'Etsy Extension', provider: 'ETSY',
+    }).details).toBeDefined();
+    expect(validate(require('../validators/extensionCommand.validator').heartbeatSchema, {
+      clientId: 'etsy-1', label: 'Etsy Extension', protocolVersion: 1,
+    }).details).toBeDefined();
+  });
+
   test('accepts a one-day Ads import requested by an extension agent', () => {
     const result = validate(manualAdsImportSchema, {
       clientId: 'rdc-1', label: 'RDC 1', dateFrom: '2026-08-20', dateTo: '2026-08-20',
