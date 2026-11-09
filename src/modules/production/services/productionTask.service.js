@@ -2459,16 +2459,7 @@ async function updateCsStatus(taskId, payload = {}, authContext) {
 async function submitQc(taskId, payload = {}, authContext) {
   const task = await loadTask(taskId);
   await assertCanReviewTask(task, authContext);
-  const reviewerId = toId(authContext?.accountId);
   const outputs = (task.fileChecks || []).filter((check) => check.outputAssetId);
-  const isOutputWorker = reviewerId && outputs.some((check) => toId(check.outputWorkerId) === reviewerId);
-  const isLegacyAssignee = reviewerId && outputs.some((check) => !check.outputWorkerId)
-    && [task.assignedDesignUserId, task.csAssigneeId].some((id) => toId(id) === reviewerId);
-  const isSuperAdmin = (authContext?.roles || [])
-    .some((role) => String(role).toUpperCase() === 'SUPER_ADMIN');
-  if (!isSuperAdmin && (isOutputWorker || isLegacyAssignee)) {
-    throw forbidden('You cannot review your own production output');
-  }
   const fileDecisions = Array.isArray(payload.fileDecisions) ? payload.fileDecisions : [];
   const decisionByFileCheckId = new Map(fileDecisions.map((item) => [toId(item.fileCheckId), item]));
   const reviewableChecks = (task.fileChecks || []).filter(

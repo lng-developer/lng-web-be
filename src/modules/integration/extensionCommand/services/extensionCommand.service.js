@@ -278,7 +278,14 @@ async function dispatchDueFinanceSchedules(now = new Date()) {
   for (const schedule of schedules) {
     const agentId = schedule.agentId?._id || schedule.agentId;
     const agent = await repository.findAgentById(agentId);
-    if (!await repository.claimDueFinanceSchedule(schedule._id, now)) continue;
+    const nextRunAt = calculateNextRunAt({
+      scheduleType: schedule.scheduleType,
+      intervalMinutes: schedule.intervalMinutes,
+      fixedTimes: schedule.fixedTimes,
+      timezone: schedule.timezone,
+      now,
+    });
+    if (!await repository.claimDueFinanceSchedule(schedule._id, now, nextRunAt)) continue;
     if (!isOnline(agent, now)) {
       await repository.postponeFinanceSchedule(schedule._id, now, 'AGENT_OFFLINE');
       continue;

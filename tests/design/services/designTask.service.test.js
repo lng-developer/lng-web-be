@@ -749,7 +749,7 @@ describe('designTask.service', () => {
     expect(repository.updateById).toHaveBeenCalledWith(taskId, { priority: 'URGENT' });
   });
 
-  test('Design Leader cannot approve their own PSD submission', async () => {
+  test('Design reviewer can approve their own PSD submission when authorized', async () => {
     repository.findById.mockResolvedValueOnce({
       ...openTask,
       status: 'SUBMITTED',
@@ -763,10 +763,16 @@ describe('designTask.service', () => {
       }],
     });
 
-    await expect(service.approveTask(taskId, { approvedAssetId: assetId }, {
+    await service.approveTask(taskId, { approvedAssetId: assetId }, {
       permissions: ['DESIGN:REVIEW'],
       accountId,
-    })).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    expect(repository.updateById).toHaveBeenCalledWith(taskId, expect.objectContaining({
+      status: 'APPROVED',
+      approvedAssetId: assetId,
+      approvedBy: accountId,
+    }));
   });
 
   test('team-scoped designers can list their assigned tasks without shop scope', async () => {
