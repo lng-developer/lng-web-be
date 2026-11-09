@@ -169,16 +169,19 @@ function toDesignTaskDto(task, {
     fullName: sellerProfile.fullName || null,
     name: sellerProfile.fullName || null,
     employeeCode: sellerProfile.employeeCode || employeeCode || null,
+    avatarUrl: sellerProfile.avatarUrl || null,
   } : (employeeCode ? {
     id: null,
     fullName: employeeCode,
     name: employeeCode,
     employeeCode,
+    avatarUrl: null,
   } : (requester ? {
     id: requester.accountId || requester.id || null,
     fullName: requester.fullName || null,
     name: requester.fullName || null,
     employeeCode: requester.employeeCode || null,
+    avatarUrl: requester.avatarUrl || null,
   } : shop));
 
   const dto = {
@@ -192,6 +195,7 @@ function toDesignTaskDto(task, {
       seller: sellerDto ? {
         name: sellerDto.fullName || sellerDto.name || null,
         employeeCode: sellerDto.employeeCode || null,
+        avatarUrl: sellerDto.avatarUrl || null,
       } : null,
     } : null,
     internalTemplate: toSnapshot(task.internalTemplateSnapshot),
@@ -206,6 +210,7 @@ function toDesignTaskDto(task, {
       id: requester.accountId || requester.id,
       fullName: requester.fullName || null,
       employeeCode: requester.employeeCode || null,
+      avatarUrl: requester.avatarUrl || null,
     } : null,
     orderContext: task.orderId ? {
       orderId: toId(task.orderId),
