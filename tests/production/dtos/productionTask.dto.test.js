@@ -699,4 +699,21 @@ describe('productionTask.dto', () => {
       etsyListingId: '1793859852095',
     });
   });
+
+  test('includes seller avatarUrl when sellerUser has avatar', () => {
+    const dto = toProductionTaskSummaryDto({
+      _id: '660000000000000000100099',
+      orderItemSnapshot: { sku: 'J2608-SHIRT-01' },
+      sellerUser: {
+        fullName: 'Nguyễn Thị Hải Yến',
+        avatarUrl: '/api/hr/employee-profiles/6ad097233d3775a03d8c4d13/avatar',
+      },
+    });
+
+    expect(dto.seller).toMatchObject({
+      employeeCode: 'J2608',
+      name: 'Nguyễn Thị Hải Yến',
+      avatarUrl: '/api/hr/employee-profiles/6ad097233d3775a03d8c4d13/avatar',
+    });
+  });
 });

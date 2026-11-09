@@ -42,4 +42,31 @@ describe('design task listing image', () => {
       { action: 'Created', at: new Date('2026-10-20T01:00:00.000Z') },
     ]);
   });
+
+  test('includes seller avatarUrl when seller profile has avatar', () => {
+    const dto = toDesignTaskDto({
+      _id: 'task',
+      taskType: 'PSD_TEMPLATE',
+      listingSnapshot: { sku: 'J2608-SHIRT' },
+    }, {
+      profilesByEmployeeCode: {
+        J2608: {
+          employeeCode: 'J2608',
+          fullName: 'Nguyễn Thị Hải Yến',
+          avatarUrl: '/api/hr/employee-profiles/6ad097233d3775a03d8c4d13/avatar',
+        },
+      },
+    });
+
+    expect(dto.seller).toMatchObject({
+      employeeCode: 'J2608',
+      fullName: 'Nguyễn Thị Hải Yến',
+      avatarUrl: '/api/hr/employee-profiles/6ad097233d3775a03d8c4d13/avatar',
+    });
+    expect(dto.listing.seller).toMatchObject({
+      employeeCode: 'J2608',
+      name: 'Nguyễn Thị Hải Yến',
+      avatarUrl: '/api/hr/employee-profiles/6ad097233d3775a03d8c4d13/avatar',
+    });
+  });
 });
