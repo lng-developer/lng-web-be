@@ -59,8 +59,8 @@ async function bootstrap() {
   startExtensionOrderScheduleScheduler();
   startMongoIndexUsageSnapshotScheduler();
   startAmazonAdsEmailImportScheduler();
-  const server = app.listen(config.port, () => {
-    logger.info('server_started', { port: config.port });
+  const server = app.listen(config.port, config.host, () => {
+    logger.info('server_started', { host: config.host, port: config.port });
   });
   const chatSocket = attachChatSocket(server);
   const integrationPublic = require('./modules/integration/public');

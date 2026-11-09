@@ -7,6 +7,7 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env'), quiet: true });
 const schema = Joi.object({
   NODE_ENV: Joi.string().valid('development', 'test', 'production').default('development'),
   PORT: Joi.number().port().default(3000),
+  HOST: Joi.string().hostname().default('127.0.0.1'),
   LOG_LEVEL: Joi.string().valid('debug', 'info', 'warn', 'error', 'silent').default('info'),
   LOG_FORMAT: Joi.string().valid('pretty', 'json').optional(),
   METRICS_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
@@ -84,6 +85,7 @@ if (error) {
 module.exports = {
   env: value.NODE_ENV,
   port: value.PORT,
+  host: value.HOST,
   log: {
     level: value.LOG_LEVEL,
     format: value.LOG_FORMAT || (value.NODE_ENV === 'production' ? 'json' : 'pretty'),

@@ -116,6 +116,11 @@ describe('extension finance schedules', () => {
 
     await service.dispatchDueFinanceSchedules(now);
 
+    expect(repository.claimDueFinanceSchedule).toHaveBeenCalledWith(
+      'schedule-1',
+      now,
+      new Date('2026-09-13T11:00:00.000Z'),
+    );
     expect(repository.createCommand).toHaveBeenCalledWith(expect.objectContaining({
       type: 'IMPORT_ADS_SPEND', dateFrom: '2026-09-06', dateTo: '2026-09-12',
     }));
