@@ -614,7 +614,7 @@ async function upsertAdsSpend(payload) {
     marketplaceCode: payload.marketplaceCode,
     reportDate: payload.reportDate,
     campaignName: payload.campaignName,
-  }, payload);
+  }, payload, true);
 }
 
 async function sumFeesByOrderItem(orderItemId) {
