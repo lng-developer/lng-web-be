@@ -83,6 +83,12 @@ describe('merchize submit adapter', () => {
     });
   });
 
+  test('keeps the external order id when an idempotency key is provided', () => {
+    expect(adapter.buildPayload(submission, {
+      idempotencyKey: 'vendor-submission:internal-key',
+    }).order_id).toBe('113-TEST-ORDER');
+  });
+
   test('validates missing required Merchize payload fields before POST', () => {
     const payload = adapter.buildPayload({
       ...submission,

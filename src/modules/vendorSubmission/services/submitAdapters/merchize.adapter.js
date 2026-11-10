@@ -46,6 +46,7 @@ function itemImage(snapshot = {}) {
     snapshot.orderItem?.productImageUrl,
     listing.previewVendorUrl,
     listing.thumbnailUrl,
+    outputUrlForSlot(snapshot.fileChecks || [], 'FRONT'),
   ) || null;
 }
 
@@ -59,7 +60,7 @@ function buildPayload(submission = {}, { idempotencyKey } = {}) {
   const printMethod = firstValue(costCenter.printMethod, listing.printMethod);
 
   return {
-    order_id: String(firstValue(idempotencyKey, item.externalOrderId, snapshot.externalOrderId, submission.orderItemId, submission.id) || ''),
+    order_id: String(firstValue(item.externalOrderId, snapshot.externalOrderId, idempotencyKey, submission.orderItemId, submission.id) || ''),
     identifier: firstValue(snapshot.identifier, process.env.MERCHIZE_IDENTIFIER, 'lng-web-be'),
     shipping_info: shippingInfo(snapshot),
     tags: Array.isArray(snapshot.tags) ? snapshot.tags : [],
