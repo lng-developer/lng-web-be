@@ -83,7 +83,7 @@ function hasPermission(authContext = {}, permission) {
 }
 
 function assertCanAccessShop(shopId, permission, authContext) {
-  if (!authContext || hasPermission(authContext, permission)) return;
+  if (!authContext || authContext.system || hasPermission(authContext, permission)) return;
   if (!authPublic.canAccessScope(authContext, permission, { scopeType: SHOP_SCOPE_TYPE, scopeId: shopId })) {
     throw forbidden();
   }
@@ -377,14 +377,22 @@ async function createFromVendorSubmission(vendorSubmissionId, authContext) {
     return toShipmentDto(existing);
   }
 
+  let trackingIdentity = null;
+  try {
+    trackingIdentity = deriveTrackingIdentity(submission);
+  } catch (error) {
+    if (error?.code !== errorCodes.VALIDATION_ERROR || error.message !== 'Vendor tracking identity is incomplete') {
+      throw error;
+    }
+  }
   const payload = {
     vendorSubmissionId,
     orderId: submission.orderId,
     orderItemId: submission.orderItemId,
     shopId: submission.shopId,
-    provider: submission.provider || null,
+    provider: trackingIdentity?.provider || submission.provider || null,
     externalOrderId: submission.externalOrderId || null,
-    vendorExternalOrderId: submission.vendorExternalOrderId || null,
+    vendorExternalOrderId: trackingIdentity?.vendorExternalOrderId || submission.vendorExternalOrderId || null,
     status: shipmentStatuses.TRACKING_PENDING,
   };
 
@@ -835,11 +843,11 @@ async function summarizeShippedByOrderItemIds(orderItemIds = []) {
 }
 
 async function findByIds(shipmentIds) {
-  return shipmentRepository.findByIds(shipmentIds);
+  return repository.findByIds(shipmentIds);
 }
 
 async function updateMarketplaceConfirmation(shipmentIds, data) {
-  return shipmentRepository.updateMarketplaceConfirmation(shipmentIds, data);
+  return repository.updateMarketplaceConfirmation(shipmentIds, data);
 }
 
 module.exports = {

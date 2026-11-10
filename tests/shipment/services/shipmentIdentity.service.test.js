@@ -55,4 +55,24 @@ describe('shipmentIdentity.service', () => {
       },
     }).provider).toBe('PRINTWAY');
   });
+
+  test('derives MangoTee tracking identity from legacy order data when vendor ref is missing', () => {
+    expect(deriveTrackingIdentity({
+      ...identity,
+      provider: null,
+      vendorExternalOrderId: null,
+      payloadSnapshot: {
+        orderItem: { externalOrderId: '111-7258289-0765048' },
+        vendorProduct: {
+          vendor: {
+            id: identity.payloadSnapshot.vendorProduct.vendor.id,
+            code: 'MANGOTEE',
+          },
+        },
+      },
+    })).toMatchObject({
+      provider: 'MANGOTEE',
+      vendorExternalOrderId: '111-7258289-0765048',
+    });
+  });
 });

@@ -40,10 +40,19 @@ module.exports = Object.freeze({
     }
 
     const url = new URL(
-      credential?.trackingEndpointUrl || `${baseUrl.replace(/\/+$/, '')}/order/external/orders/tracking`,
+      credential?.trackingEndpointUrl || `${baseUrl.replace(/\/+$/, '')}/order/external/orders/list-orders-tracking`,
     );
-    url.searchParams.set('external_number', externalOrderId);
-    const result = await requestJson(url, { method: 'GET', token });
+    const result = await requestJson(url, {
+      method: 'POST',
+      token,
+      body: {
+        orders: [{
+          code: '',
+          external_number: externalOrderId,
+          identifier: credential?.metadata?.identifier || process.env.MERCHIZE_IDENTIFIER || '',
+        }],
+      },
+    });
     if (result.statusCode < 200 || result.statusCode >= 300 || result.json?.success === false) {
       const error = new Error('MERCHIZE tracking request failed');
       error.vendorHttpStatus = result.statusCode;

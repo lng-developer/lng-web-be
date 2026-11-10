@@ -185,6 +185,28 @@ describe('shipment.service', () => {
     }), {});
   });
 
+  test('persists legacy MangoTee tracking identity when creating the shipment', async () => {
+    vendorSubmissionPublic.getById.mockResolvedValueOnce({
+      ...submittedSubmission,
+      provider: null,
+      vendorExternalOrderId: null,
+      payloadSnapshot: {
+        orderItem: { externalOrderId: '111-7258289-0765048' },
+        vendorProduct: { vendor: { id: vendorId, code: 'MANGOTEE' } },
+      },
+    });
+
+    await service.createFromVendorSubmission(vendorSubmissionId, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'MANGOTEE',
+      vendorExternalOrderId: '111-7258289-0765048',
+    }));
+  });
+
   test('records shipment tracking updates as account-scoped events without tracking data', async () => {
     await service.updateTracking(shipmentId, {
       carrier: 'USPS',
@@ -1300,14 +1322,14 @@ describe('shipment.service', () => {
     ));
 
     const result = await service.recheckSubmittedVendorTracking({ limit: 3 }, {
-      permissions: ['SHIPMENTS:WRITE'],
+      system: true,
+      source: 'SHIPMENT_TRACKING_RECHECK_BATCH',
       accountId: actorId,
     });
 
     expect(vendorSubmissionPublic.listSubmittedForTracking).toHaveBeenCalledWith({
       limit: 3,
     }, expect.objectContaining({
-      permissions: ['SHIPMENTS:WRITE'],
       system: true,
       source: 'SHIPMENT_TRACKING_RECHECK_BATCH',
     }));

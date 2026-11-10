@@ -6,8 +6,14 @@ const {
 const printwayAdapter = require('../../../src/modules/shipment/services/vendorTrackingAdapters/printway.adapter');
 const merchizeAdapter = require('../../../src/modules/shipment/services/vendorTrackingAdapters/merchize.adapter');
 const mangoteeAdapter = require('../../../src/modules/shipment/services/vendorTrackingAdapters/mangotee.adapter');
+const https = require('https');
+const { EventEmitter } = require('events');
 
 describe('vendorTrackingAdapterRegistry.service', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   test('fetches MangoTee order detail and normalizes shipment tracking', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
@@ -194,6 +200,45 @@ describe('vendorTrackingAdapterRegistry.service', () => {
     })).toMatchObject({
       externalOrderId: 'AMZ-100', carrier: '', trackingNumber: '', trackingUrl: '', vendorStatus: '', rawStatus: '',
     });
+  });
+
+  test('fetches Merchize tracking through the bulk tracking endpoint', async () => {
+    let requestBody = '';
+    const request = new EventEmitter();
+    request.write = jest.fn((chunk) => { requestBody += chunk; });
+    request.end = jest.fn();
+    jest.spyOn(https, 'request').mockImplementation((_url, _options, callback) => {
+      const response = new EventEmitter();
+      response.statusCode = 200;
+      response.setEncoding = jest.fn();
+      callback(response);
+      process.nextTick(() => {
+        response.emit('data', JSON.stringify({
+          success: true,
+          data: [{ external_number: 'AMZ-100', tracking_company: 'USPS', tracking_number: '9400' }],
+        }));
+        response.emit('end');
+      });
+      return request;
+    });
+
+    await expect(merchizeAdapter.fetchTrackingByExternalOrderId('AMZ-100', {
+      credential: {
+        baseUrl: 'https://api.merchize.example',
+        accessToken: 'token',
+        metadata: { identifier: 'lng' },
+      },
+    })).resolves.toMatchObject({ carrier: 'USPS', trackingNumber: '9400' });
+
+    expect(String(https.request.mock.calls[0][0])).toBe(
+      'https://api.merchize.example/order/external/orders/list-orders-tracking',
+    );
+    expect(https.request.mock.calls[0][1]).toMatchObject({
+      method: 'POST',
+    });
+    expect(requestBody).toBe(JSON.stringify({
+      orders: [{ code: '', external_number: 'AMZ-100', identifier: 'lng' }],
+    }));
   });
 
   test('returns Lenful fetch adapter for provider aliases', () => {
