@@ -47,12 +47,23 @@ function buildFilter(query = {}) {
 }
 
 function buildTrackingFilter(query = {}) {
-  const filter = {
-    status: vendorSubmissionStatuses.SUBMITTED,
-    provider: { $nin: [null, ''] },
+  const provider = String(query.provider || '').trim().toUpperCase();
+  const completeIdentity = {
+    provider: provider || { $nin: [null, ''] },
     vendorExternalOrderId: { $nin: [null, ''] },
   };
-  if (query.provider) filter.provider = String(query.provider).trim().toUpperCase();
+  const legacyMangoteeIdentity = {
+    provider: { $in: [null, ''] },
+    vendorExternalOrderId: { $in: [null, ''] },
+    'payloadSnapshot.vendorProduct.vendor.code': 'MANGOTEE',
+    'payloadSnapshot.orderItem.externalOrderId': { $nin: [null, ''] },
+  };
+  const filter = {
+    status: vendorSubmissionStatuses.SUBMITTED,
+    $or: provider && provider !== 'MANGOTEE'
+      ? [completeIdentity]
+      : [completeIdentity, legacyMangoteeIdentity],
+  };
   if (query.shopId) filter.shopId = toObjectId(query.shopId);
   if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds.map(toObjectId) };
   return filter;
@@ -139,7 +150,23 @@ async function listSubmittedForTracking(query = {}) {
     { $unwind: { path: '$trackingShipment', preserveNullAndEmptyArrays: true } },
     { $sort: { 'trackingShipment.lastCheckedAt': 1, updatedAt: 1, _id: 1 } },
     { $limit: limit },
-    { $project: { _id: 1, shopId: 1, orderItemId: 1, provider: 1, vendorExternalOrderId: 1 } },
+    {
+      $project: {
+        _id: 1,
+        shopId: 1,
+        orderItemId: 1,
+        provider: {
+          $cond: [{ $in: ['$provider', [null, '']] }, '$payloadSnapshot.vendorProduct.vendor.code', '$provider'],
+        },
+        vendorExternalOrderId: {
+          $cond: [
+            { $in: ['$vendorExternalOrderId', [null, '']] },
+            '$payloadSnapshot.orderItem.externalOrderId',
+            '$vendorExternalOrderId',
+          ],
+        },
+      },
+    },
   ]);
 }
 

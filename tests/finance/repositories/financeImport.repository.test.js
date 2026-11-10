@@ -6,6 +6,7 @@ jest.mock('../../../src/modules/finance/models/marketplaceSettlementLedgerLine.m
 jest.mock('../../../src/modules/finance/models/refundRecord.model', () => ({ find: jest.fn(), findOneAndUpdate: jest.fn(), aggregate: jest.fn(), updateMany: jest.fn() }));
 
 const FinanceImportBatch = require('../../../src/modules/finance/models/financeImportBatch.model');
+const AdsSpendDaily = require('../../../src/modules/finance/models/adsSpendDaily.model');
 const MarketplaceFeeLine = require('../../../src/modules/finance/models/marketplaceFeeLine.model');
 const MarketplaceSettlement = require('../../../src/modules/finance/models/marketplaceSettlement.model');
 const MarketplaceSettlementLedgerLine = require('../../../src/modules/finance/models/marketplaceSettlementLedgerLine.model');
@@ -52,6 +53,26 @@ describe('financeImport.repository', () => {
     expect(MarketplaceSettlementLedgerLine.findOneAndUpdate.mock.calls[0][2]).toMatchObject({
       timestamps: false,
     });
+  });
+
+  test('ads imports replace corrected spend for the same campaign day', async () => {
+    AdsSpendDaily.findOneAndUpdate.mockReturnValue(query());
+    const payload = {
+      shopId: '660000000000000000140003',
+      salesChannelCode: 'AMAZON',
+      marketplaceCode: 'AMAZON_US',
+      reportDate: new Date('2026-11-09T00:00:00.000Z'),
+      campaignName: 'Campaign 1',
+      spendAmount: 1250,
+    };
+
+    await repository.upsertAdsSpend(payload);
+
+    expect(AdsSpendDaily.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ campaignName: 'Campaign 1' }),
+      { $set: payload },
+      expect.objectContaining({ upsert: true }),
+    );
   });
 
   test('transaction rows use their dedup key and accept the later import payload', async () => {

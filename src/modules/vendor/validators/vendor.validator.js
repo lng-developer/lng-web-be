@@ -91,7 +91,7 @@ const updateVendorIntegrationConfigSchema = Joi.object({
   password: Joi.string().trim().max(8000).allow(null, ''),
   apiKey: Joi.string().trim().max(8000).allow(null, ''),
   apiSecret: Joi.string().trim().max(8000).allow(null, ''),
-  expiresAt: Joi.date().iso().allow(null),
+  expiresAt: Joi.date().iso().allow(null, ''),
   status: Joi.string().trim().uppercase().valid(...Object.values(vendorIntegrationStatuses)),
   metadata,
 });

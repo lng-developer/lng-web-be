@@ -27,7 +27,18 @@ async function createLockedImportCommand(payload) {
   try {
     return await repository.createCommand({ ...payload, activeOrderKey: String(payload.agentId) });
   } catch (error) {
-    if (error?.code === 11000) throw conflict('An import is already active for this extension agent');
+    if (error?.code === 11000) {
+      const healed = await repository.clearOrphanOrExpiredActiveLock(payload.agentId, new Date());
+      if (healed) {
+        try {
+          return await repository.createCommand({ ...payload, activeOrderKey: String(payload.agentId) });
+        } catch (retryError) {
+          if (retryError?.code === 11000) throw conflict('An import is already active for this extension agent');
+          throw retryError;
+        }
+      }
+      throw conflict('An import is already active for this extension agent');
+    }
     throw error;
   }
 }
@@ -170,7 +181,7 @@ async function claimNext(input, auth) {
 
 async function startCommand(commandId, input, auth) {
   const agent = await getCurrentAgent(auth, input);
-  const command = await repository.updateClaimed({ commandId, agentId: agent._id, leaseTokenHash: hashString(input.leaseToken), statuses: [extensionCommandStatuses.CLAIMED], patch: { status: extensionCommandStatuses.RUNNING, startedAt: new Date() } });
+  const command = await repository.updateClaimed({ commandId, agentId: agent._id, leaseTokenHash: hashString(input.leaseToken), statuses: [extensionCommandStatuses.CLAIMED], patch: { status: extensionCommandStatuses.RUNNING, startedAt: new Date(), leaseExpiresAt: new Date(Date.now() + (agent.provider === 'ETSY' ? LEASE_MS : ACTIVE_LEASE_MS)) } });
   if (!command) throw conflict('Command is no longer claimable');
   return command;
 }

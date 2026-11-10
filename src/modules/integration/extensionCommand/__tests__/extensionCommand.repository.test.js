@@ -68,4 +68,39 @@ describe('extension command leases', () => {
       },
     );
   });
+  test('clears orphan or expired active locks on terminal or expired commands', async () => {
+    const now = new Date('2026-09-15T00:00:00.000Z');
+    ExtensionCommand.updateMany
+      .mockResolvedValueOnce({ modifiedCount: 1 })
+      .mockResolvedValueOnce({ modifiedCount: 0 });
+
+    const result = await repository.clearOrphanOrExpiredActiveLock('agent-1', now);
+
+    expect(result).toBe(true);
+    expect(ExtensionCommand.updateMany).toHaveBeenCalledTimes(2);
+    expect(ExtensionCommand.updateMany).toHaveBeenNthCalledWith(1,
+      {
+        activeOrderKey: 'agent-1',
+        status: { $in: [extensionCommandStatuses.SUCCEEDED, extensionCommandStatuses.FAILED] },
+      },
+      { $unset: { activeOrderKey: 1 } },
+    );
+    expect(ExtensionCommand.updateMany).toHaveBeenNthCalledWith(2,
+      {
+        agentId: 'agent-1',
+        status: { $in: [extensionCommandStatuses.CLAIMED, extensionCommandStatuses.RUNNING] },
+        leaseExpiresAt: { $lte: now },
+      },
+      {
+        $set: {
+          status: extensionCommandStatuses.FAILED,
+          completedAt: now,
+          leaseExpiresAt: null,
+          leaseTokenHash: null,
+          errorMessage: 'Extension lease expired',
+        },
+        $unset: { activeOrderKey: 1 },
+      },
+    );
+  });
 });

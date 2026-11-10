@@ -8,10 +8,16 @@ function validationError(message, details) {
 
 function deriveTrackingIdentity(submission = {}) {
   const vendor = submission.payloadSnapshot?.vendorProduct?.vendor || {};
+  const provider = String(submission.provider || vendor.providerKey || vendor.code || '').trim().toUpperCase();
+  const legacyMangoOrderId = provider === 'MANGOTEE'
+    ? submission.payloadSnapshot?.orderItem?.externalOrderId
+      || submission.payloadSnapshot?.orderItemSnapshot?.externalOrderId
+      || submission.payloadSnapshot?.externalOrderId
+    : null;
   const identity = {
     vendorId: String(vendor.id || vendor._id || ''),
-    provider: String(submission.provider || vendor.providerKey || '').trim().toUpperCase(),
-    vendorExternalOrderId: String(submission.vendorExternalOrderId || '').trim(),
+    provider,
+    vendorExternalOrderId: String(submission.vendorExternalOrderId || legacyMangoOrderId || '').trim(),
     shopId: String(submission.shopId || ''),
     orderId: String(submission.orderId || ''),
     orderItemId: String(submission.orderItemId || ''),

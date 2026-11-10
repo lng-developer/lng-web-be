@@ -2,7 +2,11 @@ const { cleanString, normalizeVendorTrackingPayload } = require('../vendorTracki
 
 function normalizeMangoteeTracking(externalOrderId, payload = {}) {
   const data = payload.data || payload;
+  const events = Array.isArray(data.events) ? data.events : [];
   const trackingNumber = data.tracking_number || data.trackingNumber;
+  const trackingEvent = events.find((event) => (
+    cleanString(event.tracking_number || event.trackingNumber) === cleanString(trackingNumber)
+  )) || events[0] || {};
   const vendorStatus = cleanString(data.tracking_status || data.trackingStatus || data.status).toUpperCase();
   const shippedAt = data.shipped_at
     || data.shippedAt
@@ -25,7 +29,14 @@ function normalizeMangoteeTracking(externalOrderId, payload = {}) {
     ...normalized,
     provider: 'MANGOTEE',
     externalOrderId,
-    carrier: cleanString(data.tracking_provider || data.trackingProvider || data.carrier),
+    carrier: cleanString(
+      trackingEvent.carrier
+      || data.preferred_carrier
+      || data.preferredCarrier
+      || data.carrier
+      || data.tracking_provider
+      || data.trackingProvider,
+    ),
     vendorStatus,
     shippedAt: shippedAt || (normalized.trackingNumber ? normalized.shippedAt : null),
   };
