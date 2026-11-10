@@ -22,6 +22,7 @@ const psdTemplateUpload = Object.freeze({
   allowedMimeTypes: [
     'application/octet-stream',
     'application/zip',
+    'application/x-zip-compressed',
     'application/x-photoshop',
     'application/x-rar-compressed',
     'application/vnd.adobe.photoshop',
