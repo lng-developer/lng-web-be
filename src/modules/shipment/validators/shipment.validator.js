@@ -26,6 +26,7 @@ function validate(schema, payload) {
 const listShipmentsQuerySchema = Joi.object({
   id: objectId,
   status: Joi.string().trim().uppercase().valid(...Object.values(shipmentStatuses)),
+  provider: Joi.string().trim().uppercase().max(80),
   vendorSubmissionId: objectId,
   orderId: objectId,
   orderItemId: objectId,
@@ -48,6 +49,7 @@ const exportShipmentsQuerySchema = listShipmentsQuerySchema.keys({
 const summaryQuerySchema = Joi.object({
   id: objectId,
   status: Joi.string().trim().uppercase().valid(...Object.values(shipmentStatuses)),
+  provider: Joi.string().trim().uppercase().max(80),
   shopId: objectId,
   externalOrderId: Joi.string().trim().max(160),
   vendorExternalOrderId: Joi.string().trim().max(160),

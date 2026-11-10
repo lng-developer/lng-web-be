@@ -13,6 +13,7 @@ function buildFilter(query = {}) {
   if (query.sellerOrderItemIds) filter.$and = [{ orderItemId: { $in: query.sellerOrderItemIds.map(toObjectId) } }];
   if (query.id) filter._id = toObjectId(query.id);
   if (query.status) filter.status = query.status;
+  if (query.provider) filter.provider = String(query.provider).trim().toUpperCase();
   if (query.vendorSubmissionId) filter.vendorSubmissionId = toObjectId(query.vendorSubmissionId);
   if (query.orderId) filter.orderId = toObjectId(query.orderId);
   if (query.orderItemId) filter.orderItemId = toObjectId(query.orderItemId);

@@ -68,6 +68,21 @@ describe('financeImport.parser', () => {
     expect(corrected.dedupKey).toBe(original.dedupKey);
   });
 
+  test('transaction CSV keeps the same dedup key when status changes from Deferred to Released on a later date', () => {
+    const header = '"date/time","settlement id","type","transaction status","order id","sku","description","total"';
+    const deferred = parseTransactionCsv([
+      header,
+      '"Oct 29, 2026","","Refund","Deferred","114-4358428-2216200","","Personalized Item","-34.42"',
+    ].join('\n')).rows[0];
+    const released = parseTransactionCsv([
+      header,
+      '"Nov 06, 2026","","Refund","Released","114-4358428-2216200","","Personalized Item","-34.42"',
+    ].join('\n')).rows[0];
+
+    expect(deferred.dedupKey).toMatch(/^[a-f0-9]{64}$/);
+    expect(released.dedupKey).toBe(deferred.dedupKey);
+  });
+
   test('settlement TXT keeps the same dedup key when a later export corrects amounts', () => {
     const header = 'settlement-id\tsettlement-start-date\tsettlement-end-date\ttransaction-type\torder-id\tamount-type\tamount-description\tamount\tsku\torder-item-code\tposted-date-time';
     const original = parseSettlementTxt([
