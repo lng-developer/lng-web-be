@@ -98,6 +98,22 @@ describe('extension command management', () => {
     )).rejects.toMatchObject({ statusCode: 409 });
   });
 
+  test('auto-heals an orphan lock and succeeds in creating locked command on retry', async () => {
+    repository.findAgentForToken.mockResolvedValue({ _id: 'agent-1', shopId: 'shop-1' });
+    repository.createCommand
+      .mockRejectedValueOnce({ code: 11000 })
+      .mockResolvedValueOnce({ _id: 'command-healed' });
+    repository.clearOrphanOrExpiredActiveLock.mockResolvedValue(true);
+
+    const result = await service.queueCurrentOrderImport(
+      { clientId: 'rdc-1', label: 'RDC 01', numDays: 1 },
+      { tokenType: 'EXTENSION', extensionTokenId: 'token-1' },
+    );
+
+    expect(result).toEqual({ _id: 'command-healed' });
+    expect(repository.clearOrphanOrExpiredActiveLock).toHaveBeenCalledWith('agent-1', expect.any(Date));
+  });
+
   test('queues a dated Ads import with the same agent lock', async () => {
     repository.findAgentForToken.mockResolvedValue({ _id: 'agent-1', shopId: 'shop-1' });
     repository.createCommand.mockResolvedValue({ _id: 'command-ads' });

@@ -275,4 +275,34 @@ function markFinanceScheduleCompleted({ agentId, source, now, success, errorMess
   );
 }
 
-module.exports = { findCompletedForLease, findCommandById, upsertAgent, listAgents, findAgentById, findAgentForToken, createCommand, listCommands, releaseExpired, claimNext, updateClaimed, listDueOrderSchedules, claimDueOrderSchedule, hasActiveOrderCommand, hasActiveImportCommand, postponeOrderSchedule, markOrderScheduleQueued, listOrderSchedules, findOrderScheduleByAgentId, upsertOrderSchedule, listDueFinanceSchedules, claimDueFinanceSchedule, listFinanceSchedules, findFinanceSchedule, findFinanceScheduleById, requestFinanceScheduleNow, upsertFinanceSchedule, postponeFinanceSchedule, markFinanceScheduleQueued, markFinanceScheduleCompleted };
+async function clearOrphanOrExpiredActiveLock(agentId, now = new Date()) {
+  const [finished, expired] = await Promise.all([
+    ExtensionCommand.updateMany(
+      {
+        activeOrderKey: String(agentId),
+        status: { $in: [extensionCommandStatuses.SUCCEEDED, extensionCommandStatuses.FAILED] },
+      },
+      { $unset: { activeOrderKey: 1 } },
+    ),
+    ExtensionCommand.updateMany(
+      {
+        agentId,
+        status: { $in: [extensionCommandStatuses.CLAIMED, extensionCommandStatuses.RUNNING] },
+        leaseExpiresAt: { $lte: now },
+      },
+      {
+        $set: {
+          status: extensionCommandStatuses.FAILED,
+          completedAt: now,
+          leaseExpiresAt: null,
+          leaseTokenHash: null,
+          errorMessage: 'Extension lease expired',
+        },
+        $unset: { activeOrderKey: 1 },
+      },
+    ),
+  ]);
+  return (Number(finished.modifiedCount || 0) + Number(expired.modifiedCount || 0)) > 0;
+}
+
+module.exports = { findCompletedForLease, findCommandById, upsertAgent, listAgents, findAgentById, findAgentForToken, createCommand, listCommands, releaseExpired, claimNext, updateClaimed, listDueOrderSchedules, claimDueOrderSchedule, hasActiveOrderCommand, hasActiveImportCommand, postponeOrderSchedule, markOrderScheduleQueued, listOrderSchedules, findOrderScheduleByAgentId, upsertOrderSchedule, listDueFinanceSchedules, claimDueFinanceSchedule, listFinanceSchedules, findFinanceSchedule, findFinanceScheduleById, requestFinanceScheduleNow, upsertFinanceSchedule, postponeFinanceSchedule, markFinanceScheduleQueued, markFinanceScheduleCompleted, clearOrphanOrExpiredActiveLock };

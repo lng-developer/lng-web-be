@@ -128,4 +128,42 @@ describe('vendorSubmission.repository', () => {
       { $limit: 10 },
     ]));
   });
+
+  test('includes only legacy MangoTee submissions with an order external id', async () => {
+    jest.spyOn(VendorSubmission, 'aggregate').mockResolvedValue([]);
+
+    await repository.listSubmittedForTracking({ limit: 10 });
+    await repository.listSubmittedForTracking({ provider: 'MANGOTEE', limit: 10 });
+
+    const pipeline = VendorSubmission.aggregate.mock.calls[0][0];
+    expect(pipeline[0].$match).toMatchObject({
+      status: 'SUBMITTED',
+      $or: expect.arrayContaining([expect.objectContaining({
+        provider: { $in: [null, ''] },
+        vendorExternalOrderId: { $in: [null, ''] },
+        'payloadSnapshot.vendorProduct.vendor.code': 'MANGOTEE',
+        'payloadSnapshot.orderItem.externalOrderId': { $nin: [null, ''] },
+      })]),
+    });
+    expect(pipeline).toContainEqual(expect.objectContaining({
+      $project: expect.objectContaining({
+        provider: {
+          $cond: [{ $in: ['$provider', [null, '']] }, '$payloadSnapshot.vendorProduct.vendor.code', '$provider'],
+        },
+        vendorExternalOrderId: {
+          $cond: [
+            { $in: ['$vendorExternalOrderId', [null, '']] },
+            '$payloadSnapshot.orderItem.externalOrderId',
+            '$vendorExternalOrderId',
+          ],
+        },
+      }),
+    }));
+    expect(VendorSubmission.aggregate.mock.calls[1][0][0].$match.$or).toContainEqual(
+      expect.objectContaining({
+        provider: { $in: [null, ''] },
+        'payloadSnapshot.vendorProduct.vendor.code': 'MANGOTEE',
+      }),
+    );
+  });
 });

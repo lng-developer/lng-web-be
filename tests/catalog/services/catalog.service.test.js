@@ -869,6 +869,24 @@ describe('catalog.service', () => {
     );
   });
 
+  test('setListingPsdTemplateAsset accepts Windows ZIP MIME type', async () => {
+    const psdAssetId = '660000000000000000000901';
+    mediaPublic.getAsset.mockResolvedValue({
+      originalFilename: 'template.zip',
+      mimeType: 'application/x-zip-compressed',
+      size: 1024,
+    });
+    listingRepository.findById.mockResolvedValue(listingFixture({ _id: listingId, shopId }));
+    listingRepository.update.mockResolvedValue(listingFixture({
+      _id: listingId,
+      shopId,
+      defaultPsdTemplateAssetId: psdAssetId,
+    }));
+
+    await expect(service.setListingPsdTemplateAsset(listingId, psdAssetId))
+      .resolves.toMatchObject({ id: listingId, defaultPsdTemplateAssetId: psdAssetId });
+  });
+
   test.each([
     ['template PSD', templateFixture({
       designAssets: [{ type: 'PSD_TEMPLATE', status: 'ACTIVE', mediaAssetId: '660000000000000000000912' }],
