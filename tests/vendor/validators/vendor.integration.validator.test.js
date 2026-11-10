@@ -59,4 +59,18 @@ describe('vendor integration contract', () => {
 
     expect(result.details).toBeUndefined();
   });
+
+  test('accepts an empty expiry sent by the integration form', () => {
+    const result = validate(updateVendorIntegrationConfigSchema, {
+      mode: 'NATIVE',
+      adapterKey: 'LNG_GROUP',
+      providerKey: 'LNG_GROUP',
+      baseUrl: 'https://fulfillment.lngmerch.co',
+      authType: 'API_KEY',
+      accessToken: 'token',
+      expiresAt: '',
+    });
+
+    expect(result.details).toBeUndefined();
+  });
 });
