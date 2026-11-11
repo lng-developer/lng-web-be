@@ -26,15 +26,37 @@ function outputUrlForSlot(fileChecks = [], slotKey = 'FRONT') {
   return firstValue(check?.outputVendorUrl, check?.outputUrl) || '';
 }
 
-function buildPayload(submission = {}, { idempotencyKey } = {}) {
-  const snapshot = submission.payloadSnapshot || {};
-  const address = snapshot.orderSnapshot?.shippingAddress || snapshot.order?.shippingAddress || {};
+function buildPrintwayItem(snapshot = {}) {
   const item = snapshot.orderItemSnapshot || snapshot.orderItem || {};
   const listing = snapshot.listingSnapshot || snapshot.listing || {};
   const costCenter = snapshot.vendorCostCenter || {};
   const printMethod = firstValue(costCenter.printMethod, listing.printMethod);
   const title = firstValue(item.title, snapshot.vendorProduct?.name, 'Custom Product');
+
+  return {
+    product_location: snapshot.productLocation || '',
+    made_in_location: snapshot.madeInLocation || '',
+    product_name: title,
+    item_sku: firstValue(costCenter.sku, costCenter.lngCode, costCenter.code) || '',
+    print_method: printMethod || '',
+    variant_id: snapshot.variantId || '',
+    quantity: Number(snapshot.fulfillQty || item.quantity || 1),
+    variant_note: '',
+    mockup_url: firstValue(item.productImageUrl, listing.previewVendorUrl, listing.thumbnailUrl) || '',
+    artwork_front: outputUrlForSlot(snapshot.fileChecks || [], 'FRONT'),
+    artwork_back: outputUrlForSlot(snapshot.fileChecks || [], 'BACK'),
+  };
+}
+
+function buildPayload(submission = {}, { idempotencyKey } = {}) {
+  const snapshot = submission.payloadSnapshot || {};
+  const address = snapshot.orderSnapshot?.shippingAddress || snapshot.order?.shippingAddress || {};
+  const item = snapshot.orderItemSnapshot || snapshot.orderItem || {};
   const name = splitName(firstValue(address.name, address.fullName, address.recipientName));
+
+  const order_items = Array.isArray(snapshot.bundledItems) && snapshot.bundledItems.length > 0
+    ? snapshot.bundledItems.map(buildPrintwayItem)
+    : [buildPrintwayItem(snapshot)];
 
   return {
     order_id: String(firstValue(idempotencyKey, item.externalOrderId, snapshot.externalOrderId, submission.orderItemId, submission.id) || ''),
@@ -55,19 +77,7 @@ function buildPayload(submission = {}, { idempotencyKey } = {}) {
     shipping_service: snapshot.shippingServiceCode || '',
     discount_code: [],
     taxNumber: '',
-    order_items: [{
-      product_location: snapshot.productLocation || '',
-      made_in_location: snapshot.madeInLocation || '',
-      product_name: title,
-      item_sku: firstValue(costCenter.sku, costCenter.lngCode, costCenter.code) || '',
-      print_method: printMethod || '',
-      variant_id: snapshot.variantId || '',
-      quantity: Number(snapshot.fulfillQty || item.quantity || 1),
-      variant_note: '',
-      mockup_url: firstValue(item.productImageUrl, listing.previewVendorUrl, listing.thumbnailUrl) || '',
-      artwork_front: outputUrlForSlot(snapshot.fileChecks || [], 'FRONT'),
-      artwork_back: outputUrlForSlot(snapshot.fileChecks || [], 'BACK'),
-    }],
+    order_items,
   };
 }
 

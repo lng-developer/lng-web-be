@@ -128,6 +128,7 @@ async function refreshSubmissionVendorUrls(submission) {
   if (!snapshot) return submission;
   let fileChecks = snapshot.fileChecks;
   let listing = snapshot.listing;
+  let bundledItems = snapshot.bundledItems;
   let changed = false;
   if (Array.isArray(fileChecks) && fileChecks.length) {
     fileChecks = await attachVendorAssetUrls(fileChecks, { expiresIn: 24 * 3600 });
@@ -137,6 +138,20 @@ async function refreshSubmissionVendorUrls(submission) {
     listing = await attachListingVendorUrl(listing, { expiresIn: 24 * 3600 });
     changed = true;
   }
+  if (Array.isArray(bundledItems) && bundledItems.length) {
+    bundledItems = await Promise.all(bundledItems.map(async (itemSnapshot) => {
+      let itemFiles = itemSnapshot.fileChecks;
+      let itemListing = itemSnapshot.listing;
+      if (Array.isArray(itemFiles) && itemFiles.length) {
+        itemFiles = await attachVendorAssetUrls(itemFiles, { expiresIn: 24 * 3600 });
+      }
+      if (itemListing && itemListing.previewAssetId) {
+        itemListing = await attachListingVendorUrl(itemListing, { expiresIn: 24 * 3600 });
+      }
+      return { ...itemSnapshot, fileChecks: itemFiles, listing: itemListing };
+    }));
+    changed = true;
+  }
   if (!changed) return submission;
   return {
     ...submission,
@@ -144,6 +159,7 @@ async function refreshSubmissionVendorUrls(submission) {
       ...snapshot,
       fileChecks,
       listing,
+      ...(bundledItems ? { bundledItems } : {}),
     },
   };
 }
@@ -607,19 +623,6 @@ async function markSubmitted(submissionId, authContext) {
   return toVendorSubmissionDto(updated, { detail: true });
 }
 
-async function createAndSubmitFromProductionTask(productionTaskId, authContext) {
-  // LNG submissions require the normalized fulfillmentOrder payload. Keep the
-  // legacy path for other vendors, which use their own snapshot adapters.
-  const productionPort = require('../../production/public');
-  const task = await productionPort.getTaskById(productionTaskId, { ...(authContext || {}), system: true });
-  if (task && vendorCode(task) === 'LNG_GROUP') {
-    return createAndSubmitFulfillmentOrderFromProductionTask(productionTaskId, authContext);
-  }
-
-  const submission = await createFromProductionTask(productionTaskId, authContext);
-  return submitToVendor(submission.id, { dryRun: false }, authContext);
-}
-
 function isActiveOrderItem(item) {
   return !['CANCELLED', 'REFUNDED'].includes(String(item?.status || '').toUpperCase());
 }
@@ -632,6 +635,131 @@ function vendorCode(task = {}) {
     || task.vendorProductSnapshot?.vendorCode
     || '',
   ).trim().toUpperCase();
+}
+
+async function resolveVendorGroupForTask(task, authContext) {
+  const productionPort = require('../../production/public');
+  const [order, items, tasks] = await Promise.all([
+    typeof orderPublic.findById === 'function' ? orderPublic.findById(task.orderId) : null,
+    typeof orderPublic.listItemsByOrder === 'function' ? orderPublic.listItemsByOrder(task.orderId) : [],
+    typeof productionPort.getTasksByOrderId === 'function' ? productionPort.getTasksByOrderId(task.orderId, { ...(authContext || {}), system: true }) : [],
+  ]);
+  const currentVendor = vendorCode(task);
+  const activeItems = (items || []).filter(isActiveOrderItem);
+  const taskByItemId = new Map((tasks || []).map((entry) => [String(entry.orderItemId), entry]));
+
+  const vendorTasks = activeItems
+    .map((item) => taskByItemId.get(String(item._id || item.id)))
+    .filter((entry) => entry && vendorCode(entry) === currentVendor);
+
+  return { order, items, tasks, vendorTasks, currentVendor };
+}
+
+async function bundleReadySiblingSubmissions(submission, authContext) {
+  if (!submission.orderId) return submission;
+  const vendor = submission.payloadSnapshot?.vendorProduct?.vendor || {};
+  const vendorCodeKey = String(
+    vendor.code
+    || submission.payloadSnapshot?.vendorProductSnapshot?.vendor?.code
+    || submission.payloadSnapshot?.vendorProduct?.vendorCode
+    || ''
+  ).trim().toUpperCase();
+  if (!vendorCodeKey || vendorCodeKey === 'LNG_GROUP') return submission;
+
+  const productionPort = require('../../production/public');
+  const [order, items, tasks] = await Promise.all([
+    typeof orderPublic.findById === 'function' ? orderPublic.findById(submission.orderId) : null,
+    typeof orderPublic.listItemsByOrder === 'function' ? orderPublic.listItemsByOrder(submission.orderId) : [],
+    typeof productionPort.getTasksByOrderId === 'function' ? productionPort.getTasksByOrderId(submission.orderId, { ...(authContext || {}), system: true }) : [],
+  ]);
+  const activeItems = (items || []).filter(isActiveOrderItem);
+  if (activeItems.length <= 1) return submission;
+
+  const taskByItemId = new Map((tasks || []).map((t) => [String(t.orderItemId), t]));
+  const vendorTasks = activeItems
+    .map((item) => taskByItemId.get(String(item._id || item.id)))
+    .filter((t) => t && vendorCode(t) === vendorCodeKey);
+
+  if (vendorTasks.length <= 1) return submission;
+
+  const submissions = await Promise.all(
+    vendorTasks.map(async (t) => {
+      if (String(t.orderItemId) === String(submission.orderItemId)) {
+        return submission;
+      }
+      return (
+        (await repository.findActiveByProductionTask(t._id || t.id))
+        || (await createFromProductionTask(String(t._id || t.id), authContext).catch(() => null))
+      );
+    })
+  );
+
+  const validSubmissions = submissions.filter(Boolean);
+  if (validSubmissions.length <= 1) return submission;
+
+  const readySubmissions = await Promise.all(validSubmissions.map(refreshSubmissionVendorUrls));
+  const bundledItems = readySubmissions.map((s) => s.payloadSnapshot);
+  const bundledSubmissionIds = validSubmissions.map((s) => String(s.id || s._id));
+  const bundledTaskIds = vendorTasks.map((t) => String(t.id || t._id));
+
+  const payloadSnapshot = {
+    ...(submission.payloadSnapshot || {}),
+    bundledItems,
+    bundledSubmissionIds,
+    bundledTaskIds,
+  };
+  const updated = await repository.updateById(submission._id || submission.id, { payloadSnapshot });
+  return updated || { ...submission, payloadSnapshot };
+}
+
+async function createAndSubmitFromProductionTask(productionTaskId, authContext) {
+  const productionPort = require('../../production/public');
+  const task = await productionPort.getTaskById(productionTaskId, { ...(authContext || {}), system: true });
+  if (!task) throw notFound('Production task not found');
+
+  const { order, items, tasks, vendorTasks, currentVendor } = await resolveVendorGroupForTask(task, authContext);
+
+  if (currentVendor === 'LNG_GROUP') {
+    return createAndSubmitFulfillmentOrderFromProductionTask(productionTaskId, authContext);
+  }
+
+  if (vendorTasks.length > 1) {
+    const allReady = vendorTasks.every((t) => (
+      t.status === 'READY_TO_SEND_VENDOR' && t.qcStatus === 'PASSED'
+    ));
+    if (!allReady) {
+      logger.info('Vendor submission deferred waiting for sibling tasks', {
+        orderId: task.orderId,
+        productionTaskId,
+        vendor: currentVendor,
+        totalTasks: vendorTasks.length,
+        readyTasks: vendorTasks.filter((t) => t.status === 'READY_TO_SEND_VENDOR' && t.qcStatus === 'PASSED').length,
+      });
+      return { deferred: true, reason: 'WAITING_FOR_SIBLINGS' };
+    }
+
+    const submissions = await Promise.all(
+      vendorTasks.map((t) => createFromProductionTask(String(t._id || t.id), authContext))
+    );
+    const primarySubmission = submissions.find((s) => String(s.productionTaskId) === String(productionTaskId)) || submissions[0];
+
+    const readySubmissions = await Promise.all(submissions.map(refreshSubmissionVendorUrls));
+    const bundledItems = readySubmissions.map((s) => s.payloadSnapshot);
+    const bundledSubmissionIds = submissions.map((s) => String(s.id || s._id));
+    const bundledTaskIds = vendorTasks.map((t) => String(t._id || t.id));
+
+    const payloadSnapshot = {
+      ...(primarySubmission.payloadSnapshot || {}),
+      bundledItems,
+      bundledSubmissionIds,
+      bundledTaskIds,
+    };
+    await repository.updateById(primarySubmission.id, { payloadSnapshot });
+    return submitToVendor(primarySubmission.id, { dryRun: false }, authContext);
+  }
+
+  const submission = await createFromProductionTask(productionTaskId, authContext);
+  return submitToVendor(submission.id, { dryRun: false }, authContext);
 }
 
 async function buildFulfillmentOrder(order, items, tasks) {
@@ -726,9 +854,16 @@ async function createAndSubmitFulfillmentOrderFromProductionTask(productionTaskI
   if (!ready) return { deferred: true };
 
   const submission = await createFromProductionTask(productionTaskId, authContext);
+  const lngTasks = tasks.filter((t) => vendorCode(t) === 'LNG_GROUP');
+  const lngSubmissions = await Promise.all(
+    lngTasks.map((t) => createFromProductionTask(String(t._id || t.id), authContext).catch(() => null))
+  );
+  const validLngSubs = lngSubmissions.filter(Boolean);
   const payloadSnapshot = {
     ...(submission.payloadSnapshot || {}),
     fulfillmentOrder: await buildFulfillmentOrder(order, items, tasks),
+    bundledSubmissionIds: validLngSubs.map((s) => String(s.id || s._id)),
+    bundledTaskIds: lngTasks.map((t) => String(t._id || t.id)),
   };
   await repository.updateById(submission.id, { payloadSnapshot });
   return submitToVendor(submission.id, { provider: 'LNG_GROUP', dryRun: false }, authContext);
@@ -842,6 +977,115 @@ async function retry(submissionId, payload = {}, authContext) {
   return toVendorSubmissionDto(updated, { detail: true });
 }
 
+async function syncBundledSiblingSubmissionsOnSuccess(primarySubmission, submitResult, adapter, authContext) {
+  const bundledSubmissionIds = Array.isArray(primarySubmission.payloadSnapshot?.bundledSubmissionIds)
+    ? primarySubmission.payloadSnapshot.bundledSubmissionIds.filter((id) => String(id) !== String(primarySubmission._id || primarySubmission.id))
+    : [];
+
+  if (!bundledSubmissionIds.length) return;
+
+  const vendorCost = extractVendorCost(adapter.provider, submitResult.response);
+
+  for (const siblingId of bundledSubmissionIds) {
+    try {
+      const sibling = await repository.findById(siblingId);
+      if (sibling && sibling.status !== vendorSubmissionStatuses.SUBMITTED) {
+        const siblingUpdated = await repository.transitionStatus(
+          siblingId,
+          [
+            vendorSubmissionStatuses.DRAFT,
+            vendorSubmissionStatuses.READY,
+            vendorSubmissionStatuses.SUBMITTING,
+            vendorSubmissionStatuses.FAILED,
+            vendorSubmissionStatuses.NEEDS_REVIEW,
+          ],
+          {
+            status: vendorSubmissionStatuses.SUBMITTED,
+            provider: adapter.provider,
+            vendorExternalOrderId: submitResult.externalId || null,
+            submittedResponse: stripUnsafe(submitResult.response || null),
+            vendorCost,
+            submittedBy: authContext?.accountId || null,
+            submittedAt: new Date(),
+            statusHistory: appendStatusHistory(
+              sibling,
+              vendorSubmissionStatuses.SUBMITTED,
+              authContext,
+              `Submitted to ${adapter.provider} (bundled with ${primarySubmission._id || primarySubmission.id})`,
+            ),
+          },
+        );
+        if (siblingUpdated) {
+          await recordSubmissionOperation({
+            action: 'VENDOR_SUBMISSION_SUBMITTED',
+            submission: siblingUpdated,
+            authContext,
+            changes: { status: { from: sibling.status, to: vendorSubmissionStatuses.SUBMITTED } },
+            metadata: { provider: adapter.provider, bundledWith: String(primarySubmission._id || primarySubmission.id) },
+          });
+          if (vendorCost) {
+            await financePublic.updateActualVendorCost(siblingUpdated.orderItemId, vendorCost);
+          }
+          await repairProductionHandoff(siblingUpdated, authContext);
+        }
+      }
+    } catch (siblingError) {
+      logger.error('Failed to sync sibling bundled submission on success', {
+        siblingId,
+        primarySubmissionId: primarySubmission._id || primarySubmission.id,
+        error: siblingError,
+      });
+    }
+  }
+}
+
+async function syncBundledSiblingSubmissionsOnFailure(primarySubmission, error, adapter, authContext) {
+  const bundledSubmissionIds = Array.isArray(primarySubmission.payloadSnapshot?.bundledSubmissionIds)
+    ? primarySubmission.payloadSnapshot.bundledSubmissionIds.filter((id) => String(id) !== String(primarySubmission._id || primarySubmission.id))
+    : [];
+
+  if (!bundledSubmissionIds.length) return;
+
+  const failureReason = error.message || 'Vendor submit failed';
+  const response = stripUnsafe(error?.details?.response || null);
+
+  for (const siblingId of bundledSubmissionIds) {
+    try {
+      const sibling = await repository.findById(siblingId);
+      if (sibling && sibling.status !== vendorSubmissionStatuses.SUBMITTED) {
+        const siblingFailed = await repository.transitionStatus(
+          siblingId,
+          [vendorSubmissionStatuses.DRAFT, vendorSubmissionStatuses.READY, vendorSubmissionStatuses.SUBMITTING],
+          {
+            status: vendorSubmissionStatuses.FAILED,
+            provider: adapter.provider,
+            submittedResponse: response,
+            failedBy: authContext?.accountId || null,
+            failedAt: new Date(),
+            failureReason,
+            statusHistory: appendStatusHistory(sibling, vendorSubmissionStatuses.FAILED, authContext, failureReason),
+          },
+        );
+        if (siblingFailed) {
+          await recordSubmissionOperation({
+            action: 'VENDOR_SUBMISSION_FAILED',
+            submission: siblingFailed,
+            authContext,
+            changes: { status: { from: sibling.status, to: vendorSubmissionStatuses.FAILED } },
+            metadata: { provider: adapter.provider, bundledWith: String(primarySubmission._id || primarySubmission.id) },
+          });
+        }
+      }
+    } catch (siblingError) {
+      logger.error('Failed to sync sibling bundled submission on failure', {
+        siblingId,
+        primarySubmissionId: primarySubmission._id || primarySubmission.id,
+        error: siblingError,
+      });
+    }
+  }
+}
+
 async function submitToVendor(submissionId, payload = {}, authContext) {
   const dryRun = payload.dryRun !== false;
   let submission = await loadSubmission(submissionId);
@@ -877,6 +1121,9 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
 
   submission = await refreshSubmissionOrderSnapshot(submission);
   submission = await refreshSubmissionVendorCostCenter(submission);
+  if (!submission.payloadSnapshot?.bundledItems?.length) {
+    submission = await bundleReadySiblingSubmissions(submission, authContext);
+  }
   const fulfillmentOrder = await refreshLngFulfillmentOrder(submission, authContext);
   if (fulfillmentOrder) {
     submission = await repository.updateById(submissionId, {
@@ -935,6 +1182,7 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
           },
           metadata: { provider: adapter.provider },
         });
+        await syncBundledSiblingSubmissionsOnFailure(claimed, error, adapter, authContext);
       }
     } else {
       const needsReview = await repository.transitionStatus(submissionId, [vendorSubmissionStatuses.SUBMITTING], {
@@ -974,6 +1222,7 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
   if (vendorCost) await financePublic.updateActualVendorCost(updated.orderItemId, vendorCost);
 
   await repairProductionHandoff(updated, authContext);
+  await syncBundledSiblingSubmissionsOnSuccess(updated, submitResult, adapter, authContext);
 
   return toVendorSubmissionDto(updated, { detail: true });
 }

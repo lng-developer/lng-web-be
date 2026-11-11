@@ -3,6 +3,7 @@ const ExtensionAgent = require('../models/extensionAgent.model');
 const ExtensionCommand = require('../models/extensionCommand.model');
 const ExtensionOrderSchedule = require('../models/extensionOrderSchedule.model');
 const ExtensionFinanceSchedule = require('../models/extensionFinanceSchedule.model');
+const ExtensionTrackingSchedule = require('../models/extensionTrackingSchedule.model');
 const { extensionCommandStatuses, extensionCommandTypes } = require('../constants/extensionCommand.constants');
 const { calculateNextRunAt } = require('../services/scheduleTimeUtils');
 
@@ -305,4 +306,141 @@ async function clearOrphanOrExpiredActiveLock(agentId, now = new Date()) {
   return (Number(finished.modifiedCount || 0) + Number(expired.modifiedCount || 0)) > 0;
 }
 
-module.exports = { findCompletedForLease, findCommandById, upsertAgent, listAgents, findAgentById, findAgentForToken, createCommand, listCommands, releaseExpired, claimNext, updateClaimed, listDueOrderSchedules, claimDueOrderSchedule, hasActiveOrderCommand, hasActiveImportCommand, postponeOrderSchedule, markOrderScheduleQueued, listOrderSchedules, findOrderScheduleByAgentId, upsertOrderSchedule, listDueFinanceSchedules, claimDueFinanceSchedule, listFinanceSchedules, findFinanceSchedule, findFinanceScheduleById, requestFinanceScheduleNow, upsertFinanceSchedule, postponeFinanceSchedule, markFinanceScheduleQueued, markFinanceScheduleCompleted, clearOrphanOrExpiredActiveLock };
+function listDueTrackingSchedules(now) {
+  return ExtensionTrackingSchedule.find({ enabled: true, nextRunAt: { $lte: now } })
+    .populate({ path: 'agentId', select: 'lastSeenAt' })
+    .lean();
+}
+
+async function claimDueTrackingSchedule(scheduleId, now, nextRun) {
+  const nextRunAt = nextRun instanceof Date
+    ? nextRun
+    : new Date(now.getTime() + (Number(nextRun) || 120) * 60 * 1000);
+  const result = await ExtensionTrackingSchedule.updateOne(
+    { _id: scheduleId, enabled: true, nextRunAt: { $lte: now } },
+    { $set: { nextRunAt, lastError: null } },
+  );
+  return result.modifiedCount === 1;
+}
+
+function hasActiveTrackingCommand(agentId) {
+  return ExtensionCommand.exists({
+    agentId,
+    type: extensionCommandTypes.UPLOAD_TRACKING,
+    status: {
+      $in: [
+        extensionCommandStatuses.QUEUED,
+        extensionCommandStatuses.CLAIMED,
+        extensionCommandStatuses.RUNNING,
+        'WAITING_AMAZON',
+      ],
+    },
+  });
+}
+
+function postponeTrackingSchedule(scheduleId, now, lastError) {
+  return ExtensionTrackingSchedule.updateOne(
+    { _id: scheduleId, enabled: true },
+    { $set: { nextRunAt: new Date(now.getTime() + (15 * 60 * 1000)), lastError } },
+  );
+}
+
+function markTrackingScheduleQueued(scheduleId, now, { batchCount = 0 } = {}) {
+  return ExtensionTrackingSchedule.updateOne(
+    { _id: scheduleId },
+    { $set: { lastQueuedAt: now, lastBatchCount: batchCount, lastError: null } },
+  );
+}
+
+function listTrackingSchedules({ shopIds }) {
+  return ExtensionTrackingSchedule.find({ shopId: { $in: shopIds } }).sort({ updatedAt: -1, _id: -1 }).lean();
+}
+
+function findTrackingScheduleByAgentId(agentId) {
+  return ExtensionTrackingSchedule.findOne({ agentId }).lean();
+}
+
+function upsertTrackingSchedule({
+  shopId,
+  agentId,
+  enabled,
+  scheduleType = 'INTERVAL',
+  fixedTimes = [],
+  timezone = 'Asia/Ho_Chi_Minh',
+  intervalMinutes = 120,
+  nextRunAt,
+  now,
+  runImmediately = false,
+}) {
+  const calculatedNextRun = nextRunAt || calculateNextRunAt({
+    scheduleType,
+    intervalMinutes,
+    fixedTimes,
+    timezone,
+    now,
+  });
+  const finalNextRunAt = enabled && runImmediately ? now : calculatedNextRun;
+
+  return ExtensionTrackingSchedule.findOneAndUpdate(
+    { agentId },
+    {
+      $set: {
+        shopId,
+        enabled,
+        scheduleType,
+        fixedTimes: scheduleType === 'FIXED_TIMES' ? fixedTimes : [],
+        timezone,
+        intervalMinutes: scheduleType === 'INTERVAL' ? intervalMinutes : 120,
+        nextRunAt: finalNextRunAt,
+        lastError: null,
+      },
+      $setOnInsert: {
+        lastQueuedAt: null,
+        lastBatchCount: 0,
+      },
+    },
+    { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
+  ).lean();
+}
+
+module.exports = {
+  findCompletedForLease,
+  findCommandById,
+  upsertAgent,
+  listAgents,
+  findAgentById,
+  findAgentForToken,
+  createCommand,
+  listCommands,
+  releaseExpired,
+  claimNext,
+  updateClaimed,
+  listDueOrderSchedules,
+  claimDueOrderSchedule,
+  hasActiveOrderCommand,
+  hasActiveImportCommand,
+  postponeOrderSchedule,
+  markOrderScheduleQueued,
+  listOrderSchedules,
+  findOrderScheduleByAgentId,
+  upsertOrderSchedule,
+  listDueFinanceSchedules,
+  claimDueFinanceSchedule,
+  listFinanceSchedules,
+  findFinanceSchedule,
+  findFinanceScheduleById,
+  requestFinanceScheduleNow,
+  upsertFinanceSchedule,
+  postponeFinanceSchedule,
+  markFinanceScheduleQueued,
+  markFinanceScheduleCompleted,
+  clearOrphanOrExpiredActiveLock,
+  listDueTrackingSchedules,
+  claimDueTrackingSchedule,
+  hasActiveTrackingCommand,
+  postponeTrackingSchedule,
+  markTrackingScheduleQueued,
+  listTrackingSchedules,
+  findTrackingScheduleByAgentId,
+  upsertTrackingSchedule,
+};

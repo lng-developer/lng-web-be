@@ -175,7 +175,10 @@ function calculateRevenue(item = {}, financeTotals = {}) {
       ? moneyAmount(financeTotals.refundAmount)
       : moneyAmount(item.finance?.refundAmount || item.externalData?.finance?.refundAmount);
   const externalStatus = String(item.externalStatus || '').toUpperCase();
-  const isMarketplaceCancelled = ['CANCELLED', 'CANCELED', 'PARTIALLY_CANCELLED'].includes(externalStatus);
+  const itemStatus = String(item.status || '').toUpperCase();
+  const isMarketplaceCancelled =
+    ['CANCELLED', 'CANCELED', 'PARTIALLY_CANCELLED'].includes(externalStatus) ||
+    ['CANCELLED', 'CANCELED', 'PARTIALLY_CANCELLED'].includes(itemStatus);
   const financialStatus = isMarketplaceCancelled
     ? 'CANCELLED'
     : refundAmount <= 0
@@ -208,7 +211,19 @@ function getCostLineAmount(costEstimate, code) {
   return line ? nullableMoneyAmount(line.amount) : null;
 }
 
-function calculateCost(fulfillmentPlan) {
+function calculateCost(fulfillmentPlan, isCancelled = false) {
+  if (isCancelled) {
+    return {
+      baseCostAmount: 0,
+      totalCostAmount: 0,
+      costLines: [],
+      costStatus: financeCostStatuses.PRESENT,
+      costBasis: financeCostBases.RATE_CARD,
+      snapshotStatus: financeSnapshotStatuses.ESTIMATED,
+      missingCostReason: null,
+    };
+  }
+
   const costEstimate = fulfillmentPlan?.costEstimate || null;
   if (!costEstimate) {
     return {
@@ -255,8 +270,13 @@ function calculateCost(fulfillmentPlan) {
   };
 }
 
-function profitStatusFor({ costStatus, costBasis, feeConfidence, actualVendorTotalAmount }) {
+function profitStatusFor({ costStatus, costBasis, feeConfidence, actualVendorTotalAmount, isCancelled = false }) {
   if (costStatus !== financeCostStatuses.PRESENT) return financeProfitStatuses.INCOMPLETE_COST;
+  if (isCancelled) {
+    return feeConfidence === financeFeeConfidences.ACTUAL
+      ? financeProfitStatuses.ACTUAL
+      : financeProfitStatuses.ESTIMATED;
+  }
   if (actualVendorTotalAmount !== null && actualVendorTotalAmount !== undefined) {
     return financeProfitStatuses.ACTUAL;
   }
@@ -730,7 +750,8 @@ async function calculateAndUpsertOrderItem(orderItemId, authContext, session) {
     financeImportRepository.sumRefundsByOrderItem(orderItemId),
   ]);
   const revenue = calculateRevenue(item, { feeAmount, refundAmount });
-  const cost = calculateCost(fulfillmentPlan);
+  const isCancelled = revenue.financialStatus === 'CANCELLED' || String(item.status || '').toUpperCase() === 'CANCELLED';
+  const cost = calculateCost(fulfillmentPlan, isCancelled);
   const effectiveTotalCostAmount = existingSnapshot?.actualVendorTotalAmount
     ?? cost.totalCostAmount;
   const margin = calculateMargin(revenue, effectiveTotalCostAmount, cost.costStatus);
@@ -756,6 +777,7 @@ async function calculateAndUpsertOrderItem(orderItemId, authContext, session) {
   payload.profitStatus = profitStatusFor({
     ...payload,
     actualVendorTotalAmount: existingSnapshot?.actualVendorTotalAmount,
+    isCancelled,
   });
   payload.calculationHistory = [
     {

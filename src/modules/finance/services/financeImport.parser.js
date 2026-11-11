@@ -147,8 +147,9 @@ function toTransactionRow(raw, importKey) {
     otherAmount: moneyToMinor(raw.other),
     totalAmount: moneyToMinor(raw.total),
   };
+  const hasExternalOrder = Boolean(row.externalOrderId && row.externalOrderId !== '---');
   row.dedupKey = crypto.createHash('sha256').update([
-    row.postedAt?.toISOString() || '',
+    hasExternalOrder ? '' : (row.postedAt?.toISOString() || ''),
     row.settlementId || '',
     row.transactionType || '',
     row.externalOrderId || '',

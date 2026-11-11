@@ -32,6 +32,7 @@ const amazonTrackingSubmissionSchema = new mongoose.Schema({
     importedCount: { type: Number, default: 0 },
     failedCount: { type: Number, default: 0 },
     diagnostics: [{ type: String }],
+    processingReport: { type: String, default: null },
   },
   submittedAt: { type: Date, default: null },
   completedAt: { type: Date, default: null },
