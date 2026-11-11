@@ -26,16 +26,35 @@ function outputUrlForSlot(fileChecks = [], slotKey = 'FRONT') {
   return firstValue(check?.outputVendorUrl, check?.outputUrl) || '';
 }
 
-function buildPayload(submission = {}, { idempotencyKey } = {}) {
-  const snapshot = submission.payloadSnapshot || {};
-  const address = snapshot.orderSnapshot?.shippingAddress || snapshot.order?.shippingAddress || {};
+function buildLenfulItem(snapshot = {}, fallbackOrderNumber = '') {
   const item = snapshot.orderItemSnapshot || snapshot.orderItem || {};
   const listing = snapshot.listingSnapshot || snapshot.listing || {};
   const costCenter = snapshot.vendorCostCenter || {};
   const printMethod = firstValue(costCenter.printMethod, listing.printMethod);
+  const designUrl = outputUrlForSlot(snapshot.fileChecks || [], 'FRONT');
+
+  return {
+    design_sku: firstValue(snapshot.designSku, fallbackOrderNumber),
+    product_sku: firstValue(costCenter.sku, costCenter.lngCode, costCenter.code) || '',
+    print_method: printMethod || '',
+    quantity: Number(snapshot.fulfillQty || item.quantity || 1),
+    mockups: [firstValue(item.productImageUrl, listing.previewVendorUrl, listing.thumbnailUrl)].filter(Boolean),
+    designs: designUrl ? [{ position: 1, link: designUrl }] : [],
+    request_clone: false,
+    shippings: [Number(snapshot.shippingMethod ?? 0)],
+  };
+}
+
+function buildPayload(submission = {}, { idempotencyKey } = {}) {
+  const snapshot = submission.payloadSnapshot || {};
+  const address = snapshot.orderSnapshot?.shippingAddress || snapshot.order?.shippingAddress || {};
+  const item = snapshot.orderItemSnapshot || snapshot.orderItem || {};
   const name = splitName(firstValue(address.name, address.fullName, address.recipientName));
   const orderNumber = String(firstValue(idempotencyKey, item.externalOrderId, snapshot.externalOrderId, submission.orderItemId, submission.id) || '');
-  const designUrl = outputUrlForSlot(snapshot.fileChecks || [], 'FRONT');
+
+  const items = Array.isArray(snapshot.bundledItems) && snapshot.bundledItems.length > 0
+    ? snapshot.bundledItems.map((s) => buildLenfulItem(s, orderNumber))
+    : [buildLenfulItem(snapshot, orderNumber)];
 
   return {
     order_number: orderNumber,
@@ -51,16 +70,7 @@ function buildPayload(submission = {}, { idempotencyKey } = {}) {
     address_2: firstValue(address.addressLine2, address.address2) || '',
     note: '',
     platform_label: '',
-    items: [{
-      design_sku: firstValue(snapshot.designSku, orderNumber),
-      product_sku: firstValue(costCenter.sku, costCenter.lngCode, costCenter.code) || '',
-      print_method: printMethod || '',
-      quantity: Number(snapshot.fulfillQty || item.quantity || 1),
-      mockups: [firstValue(item.productImageUrl, listing.previewVendorUrl, listing.thumbnailUrl)].filter(Boolean),
-      designs: designUrl ? [{ position: 1, link: designUrl }] : [],
-      request_clone: false,
-      shippings: [Number(snapshot.shippingMethod ?? 0)],
-    }],
+    items,
   };
 }
 

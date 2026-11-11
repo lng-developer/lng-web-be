@@ -40,4 +40,21 @@ function toFinanceScheduleDto(schedule) {
     updatedAt: schedule.updatedAt,
   };
 }
-module.exports = { toAgentDto, toManagementAgentDto, toCommandDto, toOrderScheduleDto, toFinanceScheduleDto };
+function toTrackingScheduleDto(schedule) {
+  return schedule && {
+    id: id(schedule),
+    shopId: id(schedule.shopId),
+    agentId: id(schedule.agentId),
+    enabled: schedule.enabled,
+    scheduleType: schedule.scheduleType || 'INTERVAL',
+    fixedTimes: Array.isArray(schedule.fixedTimes) ? schedule.fixedTimes : [],
+    timezone: schedule.timezone || 'Asia/Ho_Chi_Minh',
+    intervalMinutes: schedule.intervalMinutes,
+    nextRunAt: schedule.nextRunAt,
+    lastQueuedAt: schedule.lastQueuedAt || null,
+    lastBatchCount: schedule.lastBatchCount || 0,
+    lastError: schedule.lastError || null,
+    updatedAt: schedule.updatedAt,
+  };
+}
+module.exports = { toAgentDto, toManagementAgentDto, toCommandDto, toOrderScheduleDto, toFinanceScheduleDto, toTrackingScheduleDto };

@@ -50,8 +50,7 @@ function itemImage(snapshot = {}) {
   ) || null;
 }
 
-function buildPayload(submission = {}, { idempotencyKey } = {}) {
-  const snapshot = submission.payloadSnapshot || {};
+function buildMerchizeItem(snapshot = {}) {
   const item = snapshot.orderItemSnapshot || snapshot.orderItem || {};
   const listing = snapshot.listingSnapshot || snapshot.listing || {};
   const costCenter = snapshot.vendorCostCenter || {};
@@ -60,31 +59,42 @@ function buildPayload(submission = {}, { idempotencyKey } = {}) {
   const printMethod = firstValue(costCenter.printMethod, listing.printMethod);
 
   return {
+    name: title,
+    product_id: merchizeSku || null,
+    sku: merchizeSku || null,
+    merchize_sku: merchizeSku || null,
+    quantity: Number(snapshot.fulfillQty || item.quantity || 1),
+    price: item.price?.itemPriceAmount ? Number(item.price.itemPriceAmount) / 100 : null,
+    currency: item.price?.currency || 'USD',
+    image: itemImage(snapshot),
+    design_front: outputUrlForSlot(snapshot.fileChecks || [], 'FRONT'),
+    attributes: [
+      { name: 'product', option: title },
+      ...(printMethod ? [{ name: 'Print Method', option: String(printMethod) }] : []),
+      ...(firstValue(costCenter.standardColor, costCenter.vendorColor)
+        ? [{ name: 'Color', option: String(firstValue(costCenter.standardColor, costCenter.vendorColor)) }]
+        : []),
+      ...(firstValue(costCenter.standardSize, costCenter.vendorSize)
+        ? [{ name: 'Size', option: String(firstValue(costCenter.standardSize, costCenter.vendorSize)) }]
+        : []),
+    ],
+  };
+}
+
+function buildPayload(submission = {}, { idempotencyKey } = {}) {
+  const snapshot = submission.payloadSnapshot || {};
+  const item = snapshot.orderItemSnapshot || snapshot.orderItem || {};
+
+  const items = Array.isArray(snapshot.bundledItems) && snapshot.bundledItems.length > 0
+    ? snapshot.bundledItems.map(buildMerchizeItem)
+    : [buildMerchizeItem(snapshot)];
+
+  return {
     order_id: String(firstValue(item.externalOrderId, snapshot.externalOrderId, idempotencyKey, submission.orderItemId, submission.id) || ''),
     identifier: firstValue(snapshot.identifier, process.env.MERCHIZE_IDENTIFIER, 'lng-web-be'),
     shipping_info: shippingInfo(snapshot),
     tags: Array.isArray(snapshot.tags) ? snapshot.tags : [],
-    items: [{
-      name: title,
-      product_id: merchizeSku || null,
-      sku: merchizeSku || null,
-      merchize_sku: merchizeSku || null,
-      quantity: Number(snapshot.fulfillQty || item.quantity || 1),
-      price: item.price?.itemPriceAmount ? Number(item.price.itemPriceAmount) / 100 : null,
-      currency: item.price?.currency || 'USD',
-      image: itemImage(snapshot),
-      design_front: outputUrlForSlot(snapshot.fileChecks || [], 'FRONT'),
-      attributes: [
-        { name: 'product', option: title },
-        ...(printMethod ? [{ name: 'Print Method', option: String(printMethod) }] : []),
-        ...(firstValue(costCenter.standardColor, costCenter.vendorColor)
-          ? [{ name: 'Color', option: String(firstValue(costCenter.standardColor, costCenter.vendorColor)) }]
-          : []),
-        ...(firstValue(costCenter.standardSize, costCenter.vendorSize)
-          ? [{ name: 'Size', option: String(firstValue(costCenter.standardSize, costCenter.vendorSize)) }]
-          : []),
-      ],
-    }],
+    items,
   };
 }
 

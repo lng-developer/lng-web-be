@@ -453,15 +453,20 @@ async function summarizeQueueCounts(query = {}) {
   const filter = buildFilter(query);
   const psdReady = psdReadyExpression();
   const scaleDesignType = query.designType === 'CUSTOM_IMAGE' ? 'CUSTOM_IMAGE' : 'NORMAL';
+  const orderKeyExpr = {
+    $ifNull: [
+      '$orderItemSnapshot.externalOrderId',
+      { $ifNull: ['$orderSnapshot.id', { $toString: '$orderId' }] },
+    ],
+  };
   const [result = {}] = await ProductionTask.aggregate([
     { $match: filter },
     {
       $group: {
-        _id: null,
-        total: { $sum: 1 },
-        blocked: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.BLOCKED] }, 1, 0] } },
-        scaleQueue: {
-          $sum: {
+        _id: orderKeyExpr,
+        hasBlocked: { $max: { $cond: [{ $eq: ['$status', productionTaskStatuses.BLOCKED] }, 1, 0] } },
+        hasScaleQueue: {
+          $max: {
             $cond: [{
               $and: [
                 psdReady,
@@ -471,8 +476,8 @@ async function summarizeQueueCounts(query = {}) {
             }, 1, 0],
           },
         },
-        needScale: {
-          $sum: {
+        hasNeedScale: {
+          $max: {
             $cond: [{
               $and: [
                 psdReady,
@@ -482,8 +487,8 @@ async function summarizeQueueCounts(query = {}) {
             }, 1, 0],
           },
         },
-        qcRejected: {
-          $sum: {
+        hasQcRejected: {
+          $max: {
             $cond: [{
               $and: [
                 psdReady,
@@ -493,13 +498,13 @@ async function summarizeQueueCounts(query = {}) {
             }, 1, 0],
           },
         },
-        qcPending: {
-          $sum: {
+        hasQcPending: {
+          $max: {
             $cond: [{ $eq: ['$status', productionTaskStatuses.QC_PENDING] }, 1, 0],
           },
         },
-        unclassified: {
-          $sum: {
+        hasUnclassified: {
+          $max: {
             $cond: [{
               $and: [
                 psdReady,
@@ -509,8 +514,8 @@ async function summarizeQueueCounts(query = {}) {
             }, 1, 0],
           },
         },
-        qcQueue: {
-          $sum: {
+        hasQcQueue: {
+          $max: {
             $cond: [{
               $and: [
                 psdReady,
@@ -520,9 +525,25 @@ async function summarizeQueueCounts(query = {}) {
             }, 1, 0],
           },
         },
-        ready: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.READY_TO_SEND_VENDOR] }, 1, 0] } },
-        sent: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.SENT_TO_VENDOR] }, 1, 0] } },
-        cancelled: { $sum: { $cond: [{ $eq: ['$status', productionTaskStatuses.CANCELLED] }, 1, 0] } },
+        hasReady: { $max: { $cond: [{ $eq: ['$status', productionTaskStatuses.READY_TO_SEND_VENDOR] }, 1, 0] } },
+        hasSent: { $max: { $cond: [{ $eq: ['$status', productionTaskStatuses.SENT_TO_VENDOR] }, 1, 0] } },
+        hasCancelled: { $max: { $cond: [{ $eq: ['$status', productionTaskStatuses.CANCELLED] }, 1, 0] } },
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        total: { $sum: 1 },
+        blocked: { $sum: '$hasBlocked' },
+        scaleQueue: { $sum: '$hasScaleQueue' },
+        needScale: { $sum: '$hasNeedScale' },
+        qcRejected: { $sum: '$hasQcRejected' },
+        qcPending: { $sum: '$hasQcPending' },
+        unclassified: { $sum: '$hasUnclassified' },
+        qcQueue: { $sum: '$hasQcQueue' },
+        ready: { $sum: '$hasReady' },
+        sent: { $sum: '$hasSent' },
+        cancelled: { $sum: '$hasCancelled' },
       },
     },
   ]);

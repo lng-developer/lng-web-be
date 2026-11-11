@@ -4,6 +4,8 @@ const errorCodes = require('../../../../shared/constants/errorCodes');
 const { generateRandomToken, hashString } = require('../../../../shared/utils/crypto');
 const logger = require('../../../../shared/utils/logger');
 const authPublic = require('../../../auth/public');
+const shipmentPublic = require('../../../shipment/public');
+const amazonTrackingSubmissionPublic = require('../../amazonTrackingSubmission/public');
 const repository = require('../repositories/extensionCommand.repository');
 const { extensionCommandTypes, extensionCommandStatuses } = require('../constants/extensionCommand.constants');
 const { calculateNextRunAt } = require('./scheduleTimeUtils');
@@ -214,6 +216,12 @@ async function completeCommand(commandId, input, auth) {
   // A completed Etsy lease can acknowledge the same request, never reopen work.
   if (!command && agent.provider === 'ETSY') command = await repository.findCompletedForLease({ commandId, agentId: agent._id, leaseTokenHash: hashString(input.leaseToken) });
   if (!command) throw conflict('Command is no longer completable');
+  if (command.trackingSubmissionId && !input.success) {
+    try {
+      const amazonTrackingPublic = require('../../amazonTrackingSubmission/public');
+      await amazonTrackingPublic.failSubmissionByCommandId(command._id, input.errorMessage);
+    } catch (_) {}
+  }
   if (command.imageSyncJobId) await require('../../listingImageSync/public').dispatchJob(command.imageSyncJobId);
   const financeSource = financeSourceForCommand(command.type);
   if (financeSource && command.financeScheduleId) {
@@ -418,4 +426,132 @@ async function requestFinanceScheduleNow(agentId, source, auth) {
   return repository.findFinanceSchedule({ agentId, source });
 }
 
-module.exports = { heartbeat, listAgents, listManagementAgents, createCommand, listCommands, listCurrentCommands, queueCurrentOrderImport, queueCurrentAdsImport, claimNext, startCommand, renewCommand, completeCommand, dispatchDueOrderSchedules, dispatchDueFinanceSchedules, listOrderSchedules, upsertOrderSchedule, listFinanceSchedules, upsertFinanceSchedule, requestFinanceScheduleNow };
+async function listTrackingSchedules(auth) {
+  const shopIds = (await repository.listAgents({})).map((agent) => agent.shopId).filter((shopId) => canReadShop(auth, shopId));
+  return shopIds.length ? repository.listTrackingSchedules({ shopIds }) : [];
+}
+
+async function upsertTrackingSchedule(agentId, input, auth) {
+  if (auth?.tokenType === 'EXTENSION') throw forbidden();
+  const agent = await repository.findAgentById(agentId);
+  if (!agent) throw notFound('Extension agent not found');
+  assertUserShopAccess(auth, agent.shopId, 'ORDERS:WRITE');
+  const now = new Date();
+  const nextRunAt = calculateNextRunAt({
+    scheduleType: input.scheduleType,
+    intervalMinutes: input.intervalMinutes || 120,
+    fixedTimes: input.fixedTimes,
+    timezone: input.timezone,
+    now,
+  });
+  return repository.upsertTrackingSchedule({
+    shopId: agent.shopId,
+    agentId: agent._id || agent.id,
+    enabled: input.enabled,
+    scheduleType: input.scheduleType,
+    fixedTimes: input.fixedTimes,
+    timezone: input.timezone,
+    intervalMinutes: input.intervalMinutes || 120,
+    nextRunAt,
+    now,
+  });
+}
+
+async function requestTrackingScheduleNow(agentId, auth) {
+  if (auth?.tokenType === 'EXTENSION') throw forbidden();
+  const agent = await repository.findAgentById(agentId);
+  if (!agent) throw notFound('Extension agent not found');
+  assertUserShopAccess(auth, agent.shopId, 'ORDERS:WRITE');
+  const now = new Date();
+  if (!isOnline(agent, now)) throw conflict('Extension agent is offline');
+  if (await repository.hasActiveTrackingCommand(agentId)) {
+    throw conflict('A tracking upload command is already in progress for this extension agent');
+  }
+  const readyShipments = await shipmentPublic.findReadyForMarketplaceUpload(agent.shopId, { limit: 100 });
+  if (!readyShipments || !readyShipments.length) {
+    return {
+      message: 'No pending shipments ready for upload',
+      batchCount: 0,
+      queued: false,
+    };
+  }
+  const shipmentIds = readyShipments.map((s) => s._id || s.id);
+  const result = await amazonTrackingSubmissionPublic.createSubmission({
+    shopId: agent.shopId,
+    agentId,
+    shipmentIds,
+  }, auth);
+  return {
+    message: `Queued ${shipmentIds.length} shipments for upload to Amazon`,
+    batchCount: shipmentIds.length,
+    submissionId: result.id,
+    queued: true,
+  };
+}
+
+async function dispatchDueTrackingSchedules(now = new Date()) {
+  const schedules = (await repository.listDueTrackingSchedules(now)) || [];
+  for (const schedule of schedules) {
+    const agentId = schedule.agentId?._id || schedule.agentId;
+    const agent = await repository.findAgentById(agentId);
+    const nextRunAt = calculateNextRunAt({
+      scheduleType: schedule.scheduleType,
+      intervalMinutes: schedule.intervalMinutes,
+      fixedTimes: schedule.fixedTimes,
+      timezone: schedule.timezone,
+      now,
+    });
+    if (!await repository.claimDueTrackingSchedule(schedule._id, now, nextRunAt)) continue;
+    if (!isOnline(agent, now)) {
+      await repository.postponeTrackingSchedule(schedule._id, now, 'AGENT_OFFLINE');
+      continue;
+    }
+    if (await repository.hasActiveTrackingCommand(agentId)) {
+      await repository.postponeTrackingSchedule(schedule._id, now, 'ACTIVE_TRACKING_COMMAND');
+      continue;
+    }
+    const readyShipments = await shipmentPublic.findReadyForMarketplaceUpload(schedule.shopId, { limit: 100 });
+    if (!readyShipments || !readyShipments.length) {
+      await repository.markTrackingScheduleQueued(schedule._id, now, { batchCount: 0 });
+      continue;
+    }
+    const shipmentIds = readyShipments.map((s) => s._id || s.id);
+    try {
+      await amazonTrackingSubmissionPublic.createSubmission({
+        shopId: schedule.shopId,
+        agentId,
+        shipmentIds,
+      }, { system: true, permissions: ['ORDERS:WRITE'] });
+      await repository.markTrackingScheduleQueued(schedule._id, now, { batchCount: shipmentIds.length });
+    } catch (err) {
+      logger.error('dispatch_due_tracking_submission_failed', { scheduleId: schedule._id, error: err.message });
+      await repository.postponeTrackingSchedule(schedule._id, now, err.message);
+    }
+  }
+}
+
+module.exports = {
+  heartbeat,
+  listAgents,
+  listManagementAgents,
+  createCommand,
+  listCommands,
+  listCurrentCommands,
+  queueCurrentOrderImport,
+  queueCurrentAdsImport,
+  claimNext,
+  startCommand,
+  renewCommand,
+  completeCommand,
+  dispatchDueOrderSchedules,
+  dispatchDueFinanceSchedules,
+  dispatchDueTrackingSchedules,
+  listOrderSchedules,
+  upsertOrderSchedule,
+  listFinanceSchedules,
+  upsertFinanceSchedule,
+  requestFinanceScheduleNow,
+  listTrackingSchedules,
+  upsertTrackingSchedule,
+  requestTrackingScheduleNow,
+};

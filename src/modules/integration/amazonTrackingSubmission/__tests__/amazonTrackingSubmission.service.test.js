@@ -111,7 +111,7 @@ describe('AmazonTrackingSubmission Service', () => {
           agentId,
           rowCount: 2,
           status: 'PENDING',
-          tsv: expect.stringContaining('111-2222222-3333331\t2026-09-28\tUSPS\t9400100000000000000001\tStandard\r\n'),
+          tsv: expect.stringContaining('111-2222222-3333331\t\t\t2026-09-28\tUSPS\t\t9400100000000000000001\tUSPS First Class'),
         })
       );
       expect(extensionCommandRepository.createCommand).toHaveBeenCalledWith(

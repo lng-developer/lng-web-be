@@ -47,5 +47,17 @@ const upsertFinanceScheduleSchema = Joi.object({
   }
   return value;
 });
+const upsertTrackingScheduleSchema = Joi.object({
+  enabled: Joi.boolean().required(),
+  scheduleType: Joi.string().valid('INTERVAL', 'FIXED_TIMES'),
+  intervalMinutes: Joi.number().integer().min(30).max(1440),
+  fixedTimes: Joi.array().items(Joi.string().regex(timeRegex)).unique(),
+  timezone: Joi.string().trim().max(100),
+}).custom((value, helpers) => {
+  if (value.scheduleType === 'FIXED_TIMES' && value.enabled && (!value.fixedTimes || !value.fixedTimes.length)) {
+    return helpers.error('any.invalid');
+  }
+  return value;
+});
 function validate(schema, payload) { const result = schema.validate(payload, { abortEarly: false, stripUnknown: true }); return result.error ? { details: result.error.details } : { value: result.value }; }
-module.exports = { createCommandSchema, heartbeatSchema, manualOrderImportSchema, manualAdsImportSchema, commandIdSchema, leaseSchema, renewSchema, completeSchema, listSchema, upsertOrderScheduleSchema, upsertFinanceScheduleSchema, validate };
+module.exports = { createCommandSchema, heartbeatSchema, manualOrderImportSchema, manualAdsImportSchema, commandIdSchema, leaseSchema, renewSchema, completeSchema, listSchema, upsertOrderScheduleSchema, upsertFinanceScheduleSchema, upsertTrackingScheduleSchema, validate };

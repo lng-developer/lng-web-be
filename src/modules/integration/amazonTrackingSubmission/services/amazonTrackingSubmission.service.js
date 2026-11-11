@@ -24,6 +24,7 @@ function sha256Hex(val) {
 }
 
 function assertUserShopAccess(auth, shopId, permission) {
+  if (auth?.system) return;
   if (auth?.tokenType === 'EXTENSION') throw forbidden();
   const scope = { scopeType: 'shop', scopeId: String(shopId) };
   if (!authPublic.canAccessScope(auth, permission, scope)) throw forbidden();
@@ -45,8 +46,13 @@ async function validateCommandLease(commandId, agentId, leaseToken) {
 }
 
 function formatDate(date) {
+  // Amazon US operates on US Pacific Time (America/Los_Angeles).
+  // A ship-date cannot be in the future relative to Amazon marketplace time.
   const d = new Date(date);
-  return d.toISOString().slice(0, 10);
+  const pstFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' });
+  const formatted = pstFormatter.format(d);
+  const todayInPst = pstFormatter.format(new Date());
+  return formatted > todayInPst ? todayInPst : formatted;
 }
 
 async function createSubmission(payload, authContext) {
@@ -75,13 +81,21 @@ async function createSubmission(payload, authContext) {
 
     const shipDate = formatDate(shipment.shippedAt);
     const carrierCode = normalizeCarrierCode(shipment.carrier);
-    const shipMethod = 'Standard';
+    let shipMethod = 'Standard';
+    if (carrierCode === 'USPS') {
+      shipMethod = 'USPS First Class';
+    } else if (carrierCode === 'UPS') {
+      shipMethod = 'UPS Ground';
+    } else if (carrierCode === 'FedEx') {
+      shipMethod = 'FedEx Ground';
+    }
 
     validRows.push({
       shipmentId: shipment._id,
       orderId: shipment.orderId || null,
       externalOrderId: shipment.externalOrderId,
       shipDate,
+      carrier: shipment.carrier,
       carrierCode,
       trackingNumber: shipment.trackingNumber,
       shipMethod,
@@ -89,11 +103,50 @@ async function createSubmission(payload, authContext) {
     validShipmentIds.push(shipment._id);
   }
 
-  // Build TSV feed
-  const tsvHeader = 'order-id\tship-date\tcarrier-code\ttracking-number\tship-method\r\n';
-  const tsvLines = validRows.map((r) =>
-    `${r.externalOrderId}\t${r.shipDate}\t${r.carrierCode}\t${r.trackingNumber}\t${r.shipMethod}\r\n`
-  );
+  // Build TSV feed strictly matching the official Amazon Shipping Confirmation Template
+  const templateHeaders = [
+    'order-id',
+    'order-item-id',
+    'quantity',
+    'ship-date',
+    'carrier-code',
+    'carrier-name',
+    'tracking-number',
+    'ship-method',
+    'transparency_code',
+    'ship_from_address_name',
+    'ship_from_address_line1',
+    'ship_from_address_line2',
+    'ship_from_address_line3',
+    'ship_from_address_city',
+    'ship_from_address_county',
+    'ship_from_address_state_or_region',
+    'ship_from_address_postalcode',
+    'ship_from_address_countrycode',
+    'ship_from_supply_source_id',
+  ];
+  const tsvHeader = templateHeaders.join('\t') + '\r\n';
+  const tsvLines = validRows.map((r) => [
+    r.externalOrderId,
+    '', // order-item-id: not required for whole order
+    '', // quantity: not required when confirming full shipment
+    r.shipDate,
+    r.carrierCode,
+    r.carrierCode === 'Other' ? (r.carrier || 'Other') : '',
+    r.trackingNumber,
+    r.shipMethod || 'Standard',
+    '', // transparency_code
+    '', // ship_from_address_name
+    '', // ship_from_address_line1
+    '', // ship_from_address_line2
+    '', // ship_from_address_line3
+    '', // ship_from_address_city
+    '', // ship_from_address_county
+    '', // ship_from_address_state_or_region
+    '', // ship_from_address_postalcode
+    '', // ship_from_address_countrycode
+    '', // ship_from_supply_source_id
+  ].join('\t') + '\r\n');
   const tsv = tsvHeader + tsvLines.join('');
   const checksum = sha256Hex(tsv);
   const filename = `shipping-confirmation-${Date.now()}.txt`;
@@ -251,8 +304,24 @@ async function getSubmission(submissionId, authContext) {
   return toSubmissionDetailDto(submission);
 }
 
+async function failSubmissionByCommandId(commandId, errorMessage) {
+  const submission = await repository.findByCommandId(commandId);
+  if (!submission) return;
+  await repository.updateById(submission._id, {
+    status: amazonTrackingSubmissionStatuses.FAILED,
+    completedAt: new Date(),
+    errorMessage: errorMessage || 'Amazon tracking upload failed',
+  });
+  if (submission.shipmentIds && submission.shipmentIds.length) {
+    await shipmentPublic.updateMarketplaceConfirmation(submission.shipmentIds, {
+      status: 'FAILED',
+    });
+  }
+}
+
 module.exports = {
   createSubmission,
+  failSubmissionByCommandId,
   getLeasedPayload,
   markSubmitted,
   markWaiting,

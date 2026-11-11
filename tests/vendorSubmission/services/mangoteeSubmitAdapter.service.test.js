@@ -40,6 +40,41 @@ describe('MangoTee submit adapter', () => {
     expect(() => adapter.validatePayload(payload)).not.toThrow();
   });
 
+  test('builds multi-item payload when bundledItems are present', () => {
+    const multiItemSubmission = {
+      ...submission,
+      payloadSnapshot: {
+        ...submission.payloadSnapshot,
+        bundledItems: [
+          {
+            orderItemSnapshot: { quantity: 1 },
+            vendorCostCenter: { sku: 'UNGSBH00S' },
+            fileChecks: [{ slotKey: 'FRONT', outputVendorUrl: 'https://cdn.example/front1.png' }],
+          },
+          {
+            orderItemSnapshot: { quantity: 2 },
+            vendorCostCenter: { sku: 'UNGS3F00M' },
+            fileChecks: [{ slotKey: 'FRONT', outputVendorUrl: 'https://cdn.example/front2.png' }],
+          },
+        ],
+      },
+    };
+
+    const payload = adapter.buildPayload(multiItemSubmission);
+    expect(payload.items).toHaveLength(2);
+    expect(payload.items[0]).toMatchObject({
+      sku: 'UNGSBH00S',
+      quantity: 1,
+      print_files: [{ key: 'front', url: 'https://cdn.example/front1.png' }],
+    });
+    expect(payload.items[1]).toMatchObject({
+      sku: 'UNGS3F00M',
+      quantity: 2,
+      print_files: [{ key: 'front', url: 'https://cdn.example/front2.png' }],
+    });
+    expect(() => adapter.validatePayload(payload)).not.toThrow();
+  });
+
   test('submits with the configured vendor API key', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,

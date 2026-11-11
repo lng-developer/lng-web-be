@@ -674,29 +674,32 @@ async function recheckVendorTracking(payload = {}, authContext) {
   assertCanAccessShop(submission.shopId, shipmentPermissions.WRITE, authContext);
   const identity = assertMatchingTrackingIdentity(deriveTrackingIdentity(submission), payload);
   const { provider, vendorExternalOrderId: externalOrderId } = identity;
-  const tracking = await fetchVendorTracking(identity, {
-    dateFrom: asDateOrNull(payload.dateFrom),
-    dateTo: asDateOrNull(payload.dateTo),
-  });
-  const shipmentStatus = normalizeShipmentStatus(
-    tracking.shipmentStatus || tracking.vendorStatus || tracking.rawStatus,
-  );
-  const normalizedTracking = { ...tracking, shipmentStatus };
-  const application = await applyTrackingUpdate(payload.vendorSubmissionId, {
-    ...normalizedTracking,
-    provider,
-    note: `Vendor tracking recheck: ${provider}`,
-    source: 'POLL',
-  }, authContext);
-  await repository.touchLastCheckedAtByVendorSubmission(payload.vendorSubmissionId, new Date());
+  try {
+    const tracking = await fetchVendorTracking(identity, {
+      dateFrom: asDateOrNull(payload.dateFrom),
+      dateTo: asDateOrNull(payload.dateTo),
+    });
+    const shipmentStatus = normalizeShipmentStatus(
+      tracking.shipmentStatus || tracking.vendorStatus || tracking.rawStatus,
+    );
+    const normalizedTracking = { ...tracking, shipmentStatus };
+    const application = await applyTrackingUpdate(payload.vendorSubmissionId, {
+      ...normalizedTracking,
+      provider,
+      note: `Vendor tracking recheck: ${provider}`,
+      source: 'POLL',
+    }, authContext);
 
-  return {
-    provider,
-    externalOrderId,
-    vendorSubmissionId: payload.vendorSubmissionId,
-    tracking: normalizedTracking,
-    ...application,
-  };
+    return {
+      provider,
+      externalOrderId,
+      vendorSubmissionId: payload.vendorSubmissionId,
+      tracking: normalizedTracking,
+      ...application,
+    };
+  } finally {
+    await repository.touchLastCheckedAtByVendorSubmission(payload.vendorSubmissionId, new Date()).catch(() => {});
+  }
 }
 
 async function recheckShipment(shipmentId, authContext) {
@@ -748,12 +751,14 @@ async function recheckSubmittedVendorTracking(query = {}, authContext) {
     };
 
     if (!submission.provider || !submission.vendorExternalOrderId) {
+      await repository.touchLastCheckedAtByVendorSubmission(submission.id, new Date()).catch(() => {});
       items.push({ ...base, status: 'SKIPPED', reason: 'MISSING_VENDOR_TRACKING_REF' });
       continue;
     }
 
     const existingShipment = await repository.findByOrderItem(submission.orderItemId);
     if (shouldSkipShipment(existingShipment)) {
+      await repository.touchLastCheckedAtByVendorSubmission(submission.id, new Date()).catch(() => {});
       items.push({
         ...base,
         status: 'SKIPPED',
@@ -782,6 +787,7 @@ async function recheckSubmittedVendorTracking(query = {}, authContext) {
         trackingNumber: result.tracking?.trackingNumber || null,
       });
     } catch (error) {
+      await repository.touchLastCheckedAtByVendorSubmission(submission.id, new Date()).catch(() => {});
       items.push({
         ...base,
         status: 'FAILED',
@@ -846,6 +852,10 @@ async function findByIds(shipmentIds) {
   return repository.findByIds(shipmentIds);
 }
 
+async function findReadyForMarketplaceUpload(shopId, options = {}) {
+  return repository.findReadyForMarketplaceUpload(shopId, options);
+}
+
 async function updateMarketplaceConfirmation(shipmentIds, data) {
   return repository.updateMarketplaceConfirmation(shipmentIds, data);
 }
@@ -857,6 +867,7 @@ module.exports = {
   getShipment,
   getShipmentByOrderItem,
   findByIds,
+  findReadyForMarketplaceUpload,
   updateMarketplaceConfirmation,
   listShipments,
   listSummariesByOrderItemIds,

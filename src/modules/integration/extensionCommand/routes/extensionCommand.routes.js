@@ -17,6 +17,9 @@ router.put('/order-schedules/:agentId', authPublic.authenticate, write, asyncHan
 router.get('/finance-schedules', authPublic.authenticate, financeRead, asyncHandler(controller.listFinanceSchedules));
 router.put('/finance-schedules/:agentId/:source', authPublic.authenticate, financeWrite, asyncHandler(controller.upsertFinanceSchedule));
 router.post('/finance-schedules/:agentId/:source/request-now', authPublic.authenticate, financeWrite, asyncHandler(controller.requestFinanceScheduleNow));
+router.get('/tracking-schedules', authPublic.authenticate, read, asyncHandler(controller.listTrackingSchedules));
+router.put('/tracking-schedules/:agentId', authPublic.authenticate, write, asyncHandler(controller.upsertTrackingSchedule));
+router.post('/tracking-schedules/:agentId/request-now', authPublic.authenticate, write, asyncHandler(controller.requestTrackingScheduleNow));
 router.post('/agent/heartbeat', authPublic.authenticate, write, asyncHandler(controller.heartbeat));
 router.get('/agent/commands', authPublic.authenticate, read, asyncHandler(controller.listCurrentCommands));
 router.post('/agent/import-new-orders', authPublic.authenticate, write, asyncHandler(controller.queueCurrentOrderImport));

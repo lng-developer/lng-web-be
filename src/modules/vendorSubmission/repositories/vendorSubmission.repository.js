@@ -4,6 +4,8 @@ const { getPaginationOffset, normalizePagination, toPaginatedResult } = require(
 const { escapeRegex } = require('../../../shared/utils/search');
 const { vendorSubmissionStatuses } = require('../constants/vendorSubmission.constants');
 
+const AUTOMATED_TRACKING_PROVIDERS = ['LENFUL', 'MERCHFOX', 'MERCHIZE', 'PRINTWAY', 'MANGOTEE'];
+
 function toObjectId(value) {
   return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
 }
@@ -48,8 +50,9 @@ function buildFilter(query = {}) {
 
 function buildTrackingFilter(query = {}) {
   const provider = String(query.provider || '').trim().toUpperCase();
+  const allowedProviders = provider ? [provider] : AUTOMATED_TRACKING_PROVIDERS;
   const completeIdentity = {
-    provider: provider || { $nin: [null, ''] },
+    provider: { $in: allowedProviders },
     vendorExternalOrderId: { $nin: [null, ''] },
   };
   const legacyMangoteeIdentity = {
@@ -179,6 +182,12 @@ async function summarizePerformance(query = {}) {
 
 async function summarize(query = {}) {
   const filter = buildFilter(query);
+  const orderKeyExpr = {
+    $ifNull: [
+      '$payloadSnapshot.orderItem.externalOrderId',
+      { $toString: '$orderId' },
+    ],
+  };
   const [result = {}] = await VendorSubmission.aggregate([
     { $match: filter },
     {
@@ -189,6 +198,17 @@ async function summarize(query = {}) {
             { $ifNull: ['$payloadSnapshot.vendorProduct.vendor._id', '$vendorProductId'] },
           ],
         },
+        orderKey: orderKeyExpr,
+      },
+    },
+    {
+      $group: {
+        _id: '$orderKey',
+        status: { $max: '$status' },
+        shopId: { $first: '$shopId' },
+        vendorRef: { $first: '$vendorRef' },
+        vendorCode: { $first: '$payloadSnapshot.vendorProduct.vendor.code' },
+        vendorName: { $first: '$payloadSnapshot.vendorProduct.vendor.name' },
       },
     },
     {
@@ -200,8 +220,8 @@ async function summarize(query = {}) {
           {
             $group: {
               _id: '$vendorRef',
-              vendorCode: { $first: '$payloadSnapshot.vendorProduct.vendor.code' },
-              vendorName: { $first: '$payloadSnapshot.vendorProduct.vendor.name' },
+              vendorCode: { $first: '$vendorCode' },
+              vendorName: { $first: '$vendorName' },
               count: { $sum: 1 },
             },
           },

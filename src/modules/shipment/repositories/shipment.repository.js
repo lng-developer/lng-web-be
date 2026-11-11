@@ -14,6 +14,7 @@ function buildFilter(query = {}) {
   if (query.id) filter._id = toObjectId(query.id);
   if (query.status) filter.status = query.status;
   if (query.provider) filter.provider = String(query.provider).trim().toUpperCase();
+  if (query.marketplaceConfirmationStatus) filter.marketplaceConfirmationStatus = query.marketplaceConfirmationStatus;
   if (query.vendorSubmissionId) filter.vendorSubmissionId = toObjectId(query.vendorSubmissionId);
   if (query.orderId) filter.orderId = toObjectId(query.orderId);
   if (query.orderItemId) filter.orderItemId = toObjectId(query.orderItemId);
@@ -62,6 +63,20 @@ async function listByOrderItemIds(orderItemIds = []) {
   }).lean();
 }
 
+async function findReadyForMarketplaceUpload(shopId, { limit = 100 } = {}) {
+  return Shipment.find({
+    shopId: toObjectId(shopId),
+    status: shipmentStatuses.SHIPPED,
+    carrier: { $ne: null },
+    trackingNumber: { $ne: null },
+    shippedAt: { $ne: null },
+    marketplaceConfirmationStatus: { $in: ['PENDING', 'FAILED'] },
+  })
+    .sort({ shippedAt: 1 })
+    .limit(limit)
+    .lean();
+}
+
 async function list(query = {}) {
   const { page, limit } = normalizePagination(query, { defaultLimit: 20, maxLimit: 100 });
   const filter = buildFilter(query);
@@ -82,6 +97,13 @@ async function summarize(query = {}) {
   const filter = buildFilter(query);
   const [result = {}] = await Shipment.aggregate([
     { $match: filter },
+    {
+      $group: {
+        _id: '$orderId',
+        status: { $max: '$status' },
+        carrier: { $first: '$carrier' },
+      },
+    },
     {
       $facet: {
         total: [{ $count: 'count' }],
@@ -191,6 +213,7 @@ module.exports = {
   findActiveByVendorSubmission,
   findById,
   findByIds,
+  findReadyForMarketplaceUpload,
   updateMarketplaceConfirmation,
   findByOrderItem,
   list,

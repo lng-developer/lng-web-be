@@ -26,24 +26,35 @@ function splitName(name = '') {
   return { first_name: parts[0] || '', last_name: parts.slice(1).join(' ') || null };
 }
 
+function buildMangoTeeItem(snapshot = {}) {
+  const item = snapshot.orderItemSnapshot || snapshot.orderItem || {};
+  const costCenter = snapshot.vendorCostCenter || {};
+  const sku = firstValue(costCenter.sku, costCenter.lngCode, costCenter.code);
+
+  return {
+    sku: sku || '',
+    quantity: Number(snapshot.fulfillQty || item.quantity || 1),
+    production_config: firstValue(costCenter.productionConfig, snapshot.productionConfig) || null,
+    print_files: outputFiles(snapshot.fileChecks || []),
+    preview_files: [],
+  };
+}
+
 function buildPayload(submission = {}, { idempotencyKey } = {}) {
   const snapshot = submission.payloadSnapshot || {};
   const item = snapshot.orderItemSnapshot || snapshot.orderItem || {};
   const address = snapshot.orderSnapshot?.shippingAddress || snapshot.order?.shippingAddress || {};
   const costCenter = snapshot.vendorCostCenter || {};
   const name = splitName(firstValue(address.name, address.fullName, address.recipientName));
-  const sku = firstValue(costCenter.sku, costCenter.lngCode, costCenter.code);
+
+  const items = Array.isArray(snapshot.bundledItems) && snapshot.bundledItems.length > 0
+    ? snapshot.bundledItems.map(buildMangoTeeItem)
+    : [buildMangoTeeItem(snapshot)];
 
   return {
     order_id: String(firstValue(item.externalOrderId, snapshot.externalOrderId, submission.orderItemId, submission.id) || ''),
     facility: firstValue(snapshot.facility, snapshot.facilityCode, costCenter.facility) || null,
-    items: [{
-      sku: sku || '',
-      quantity: Number(snapshot.fulfillQty || item.quantity || 1),
-      production_config: firstValue(costCenter.productionConfig, snapshot.productionConfig) || null,
-      print_files: outputFiles(snapshot.fileChecks || []),
-      preview_files: [],
-    }],
+    items,
     first_name: name.first_name,
     last_name: name.last_name,
     email: firstValue(address.email, snapshot.orderSnapshot?.buyer?.emailMasked) || '',

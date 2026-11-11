@@ -28,6 +28,9 @@ const publicPort = {
   findByIds(...args) {
     return service().findByIds(...args);
   },
+  findReadyForMarketplaceUpload(...args) {
+    return service().findReadyForMarketplaceUpload(...args);
+  },
   updateMarketplaceConfirmation(...args) {
     return service().updateMarketplaceConfirmation(...args);
   },
