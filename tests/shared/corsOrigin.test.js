@@ -25,9 +25,10 @@ describe('CORS origin policy', () => {
     expect(await check('https://app.lng.co', 'production')).toEqual({ error: null, allowed: true });
   });
 
-  test('allows only valid unpacked Chrome extension origins during development', async () => {
+  test('allows valid Chrome extension origins in development and production', async () => {
     expect(await check('chrome-extension://abcdefghijklmnopabcdefghijklmnop')).toEqual({ error: null, allowed: true });
+    expect(await check('chrome-extension://abcdefghijklmnopabcdefghijklmnop', 'production')).toEqual({ error: null, allowed: true });
     expect((await check('chrome-extension://not-an-extension-id')).allowed).toBe(false);
-    expect((await check('chrome-extension://abcdefghijklmnopabcdefghijklmnop', 'production')).allowed).toBe(false);
+    expect((await check('chrome-extension://not-an-extension-id', 'production')).allowed).toBe(false);
   });
 });
