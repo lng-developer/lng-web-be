@@ -65,10 +65,22 @@ jobs:
       - run: npm ci
       - run: npx jest tests/hr/scripts/hrCutoverTools.test.js --runInBand --silent
 
+  startup-smoke:
+    name: Startup smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run smoke:startup
+
   deploy:
     name: Deploy to VPS
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    needs: [core-test, windows-powershell-test]
+    needs: [core-test, windows-powershell-test, startup-smoke]
     runs-on: ubuntu-latest
 
     steps:
@@ -99,16 +111,22 @@ jobs:
           set -euo pipefail
           cd /srv/lng-web-be
           npm ci --omit=dev
+          npm run smoke:startup
           npm run indexes:finance-import
           node src/modules/integration/listingImageSync/scripts/ensureListingImageSyncIndexes.js
-          sudo -n /usr/bin/pm2 reload lng-web-be --update-env || sudo -n /usr/bin/pm2 restart lng-web-be --update-env
+          sudo -n /usr/bin/pm2 startOrReload ecosystem.config.js --only lng-web-be --update-env
           sudo -n /usr/bin/pm2 save
-          healthy=0
-          for i in {1..60}; do
+          restart_count=$(sudo -n /usr/bin/pm2 jlist | node -e 'let data = ""; process.stdin.on("data", (chunk) => { data += chunk; }); process.stdin.on("end", () => { const app = JSON.parse(data).find((item) => item.name === "lng-web-be"); if (!app) process.exit(1); process.stdout.write(String(app.pm2_env.restart_time)); });')
+          for i in {1..15}; do
             curl -fsS http://127.0.0.1:3000/api/mapping/health >/dev/null && break
-            healthy=$i
+            test "$i" -lt 15
             sleep 2
           done
-          test "$healthy" != "60"
+          for i in {1..15}; do
+            curl -fsS http://127.0.0.1:3000/api/mapping/health >/dev/null
+            sleep 2
+          done
+          stable_restart_count=$(sudo -n /usr/bin/pm2 jlist | node -e 'let data = ""; process.stdin.on("data", (chunk) => { data += chunk; }); process.stdin.on("end", () => { const app = JSON.parse(data).find((item) => item.name === "lng-web-be"); if (!app) process.exit(1); process.stdout.write(String(app.pm2_env.restart_time)); });')
+          test "$restart_count" = "$stable_restart_count"
           REMOTE
 
