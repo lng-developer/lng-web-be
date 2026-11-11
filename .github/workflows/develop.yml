@@ -99,17 +99,36 @@ jobs:
           printf '%s\n' "$ECOMATRIX_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
 
-      - name: Deploy backend source and restart service
+      - name: Deploy tested revision and restart service
         env:
           ECOMATRIX_HOST: ${{ secrets.ECOMATRIX_HOST }}
           ECOMATRIX_USER: ${{ secrets.ECOMATRIX_USER }}
+          DEPLOY_SHA: ${{ github.sha }}
         run: |
           test -n "$ECOMATRIX_HOST"
           test -n "$ECOMATRIX_USER"
-          git archive --format=tar HEAD | gzip | ssh "$ECOMATRIX_USER@$ECOMATRIX_HOST" 'tar -xzf - --no-same-owner --no-same-permissions --touch -C /srv/lng-web-be'
-          ssh "$ECOMATRIX_USER@$ECOMATRIX_HOST" <<'REMOTE'
+          test -n "$DEPLOY_SHA"
+          ssh "$ECOMATRIX_USER@$ECOMATRIX_HOST" "DEPLOY_SHA=$DEPLOY_SHA bash -s" <<'REMOTE'
           set -euo pipefail
           cd /srv/lng-web-be
+
+          previous_sha=$(git rev-parse HEAD)
+          rollback() {
+            status=$?
+            if [ "$status" -ne 0 ]; then
+              git checkout --detach --force "$previous_sha"
+              npm ci --omit=dev
+              sudo -n /usr/bin/pm2 startOrReload ecosystem.config.js --only lng-web-be --update-env
+              sudo -n /usr/bin/pm2 save
+            fi
+            exit "$status"
+          }
+          trap rollback EXIT
+
+          git fetch --depth=1 origin main
+          git cat-file -e "$DEPLOY_SHA^{commit}"
+          git checkout --detach --force "$DEPLOY_SHA"
+          git clean -ffd -e .env
           npm ci --omit=dev
           npm run smoke:startup
           npm run indexes:finance-import
@@ -128,5 +147,6 @@ jobs:
           done
           stable_restart_count=$(sudo -n /usr/bin/pm2 jlist | node -e 'let data = ""; process.stdin.on("data", (chunk) => { data += chunk; }); process.stdin.on("end", () => { const app = JSON.parse(data).find((item) => item.name === "lng-web-be"); if (!app) process.exit(1); process.stdout.write(String(app.pm2_env.restart_time)); });')
           test "$restart_count" = "$stable_restart_count"
+          trap - EXIT
           REMOTE
 
