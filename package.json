@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "smoke:startup": "node tools/scripts/smoke/loadApp.js",
     "seed:auth": "npm run seed:rbac && npm run seed:admin",
     "seed:auth:demo": "npm run seed:auth && npm run seed:rbac:demo-scopes",
     "seed:auth:demo-users": "npm run seed:auth:demo && node src/modules/auth/scripts/seedDemoUsers.js",

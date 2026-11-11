@@ -1,5 +1,5 @@
 const Joi = require('joi');
-const { shipmentStatuses } = require('../constants/shipment.constants');
+const { shipmentStatuses, marketplaceConfirmationStatuses } = require('../constants/shipment.constants');
 
 const objectId = Joi.string().hex().length(24);
 const dateOnly = Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/);
@@ -27,6 +27,7 @@ const listShipmentsQuerySchema = Joi.object({
   id: objectId,
   status: Joi.string().trim().uppercase().valid(...Object.values(shipmentStatuses)),
   provider: Joi.string().trim().uppercase().max(80),
+  marketplaceConfirmationStatus: Joi.string().trim().uppercase().valid(...Object.values(marketplaceConfirmationStatuses)),
   vendorSubmissionId: objectId,
   orderId: objectId,
   orderItemId: objectId,
