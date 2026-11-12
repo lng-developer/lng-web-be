@@ -458,6 +458,33 @@ describe('productionTask.service', () => {
     expect(vendorSubmissionPublic.cancel).not.toHaveBeenCalled();
   });
 
+  test('restarts production from the new vendor plan and records the vendor change', async () => {
+    const current = {
+      _id: taskId,
+      orderItemId,
+      shopId,
+      status: 'QC_REJECTED',
+      scaleStatus: 'SCALED',
+      qcStatus: 'REJECTED',
+      blockers: ['QC_REJECTED'],
+      fileChecks: [{ _id: fileCheckId, slotKey: 'FRONT', outputAssetId, scaleStatus: 'SCALED', qcStatus: 'REJECTED' }],
+      vendorProductSnapshot: { id: '660000000000000000000811', code: 'OLD_VENDOR' },
+      updatedAt: new Date('2026-11-12T00:00:00.000Z'),
+    };
+    repository.findByOrderItem.mockResolvedValueOnce(current);
+    repository.updateById.mockImplementation(async (id, patch) => ({ ...current, _id: id, ...patch }));
+
+    await service.restartForVendorChange(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+
+    const patch = repository.updateByIdIf.mock.calls[0][2];
+    expect(patch.fileChecks).not.toContainEqual(expect.objectContaining({ outputAssetId }));
+    expect(patch.qcStatus).toBe('NOT_READY');
+    expect(patch.assignedDesignUserId).toBeNull();
+    expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'PRODUCTION_VENDOR_CHANGED_RESTARTED',
+    }), expect.any(Object));
+  });
+
   test('cancels unsubmitted vendor submission before mapping override', async () => {
     repository.findByOrderItem.mockResolvedValueOnce({
       _id: taskId,

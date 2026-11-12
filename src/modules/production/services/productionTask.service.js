@@ -1299,6 +1299,13 @@ async function prepareForMappingOverride(orderItemId, authContext = {}) {
   };
 }
 
+async function restartForVendorChange(orderItemId, authContext = {}) {
+  return createOrRecheckTaskForOrderItem(orderItemId, {
+    ...(authContext || {}),
+    restartForVendorChange: true,
+  });
+}
+
 async function cancelTaskByOrderItem(orderItemId, { reason } = {}, authContext = {}) {
   assertValidObjectId(orderItemId, 'orderItemId');
   const task = await repository.findByOrderItem(orderItemId);
@@ -1438,19 +1445,30 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
     let result;
     if (current) {
       const terminal = RECHECK_TERMINAL_STATUSES.has(current.status);
+      const restartForVendorChange = Boolean(authContext?.restartForVendorChange);
       const task = await repository.updateByIdIf(
         toId(current),
         current.updatedAt ? { updatedAt: current.updatedAt } : {},
-        terminal ? readinessSnapshots : {
+        terminal && !restartForVendorChange ? readinessSnapshots : {
           ...readinessSnapshots,
           fileChecks: initialFileChecks,
           status: initialStatus,
           scaleStatus: initialScaleStatus,
           qcStatus: initialQcStatus,
           blockers: initialBlockers,
-          readyAt: initialStatus === productionTaskStatuses.READY_TO_SEND_VENDOR
+          ...(restartForVendorChange ? {
+            assignedDesignUserId: null,
+            assignedAt: null,
+            designNote: null,
+            qcBy: null,
+            qcAt: null,
+            readyAt: initialStatus === productionTaskStatuses.READY_TO_SEND_VENDOR ? new Date() : null,
+            sentToVendorAt: null,
+            vendorSubmissionId: null,
+          } : {}),
+          ...(!restartForVendorChange ? { readyAt: initialStatus === productionTaskStatuses.READY_TO_SEND_VENDOR
             ? current.readyAt || new Date()
-            : null,
+            : null } : {}),
         },
         { session },
       );
@@ -1493,9 +1511,25 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
         session,
         metadata: { blockers: task.blockers || [] },
       });
+    } else if (authContext?.restartForVendorChange) {
+      await appendProductionTimeline({
+        item,
+        eventType: 'PRODUCTION_VENDOR_CHANGED_RESTARTED',
+        authContext,
+        session,
+        metadata: {
+          previousVendorProductId: toId(current?.vendorProductSnapshot),
+          vendorProductId: toId(task?.vendorProductSnapshot),
+          vendorCostCenterId: toId(task?.vendorCostCenterSnapshot),
+        },
+      });
     }
     await recordProductionOperation({
-      action: result.created ? 'PRODUCTION_TASK_CREATED' : 'PRODUCTION_TASK_RECHECKED',
+      action: result.created
+        ? 'PRODUCTION_TASK_CREATED'
+        : authContext?.restartForVendorChange
+          ? 'PRODUCTION_VENDOR_CHANGED_RESTARTED'
+          : 'PRODUCTION_TASK_RECHECKED',
       task, authContext, session,
       changes: { status: { from: current?.status || null, to: task.status || null } },
       metadata: { blockerCount: (task.blockers || []).length },
@@ -2970,6 +3004,7 @@ const productionTaskService = {
   listWorkbenchTaskSummariesByOrderItemIds,
   markSentToVendor,
   prepareForMappingOverride,
+  restartForVendorChange,
   recheckPsdBlockedTasks,
   recheckPsdBlockedTasksByListing,
   summarizeTasks,
