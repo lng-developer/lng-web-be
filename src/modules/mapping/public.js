@@ -4,6 +4,7 @@ const fulfillmentPlanRepository = require('./repositories/fulfillmentPlan.reposi
 
 const publicPort = {
   getFulfillmentPlanForOrderItem: fulfillmentPlanService.getFulfillmentPlanForOrderItem,
+  resetFulfillmentPlanForVendorRematch: fulfillmentPlanService.resetFulfillmentPlanForVendorRematch,
   listFulfillmentPlansForOrderItems: fulfillmentPlanService.listFulfillmentPlansForOrderItems,
   previewFulfillmentPlan: fulfillmentPlanService.previewFulfillmentPlan,
   previewRule: mappingRuleService.previewRule,

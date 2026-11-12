@@ -1975,6 +1975,26 @@ async function getFulfillmentPlanForOrderItem(orderItemId, authContext) {
   return toFulfillmentPlanDto(await repository.findActiveByOrderItem(orderItemId));
 }
 
+async function resetFulfillmentPlanForVendorRematch(orderItemId, authContext = {}) {
+  const item = await loadOrderItem(orderItemId);
+  await assertCanAccessShop(item.shopId, MAPPING_WRITE, authContext);
+  const existing = await repository.findByOrderItem(orderItemId);
+  if (!existing) throw notFound('Fulfillment plan not found');
+  const plan = await repository.upsertByOrderItem(orderItemId, {
+    ...existing,
+    status: fulfillmentPlanStatuses.BLOCKED,
+    selectionMode: null,
+    vendorProductId: null,
+    vendorCostCenterId: null,
+    resolvedBy: null,
+    resolvedAt: null,
+    blockingReasons: ['VENDOR_REMATCH_REQUIRED'],
+    snapshot: { ...existing.snapshot, vendor: null, vendorProduct: null, vendorCostCenter: null, costEstimate: null },
+  });
+  await syncWorkbenchFulfillmentPlan(plan);
+  return toFulfillmentPlanDto(plan);
+}
+
 async function searchManualVendors(query = {}) {
   return vendorPublic.searchActiveVendors(query);
 }
@@ -2029,6 +2049,7 @@ module.exports = {
   selectFulfillmentPlan,
   summarizeMapping,
   getFulfillmentPlanForOrderItem,
+  resetFulfillmentPlanForVendorRematch,
   listFulfillmentPlansForOrderItems,
   listFulfillmentPlansByOrderItemIds,
 };
