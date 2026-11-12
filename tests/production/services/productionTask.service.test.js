@@ -615,6 +615,33 @@ describe('productionTask.service', () => {
     });
   });
 
+  test('cancels a sent-to-vendor task after external vendor cancellation', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: taskId,
+      orderId,
+      orderItemId,
+      shopId,
+      status: 'SENT_TO_VENDOR',
+    });
+    repository.cancelTask.mockResolvedValueOnce({
+      _id: taskId,
+      orderId,
+      orderItemId,
+      shopId,
+      status: 'CANCELLED',
+      orderSnapshot: { status: 'CANCELLED' },
+    });
+
+    const result = await service.cancelTaskAfterExternalVendorCancellation(
+      orderItemId,
+      { reason: 'Vendor cancellation confirmed' },
+      { system: true },
+    );
+
+    expect(repository.cancelTask).toHaveBeenCalledWith(taskId, { allowSentToVendor: true });
+    expect(result).toMatchObject({ id: taskId, status: 'CANCELLED' });
+  });
+
   test('cancelTaskByOrderItem rejects cancellation if vendor submission is SUBMITTED', async () => {
     repository.findByOrderItem.mockResolvedValueOnce({
       _id: taskId,

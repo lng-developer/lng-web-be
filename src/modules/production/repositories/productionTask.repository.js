@@ -583,11 +583,11 @@ async function upsertByOrderItem(orderItemId, payload, { session } = {}) {
   ).lean();
 }
 
-async function cancelTask(taskId, { session } = {}) {
+async function cancelTask(taskId, { session, allowSentToVendor = false } = {}) {
   return ProductionTask.findOneAndUpdate(
     {
       _id: taskId,
-      status: { $ne: productionTaskStatuses.SENT_TO_VENDOR },
+      ...(allowSentToVendor ? {} : { status: { $ne: productionTaskStatuses.SENT_TO_VENDOR } }),
     },
     {
       $set: {
