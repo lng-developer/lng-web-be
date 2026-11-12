@@ -946,6 +946,18 @@ async function cancel(submissionId, payload = {}, authContext) {
   return toVendorSubmissionDto(updated, { detail: true });
 }
 
+async function cancelAfterExternalCancellation(submissionId, payload = {}, authContext) {
+  const submission = await loadSubmission(submissionId);
+  assertCanAccessShop(submission.shopId, vendorSubmissionPermissions.WRITE, authContext);
+  if (submission.status === vendorSubmissionStatuses.CANCELLED) return toVendorSubmissionDto(submission, { detail: true });
+  if (submission.status !== vendorSubmissionStatuses.SUBMITTED) throw conflict('Only submitted vendor submissions can be externally cancelled');
+  const reason = String(payload.cancelReason || '').trim();
+  if (!reason) throw validationError('Cancellation reason is required');
+  const updated = await repository.updateById(submissionId, { status: vendorSubmissionStatuses.CANCELLED, cancelledBy: authContext?.accountId || null, cancelledAt: new Date(), cancelReason: reason, statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.CANCELLED, authContext, reason) });
+  await recordSubmissionOperation({ action: 'VENDOR_SUBMISSION_CANCELLED', submission: updated, authContext, changes: { status: { from: submission.status, to: vendorSubmissionStatuses.CANCELLED } }, metadata: { externalCancellationConfirmed: true } });
+  return toVendorSubmissionDto(updated, { detail: true });
+}
+
 async function retry(submissionId, payload = {}, authContext) {
   const submission = await loadSubmission(submissionId);
   assertCanAccessShop(submission.shopId, vendorSubmissionPermissions.WRITE, authContext);
@@ -1287,6 +1299,7 @@ async function getByProviderExternalOrderId({ provider, vendorExternalOrderId } 
 
 module.exports = {
   cancel,
+  cancelAfterExternalCancellation,
   createAndSubmitFromProductionTask,
   createAndSubmitFulfillmentOrderFromProductionTask,
   createFromProductionTask,

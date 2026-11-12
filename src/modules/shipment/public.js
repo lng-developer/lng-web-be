@@ -34,6 +34,7 @@ const publicPort = {
   updateMarketplaceConfirmation(...args) {
     return service().updateMarketplaceConfirmation(...args);
   },
+  updateStatus(...args) { return service().updateStatus(...args); },
   getVendorTrackingAdapter(provider) {
     const adapter = getTrackingAdapter(provider);
     return adapter === genericTrackingAdapter ? null : adapter;

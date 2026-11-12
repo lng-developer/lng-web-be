@@ -122,6 +122,7 @@ router.post(
   requireOrderFulfillment,
   asyncHandler(orderController.recheckOrderItem),
 );
+router.post('/items/:orderItemId/vendor-rematch-recovery', authPublic.authenticate, requireOrderFulfillment, asyncHandler(orderController.recoverVendorRematch));
 router.post(
   '/items/:orderItemId/replacement',
   authPublic.authenticate,

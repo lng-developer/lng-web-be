@@ -105,6 +105,7 @@ function assertKnownStatus(status) {
 
 function canTransition(fromStatus, toStatus, context = {}) {
   if (fromStatus === toStatus) return true;
+  if (toStatus === orderItemStatuses.MAPPING_PENDING && context.allowVendorRematchRecovery === true) return true;
   if (toStatus === orderItemStatuses.REFUNDED && context.allowFinancialRefundConfirmation === true) return true;
   return (transitions[fromStatus] || []).includes(toStatus);
 }

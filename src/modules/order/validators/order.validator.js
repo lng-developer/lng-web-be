@@ -198,6 +198,10 @@ const createOrderReplacementSchema = Joi.object({
 const cancelOrderItemSchema = Joi.object({
   reason: Joi.string().trim().max(1000).required(),
 });
+const vendorRematchRecoverySchema = Joi.object({
+  externalCancellationConfirmed: Joi.boolean().valid(true).required(),
+  reason: Joi.string().trim().max(1000).required(),
+});
 
 const addOrderCaseCommentSchema = Joi.object({
   body: Joi.string().trim().max(4000).required(),
@@ -255,6 +259,7 @@ module.exports = {
   createReplacementSchema,
   createOrderReplacementSchema,
   cancelOrderItemSchema,
+  vendorRematchRecoverySchema,
   addOrderCaseCommentSchema,
   customerExceptionsQuerySchema,
   paginationQuerySchema,
