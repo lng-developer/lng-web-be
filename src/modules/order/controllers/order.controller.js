@@ -11,6 +11,7 @@ const orderCaseService = require('../services/orderCase.service');
 const orderItemRecheckService = require('../services/orderItemRecheck.service');
 const orderReplacementService = require('../services/orderReplacement.service');
 const orderItemCancelService = require('../services/orderItemCancel.service');
+const vendorRematchRecoveryService = require('../services/vendorRematchRecovery.service');
 const customerExceptionService = require('../services/customerException.service');
 const orderWorkbenchProjectionService = require('../services/orderWorkbenchProjection.service');
 const orderRecheckJobService = require('../services/orderRecheckJob.service');
@@ -55,6 +56,7 @@ const {
   createReplacementSchema,
   createOrderReplacementSchema,
   cancelOrderItemSchema,
+  vendorRematchRecoverySchema,
   addOrderCaseCommentSchema,
   customerExceptionsQuerySchema,
   validate,
@@ -213,6 +215,12 @@ async function cancelOrderItem(req, res) {
   const body = assertValid(cancelOrderItemSchema, req.body || {});
   const result = await orderItemCancelService.cancelOrderItem(orderItemId, body, auditAuth(req));
 
+  res.status(httpStatus.OK).json({ success: true, data: toOrderItemDto(result) });
+}
+async function recoverVendorRematch(req, res) {
+  const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
+  const payload = assertValid(vendorRematchRecoverySchema, req.body || {});
+  const result = await vendorRematchRecoveryService.recoverForVendorRematch(orderItemId, payload, auditAuth(req));
   res.status(httpStatus.OK).json({ success: true, data: toOrderItemDto(result) });
 }
 
@@ -378,6 +386,7 @@ module.exports = {
   createReplacementForItem,
   createReplacementForOrder,
   cancelOrderItem,
+  recoverVendorRematch,
   updateShippingAddress,
   updateBuyer,
   updateShippingService,

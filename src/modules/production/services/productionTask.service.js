@@ -1356,6 +1356,16 @@ async function cancelTaskByOrderItem(orderItemId, { reason } = {}, authContext =
   return toProductionTaskDto(updated);
 }
 
+async function cancelTaskAfterExternalVendorCancellation(orderItemId, { reason } = {}, authContext = {}) {
+  const task = await repository.findByOrderItem(orderItemId);
+  if (!task || task.status === productionTaskStatuses.CANCELLED) return task ? toProductionTaskDto(task) : null;
+  assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
+  const cancelled = await repository.cancelTask(toId(task));
+  if (!cancelled) throw conflict('Production task changed concurrently');
+  await recordProductionOperation({ action: 'PRODUCTION_TASK_CANCELLED', task: cancelled, authContext, changes: { status: { from: task.status, to: productionTaskStatuses.CANCELLED } }, metadata: { reason: reason || null, externalVendorCancellation: true } });
+  return toProductionTaskDto(cancelled);
+}
+
 async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
   assertValidObjectId(orderItemId, 'orderItemId');
   const item = await orderPublic.findItemById(orderItemId);
@@ -2942,6 +2952,7 @@ const productionTaskService = {
   canReadTaskById,
   canReadAssignedTaskInputAsset,
   cancelTaskByOrderItem,
+  cancelTaskAfterExternalVendorCancellation,
   claimDesignTask,
   createOrRecheckTaskForOrderItem,
   exportTasksCsv,
