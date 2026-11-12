@@ -192,16 +192,14 @@ async function importVendorTemplate(req, res) {
 }
 
 async function importVendorProducts(req, res) {
-  const rows = Array.isArray(req.body?.rows) ? req.body.rows.slice(0, 500) : [];
-  const vendorId = req.body?.vendorId;
-  const failed = [];
-  let created = 0;
-  for (const [index, row] of rows.entries()) {
-    const result = createVendorProductSchema.validate({ ...row, vendorId }, { abortEarly: false, stripUnknown: true, convert: true });
-    if (result.error) { failed.push(`Row ${index + 2}: ${result.error.details[0].message}`); continue; }
-    try { await service.createVendorProduct(result.value, auditAuth(req)); created += 1; } catch (error) { failed.push(`Row ${index + 2}: ${error.message}`); }
-  }
-  res.status(httpStatus.OK).json({ success: true, data: { total: rows.length, created, failed } });
+  const data = await service.importVendorProductsUnified(
+    {
+      vendorId: req.body?.vendorId,
+      rows: req.body?.rows,
+    },
+    auditAuth(req),
+  );
+  res.status(httpStatus.OK).json({ success: true, data });
 }
 
 async function updateVendorProduct(req, res) {
