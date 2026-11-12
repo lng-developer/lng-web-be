@@ -969,6 +969,365 @@ async function importVendorTemplate(payload, authContext) {
   return importVendorTemplateRows({ ...payload, allowUnassignedProductTypes: true, skipInvalidRows: false, authContext });
 }
 
+function parseMoneyAmount(value, key = 'amount') {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value === 'number') {
+    if (Number.isNaN(value) || value < 0) throw validationError(`${key} must be a non-negative number`);
+    return Number.isInteger(value) ? value : Math.round(value * 100);
+  }
+  const str = String(value).trim();
+  if (str === '') return undefined;
+  const hasCurrencySign = /[$€£]/.test(str);
+  const cleaned = str.replace(/[$€£,\s]/g, '');
+  const num = Number(cleaned);
+  if (Number.isNaN(num) || num < 0) throw validationError(`${key} must be a non-negative number`);
+  if (cleaned.includes('.') || hasCurrencySign) {
+    return Math.round(num * 100);
+  }
+  return Math.round(num);
+}
+
+function getRowValue(row, ...keys) {
+  if (!row) return undefined;
+  for (const k of keys) {
+    if (row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== '') {
+      return String(row[k]).trim();
+    }
+    const lowerKey = k.toLowerCase();
+    if (row[lowerKey] !== undefined && row[lowerKey] !== null && String(row[lowerKey]).trim() !== '') {
+      return String(row[lowerKey]).trim();
+    }
+  }
+  return undefined;
+}
+
+async function importVendorProductsUnified({ vendorId, rows = [] } = {}, authContext) {
+  if (!vendorId) throw validationError('vendorId is required');
+  assertValidObjectId(vendorId, 'vendorId');
+  await assertVendorActive(vendorId);
+
+  const safeRows = Array.isArray(rows) ? rows.slice(0, 1000) : [];
+  if (safeRows.length === 0) {
+    return {
+      total: 0,
+      created: 0,
+      createdProducts: 0,
+      updatedProducts: 0,
+      createdCostCenters: 0,
+      updatedCostCenters: 0,
+      failed: [],
+    };
+  }
+
+  const failed = [];
+  let createdProducts = 0;
+  let updatedProducts = 0;
+  let createdCostCenters = 0;
+  let updatedCostCenters = 0;
+
+  const enrichedRows = safeRows.map((row, index) => ({
+    ...row,
+    __rowNumber: index + 2,
+  }));
+
+  const productGroups = new Map();
+  for (const row of enrichedRows) {
+    const rawCode = getRowValue(row, 'productCode', 'code');
+    if (!rawCode) {
+      failed.push(`Row ${row.__rowNumber}: Product code is required`);
+      continue;
+    }
+    const pCode = normalizeCode(rawCode);
+    if (!productGroups.has(pCode)) {
+      productGroups.set(pCode, []);
+    }
+    productGroups.get(pCode).push(row);
+  }
+
+  for (const [productCode, groupRows] of productGroups) {
+    let existingProduct = await productRepository.findByCode({
+      vendorId,
+      code: productCode,
+      includeInactive: true,
+    });
+
+    if (!existingProduct) {
+      const primaryRow = groupRows.find((r) => Boolean(getRowValue(r, 'productName', 'name'))) || groupRows[0];
+      const name = getRowValue(primaryRow, 'productName', 'name');
+      if (!name) {
+        for (const r of groupRows) {
+          failed.push(`Row ${r.__rowNumber}: Product name is required for new product ${productCode}`);
+        }
+        continue;
+      }
+
+      try {
+        const minProductionDays = importInteger(primaryRow, 'minProductionDays') ?? 1;
+        const maxProductionDays = importInteger(primaryRow, 'maxProductionDays') ?? 5;
+        assertProductionDaysRange({ minProductionDays, maxProductionDays });
+
+        const externalProductId = getRowValue(primaryRow, 'externalProductId', 'externalproductid') || null;
+        const productTypeGroupId = getRowValue(primaryRow, 'productTypeGroupId', 'producttypegroupid');
+        if (productTypeGroupId) {
+          assertValidObjectId(productTypeGroupId, 'productTypeGroupId');
+          await assertProductTypeGroupActive(productTypeGroupId);
+        }
+
+        const rawProductBaseCost = getRowValue(primaryRow, 'productBaseCostAmount', 'baseCostAmount', 'basecostamount');
+        const baseCostAmount = parseMoneyAmount(rawProductBaseCost, 'baseCostAmount') ?? 0;
+        const currency = (getRowValue(primaryRow, 'currency') || 'USD').toUpperCase();
+        const rawStatus = getRowValue(primaryRow, 'status', 'productStatus');
+        const status = rawStatus ? importStatus({ status: rawStatus }, 'status') : recordStatuses.ACTIVE;
+
+        existingProduct = await productRepository.create({
+          vendorId,
+          code: productCode,
+          name,
+          productTypeGroupId: productTypeGroupId || null,
+          externalProductId,
+          minProductionDays,
+          maxProductionDays,
+          baseCostAmount,
+          currency,
+          status,
+        });
+        createdProducts += 1;
+        await recordVendorOperation({
+          action: 'VENDOR_PRODUCT_CREATED',
+          entityType: 'VENDOR_PRODUCT',
+          entity: existingProduct,
+          authContext,
+          metadata: { vendorId: String(vendorId), isImport: true },
+        });
+      } catch (err) {
+        for (const r of groupRows) {
+          failed.push(`Row ${r.__rowNumber}: ${err.message}`);
+        }
+        continue;
+      }
+    } else {
+      const primaryRow = groupRows[0];
+      const updateName = getRowValue(primaryRow, 'productName', 'name');
+      const externalProductId = getRowValue(primaryRow, 'externalProductId', 'externalproductid');
+      const minProductionDays = importInteger(primaryRow, 'minProductionDays');
+      const maxProductionDays = importInteger(primaryRow, 'maxProductionDays');
+      const rawProductBaseCost = getRowValue(primaryRow, 'productBaseCostAmount', 'baseCostAmount', 'basecostamount');
+      const baseCostAmount = parseMoneyAmount(rawProductBaseCost, 'baseCostAmount');
+      const currency = getRowValue(primaryRow, 'currency')?.toUpperCase();
+      const rawStatus = getRowValue(primaryRow, 'status', 'productStatus');
+      const status = rawStatus ? importStatus({ status: rawStatus }, 'status') : undefined;
+
+      const patch = mutablePatch({
+        name: updateName,
+        externalProductId,
+        minProductionDays,
+        maxProductionDays,
+        baseCostAmount,
+        currency,
+        status,
+      }, ['name', 'externalProductId', 'minProductionDays', 'maxProductionDays', 'baseCostAmount', 'currency', 'status']);
+
+      if (patch.minProductionDays !== undefined || patch.maxProductionDays !== undefined) {
+        assertProductionDaysRange({
+          minProductionDays: patch.minProductionDays ?? existingProduct.minProductionDays,
+          maxProductionDays: patch.maxProductionDays ?? existingProduct.maxProductionDays,
+        });
+      }
+      if (Object.keys(patch).length && hasPatchChanges(existingProduct, patch)) {
+        existingProduct = await productRepository.update(existingProduct._id, patch);
+        updatedProducts += 1;
+      }
+    }
+
+    const productId = existingProduct._id || existingProduct.id;
+    const resolvedVendorId = existingProduct.vendorId?._id || existingProduct.vendorId || vendorId;
+
+    for (const row of groupRows) {
+      try {
+        const vendorSize = getRowValue(row, 'vendorSize', 'size');
+        const vendorColor = getRowValue(row, 'vendorColor', 'color');
+        const standardSize = getRowValue(row, 'standardSize', 'standardsize') || vendorSize;
+        const standardColor = getRowValue(row, 'standardColor', 'standardcolor') || vendorColor;
+
+        const rawCcCode = getRowValue(row, 'costCenterCode', 'costcentercode', 'code_cc', 'ccCode');
+        let costCenterCode;
+        if (rawCcCode) {
+          costCenterCode = normalizeCode(rawCcCode);
+        } else if (vendorSize || vendorColor) {
+          costCenterCode = normalizeCode(`${productCode}-${vendorSize || 'ALL'}-${vendorColor || 'ALL'}`);
+        } else {
+          costCenterCode = normalizeCode(`${productCode}-DEFAULT`);
+        }
+
+        const rawCcName = getRowValue(row, 'costCenterName', 'costcentername');
+        let costCenterName;
+        if (rawCcName) {
+          costCenterName = rawCcName;
+        } else if (vendorSize || vendorColor) {
+          costCenterName = `${existingProduct.name} - ${[vendorSize, vendorColor].filter(Boolean).join(' / ')}`;
+        } else {
+          costCenterName = `${existingProduct.name} (Default)`;
+        }
+
+        const rawBaseCost = getRowValue(row, 'baseCostAmount', 'basecostamount');
+        const baseCostAmount = parseMoneyAmount(rawBaseCost, 'baseCostAmount') ?? existingProduct.baseCostAmount ?? 0;
+        const currency = (getRowValue(row, 'currency') || existingProduct.currency || 'USD').toUpperCase();
+
+        const domesticEconomyAmount = parseMoneyAmount(getRowValue(row, 'domesticEconomyAmount', 'domesticeconomyamount'), 'domesticEconomyAmount');
+        const domesticAdditionalAmount = parseMoneyAmount(getRowValue(row, 'domesticAdditionalAmount', 'domesticadditionalamount'), 'domesticAdditionalAmount');
+        const internationalEconomyAmount = parseMoneyAmount(getRowValue(row, 'internationalEconomyAmount', 'internationaleconomyamount'), 'internationalEconomyAmount');
+        const internationalAdditionalAmount = parseMoneyAmount(getRowValue(row, 'internationalAdditionalAmount', 'internationaladditionalamount'), 'internationalAdditionalAmount');
+        const priorityEconomyAmount = parseMoneyAmount(getRowValue(row, 'priorityEconomyAmount', 'priorityeconomyamount'), 'priorityEconomyAmount');
+        const priorityAdditionalAmount = parseMoneyAmount(getRowValue(row, 'priorityAdditionalAmount', 'priorityadditionalamount'), 'priorityAdditionalAmount');
+        const importTaxAmount = parseMoneyAmount(getRowValue(row, 'importTaxAmount', 'importtaxamount'), 'importTaxAmount');
+        const embroideryAmount = parseMoneyAmount(getRowValue(row, 'embroideryAmount', 'embroideryamount'), 'embroideryAmount');
+        const twoSidedPrintAmount = parseMoneyAmount(getRowValue(row, 'twoSidedPrintAmount', 'twosidedprintamount'), 'twoSidedPrintAmount');
+        const twoPositionPrintAmount = parseMoneyAmount(getRowValue(row, 'twoPositionPrintAmount', 'twopositionprintamount'), 'twoPositionPrintAmount');
+
+        const sku = getRowValue(row, 'sku');
+        const lngCode = getRowValue(row, 'lngCode', 'lngcode');
+        const rawPrintMethod = getRowValue(row, 'printMethod', 'printmethod');
+        const printMethod = rawPrintMethod ? rawPrintMethod.toUpperCase() : undefined;
+        const weight = importNumber(row, 'weight');
+        const weightUnit = getRowValue(row, 'weightUnit', 'weightunit')?.toUpperCase();
+        const width = importNumber(row, 'width');
+        const length = importNumber(row, 'length');
+        const height = importNumber(row, 'height');
+        const dimensionUnit = getRowValue(row, 'dimensionUnit', 'dimensionunit')?.toUpperCase();
+        const rawStatus = getRowValue(row, 'costCenterStatus', 'status');
+        const status = rawStatus ? importStatus({ status: rawStatus }, 'status') : recordStatuses.ACTIVE;
+
+        const existingCc = await costCenterRepository.findByProductAndCode({
+          vendorProductId: productId,
+          code: costCenterCode,
+        });
+
+        if (!existingCc) {
+          await costCenterRepository.create({
+            vendorProductId: productId,
+            vendorId: resolvedVendorId,
+            code: costCenterCode,
+            name: costCenterName,
+            sku: sku || null,
+            lngCode: lngCode || null,
+            vendorSize: vendorSize || null,
+            vendorColor: vendorColor || null,
+            standardSize: standardSize || null,
+            standardColor: standardColor || null,
+            printMethod: printMethod || null,
+            weight: weight ?? null,
+            weightUnit: weightUnit || null,
+            width: width ?? null,
+            length: length ?? null,
+            height: height ?? null,
+            dimensionUnit: dimensionUnit || null,
+            baseCostAmount,
+            currency,
+            domesticShipping: (domesticEconomyAmount !== undefined || domesticAdditionalAmount !== undefined) ? {
+              economyAmount: domesticEconomyAmount ?? 0,
+              additionalAmount: domesticAdditionalAmount ?? 0,
+            } : undefined,
+            internationalShipping: (internationalEconomyAmount !== undefined || internationalAdditionalAmount !== undefined) ? {
+              economyAmount: internationalEconomyAmount ?? 0,
+              additionalAmount: internationalAdditionalAmount ?? 0,
+            } : undefined,
+            priorityShipping: (priorityEconomyAmount !== undefined || priorityAdditionalAmount !== undefined) ? {
+              economyAmount: priorityEconomyAmount ?? 0,
+              additionalAmount: priorityAdditionalAmount ?? 0,
+            } : undefined,
+            importTaxAmount: importTaxAmount ?? 0,
+            additionalCosts: (embroideryAmount !== undefined || twoSidedPrintAmount !== undefined || twoPositionPrintAmount !== undefined) ? {
+              embroideryAmount: embroideryAmount ?? 0,
+              twoSidedPrintAmount: twoSidedPrintAmount ?? 0,
+              twoPositionPrintAmount: twoPositionPrintAmount ?? 0,
+            } : undefined,
+            status,
+          });
+          createdCostCenters += 1;
+        } else {
+          const ccPatch = mutablePatch({
+            name: costCenterName,
+            sku: sku || undefined,
+            lngCode: lngCode || undefined,
+            vendorSize: vendorSize || undefined,
+            vendorColor: vendorColor || undefined,
+            standardSize: standardSize || undefined,
+            standardColor: standardColor || undefined,
+            printMethod,
+            weight,
+            weightUnit,
+            width,
+            length,
+            height,
+            dimensionUnit,
+            baseCostAmount,
+            currency,
+            importTaxAmount,
+            status,
+            domesticShipping: (domesticEconomyAmount !== undefined || domesticAdditionalAmount !== undefined) ? {
+              economyAmount: domesticEconomyAmount ?? existingCc.domesticShipping?.economyAmount ?? 0,
+              additionalAmount: domesticAdditionalAmount ?? existingCc.domesticShipping?.additionalAmount ?? 0,
+            } : undefined,
+            internationalShipping: (internationalEconomyAmount !== undefined || internationalAdditionalAmount !== undefined) ? {
+              economyAmount: internationalEconomyAmount ?? existingCc.internationalShipping?.economyAmount ?? 0,
+              additionalAmount: internationalAdditionalAmount ?? existingCc.internationalShipping?.additionalAmount ?? 0,
+            } : undefined,
+            priorityShipping: (priorityEconomyAmount !== undefined || priorityAdditionalAmount !== undefined) ? {
+              economyAmount: priorityEconomyAmount ?? existingCc.priorityShipping?.economyAmount ?? 0,
+              additionalAmount: priorityAdditionalAmount ?? existingCc.priorityShipping?.additionalAmount ?? 0,
+            } : undefined,
+            additionalCosts: (embroideryAmount !== undefined || twoSidedPrintAmount !== undefined || twoPositionPrintAmount !== undefined) ? {
+              embroideryAmount: embroideryAmount ?? existingCc.additionalCosts?.embroideryAmount ?? 0,
+              twoSidedPrintAmount: twoSidedPrintAmount ?? existingCc.additionalCosts?.twoSidedPrintAmount ?? 0,
+              twoPositionPrintAmount: twoPositionPrintAmount ?? existingCc.additionalCosts?.twoPositionPrintAmount ?? 0,
+            } : undefined,
+          }, [
+            'name', 'sku', 'lngCode', 'vendorSize', 'vendorColor', 'standardSize', 'standardColor',
+            'printMethod', 'weight', 'weightUnit', 'width', 'length', 'height', 'dimensionUnit',
+            'baseCostAmount', 'currency', 'domesticShipping', 'internationalShipping', 'priorityShipping',
+            'importTaxAmount', 'additionalCosts', 'status',
+          ]);
+
+          if (Object.keys(ccPatch).length && hasPatchChanges(existingCc, ccPatch)) {
+            await costCenterRepository.update(existingCc._id, ccPatch);
+            updatedCostCenters += 1;
+          }
+        }
+      } catch (err) {
+        failed.push(`Row ${row.__rowNumber}: ${err.message}`);
+      }
+    }
+  }
+
+  if (createdProducts || updatedProducts || createdCostCenters || updatedCostCenters || failed.length) {
+    await recordVendorOperation({
+      action: 'VENDOR_PRODUCT_IMPORTED',
+      entityType: 'VENDOR_PRODUCT_IMPORT',
+      entity: `product-import:${crypto.randomUUID()}`,
+      authContext,
+      metadata: {
+        vendorId: String(vendorId),
+        total: safeRows.length,
+        createdProducts,
+        updatedProducts,
+        createdCostCenters,
+        updatedCostCenters,
+        failedCount: failed.length,
+      },
+    });
+  }
+
+  return {
+    total: safeRows.length,
+    created: createdProducts + createdCostCenters,
+    createdProducts,
+    updatedProducts,
+    createdCostCenters,
+    updatedCostCenters,
+    failed,
+  };
+}
+
 async function searchActiveVendors({ q, limit = 20 } = {}) {
   const rows = await vendorRepository.listActive({ q, limit: limit + 1 });
   return {
@@ -1507,6 +1866,8 @@ module.exports = {
   exportVendorCatalog,
   importVendorCatalog,
   importVendorTemplate,
+  importVendorProductsUnified,
+  parseMoneyAmount,
   listVendorMigrationReviews,
   assignVendorMigrationProductTypeGroup,
   stageVendorMigrationReviews,
