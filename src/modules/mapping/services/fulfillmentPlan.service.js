@@ -1633,6 +1633,16 @@ async function prepareProductionForManualOverride(orderItemId, authContext) {
   });
 }
 
+async function restartProductionForVendorChange(orderItemId, authContext) {
+  const productionPublic = require('../../production/public');
+  if (typeof productionPublic.restartForVendorChange !== 'function') return null;
+  return productionPublic.restartForVendorChange(orderItemId, {
+    ...(authContext || {}),
+    system: true,
+    source: 'MAPPING_OVERRIDE',
+  });
+}
+
 async function persistReadyPlan(orderItemId, payload = {}, authContext, selectionMode, options = {}) {
   assertSelectionPayload(payload);
   const preview = options.preview || await buildPreview(orderItemId, authContext, options);
@@ -1728,6 +1738,10 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
 
   await syncWorkbenchFulfillmentPlan(plan);
   const updatedPlans = await applyOrderCostEstimates(preview.item.orderId);
+
+  if (needsProductionOverride) {
+    await restartProductionForVendorChange(orderItemId, authContext);
+  }
 
 
   await orderPublic.appendTimeline({

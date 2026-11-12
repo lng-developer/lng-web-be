@@ -51,6 +51,7 @@ jest.mock('../../../src/modules/vendor/public', () => ({
 jest.mock('../../../src/modules/production/public', () => ({
   createOrRecheckTaskForOrderItem: jest.fn(),
   prepareForMappingOverride: jest.fn(),
+  restartForVendorChange: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/auth/public', () => ({
@@ -351,6 +352,7 @@ describe('fulfillmentPlan.service', () => {
     });
     productionPublic.createOrRecheckTaskForOrderItem.mockResolvedValue({ id: '660000000000000000007001' });
     productionPublic.prepareForMappingOverride.mockResolvedValue({ allowed: true });
+    productionPublic.restartForVendorChange.mockResolvedValue({ id: '660000000000000000007001' });
     repository.findByOrderItem.mockResolvedValue(null);
     repository.listByOrderItemIds.mockResolvedValue([]);
     repository.listBlockedByListingAndProductType.mockResolvedValue([]);
@@ -1638,6 +1640,10 @@ describe('fulfillmentPlan.service', () => {
       selectionMode: 'MANUAL',
       vendorProductId,
       vendorCostCenterId: costCenterId,
+    }));
+    expect(productionPublic.restartForVendorChange).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      system: true,
+      source: 'MAPPING_OVERRIDE',
     }));
     expect(result.status).toBe('READY');
   });
