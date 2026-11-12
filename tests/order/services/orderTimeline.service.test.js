@@ -43,6 +43,18 @@ describe('orderTimeline.service', () => {
     }));
   });
 
+  test('accepts production vendor change restart timeline entries', async () => {
+    await expect(service.appendTimeline({
+      ...payload,
+      eventType: 'PRODUCTION_VENDOR_CHANGED_RESTARTED',
+      source: 'PRODUCTION',
+    })).resolves.toEqual({ _id: '660000000000000000140005' });
+    expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'PRODUCTION_VENDOR_CHANGED_RESTARTED',
+      source: 'PRODUCTION',
+    }));
+  });
+
   test('accepts production CS note synced timeline entries', async () => {
     await expect(service.appendTimeline({
       ...payload,
