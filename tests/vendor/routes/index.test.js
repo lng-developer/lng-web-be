@@ -191,7 +191,15 @@ describe('vendor routes', () => {
   });
 
   test('POST /products/import accepts products without a Product Type Group for Migration', async () => {
-    vendorService.createVendorProduct.mockResolvedValue({ id: '660000000000000000000601' });
+    vendorService.importVendorProductsUnified.mockResolvedValue({
+      total: 1,
+      created: 2,
+      createdProducts: 1,
+      updatedProducts: 0,
+      createdCostCenters: 1,
+      updatedCostCenters: 0,
+      failed: [],
+    });
     const response = await request(createServer(), {
       method: 'POST',
       path: '/products/import',
@@ -203,9 +211,13 @@ describe('vendor routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(vendorService.createVendorProduct).toHaveBeenCalledWith(expect.objectContaining({
-      vendorId: '660000000000000000000501', code: 'TEE', name: 'Tee',
-    }), expect.objectContaining({ source: 'HTTP' }));
+    expect(vendorService.importVendorProductsUnified).toHaveBeenCalledWith(
+      expect.objectContaining({
+        vendorId: '660000000000000000000501',
+        rows: [{ code: 'TEE', name: 'Tee', baseCostAmount: 850, currency: 'USD' }],
+      }),
+      expect.objectContaining({ source: 'HTTP' }),
+    );
   });
 
   test('POST /catalog-import requires VENDORS:WRITE and delegates the three-file catalog payload', async () => {
@@ -349,7 +361,7 @@ describe('vendor routes', () => {
       '660000000000000000000501',
       expect.objectContaining({
         permissions: ['VENDORS:READ'], source: 'HTTP',
-        auditContext: expect.objectContaining({ ipAddress: '::1' }),
+        auditContext: expect.objectContaining({ ipAddress: expect.stringMatching(/127\.0\.0\.1|::1/) }),
       }),
     );
   });
