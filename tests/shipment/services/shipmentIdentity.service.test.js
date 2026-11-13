@@ -75,4 +75,21 @@ describe('shipmentIdentity.service', () => {
       vendorExternalOrderId: '111-7258289-0765048',
     });
   });
+
+  test('uses the marketplace order ID for LNG Group tracking', () => {
+    expect(deriveTrackingIdentity({
+      ...identity,
+      provider: 'LNG_GROUP',
+      vendorExternalOrderId: 'cmwaifiok0001l5079uxdo0pr',
+      payloadSnapshot: {
+        orderItem: { externalOrderId: '113-6964403-3922666' },
+        vendorProduct: {
+          vendor: { id: identity.payloadSnapshot.vendorProduct.vendor.id, code: 'LNG_GROUP' },
+        },
+      },
+    })).toMatchObject({
+      provider: 'LNG_GROUP',
+      vendorExternalOrderId: '113-6964403-3922666',
+    });
+  });
 });

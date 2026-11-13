@@ -6,6 +6,7 @@ const {
 const printwayAdapter = require('../../../src/modules/shipment/services/vendorTrackingAdapters/printway.adapter');
 const merchizeAdapter = require('../../../src/modules/shipment/services/vendorTrackingAdapters/merchize.adapter');
 const mangoteeAdapter = require('../../../src/modules/shipment/services/vendorTrackingAdapters/mangotee.adapter');
+const lngGroupAdapter = require('../../../src/modules/shipment/services/vendorTrackingAdapters/lngGroup.adapter');
 const https = require('https');
 const { EventEmitter } = require('events');
 
@@ -44,6 +45,45 @@ describe('vendorTrackingAdapterRegistry.service', () => {
       vendorStatus: 'IN_TRANSIT',
       shippedAt: '2026-11-05T12:30:00Z',
     });
+  });
+
+  test('fetches LNG Group portal order tracking', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        data: {
+          externalOrderId: '113-6964403-3922666',
+          orderStatus: 'RECEIVED',
+          packages: [{
+            status: 'IN_TRANSIT',
+            carrier: 'VIETTEL_POST',
+            trackingNumber: '9214490374008505030947',
+          }],
+        },
+      }),
+    });
+
+    await expect(getTrackingAdapter('LNG_GROUP').fetchTrackingByExternalOrderId('113-6964403-3922666', {
+      credential: {
+        baseUrl: 'https://fulfillment.lngmerch.co',
+        accessToken: 'api-key',
+      },
+    })).resolves.toEqual({
+      provider: 'LNG_GROUP',
+      externalOrderId: '113-6964403-3922666',
+      carrier: 'VIETTEL_POST',
+      trackingNumber: '9214490374008505030947',
+      trackingUrl: '',
+      vendorStatus: 'IN_TRANSIT',
+      rawStatus: 'IN_TRANSIT',
+      shippedAt: '',
+    });
+
+    expect(lngGroupAdapter.normalizeLngGroupTracking('113-6964403-3922666', {
+      data: { packages: [] },
+    })).toMatchObject({ trackingNumber: '', carrier: '' });
   });
 
   test('uses MangoTee tracking event created_at for shippedAt', () => {
