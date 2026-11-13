@@ -439,11 +439,66 @@ async function getFinanceSellerDaily(query = {}, authContext) {
       : Promise.resolve([]),
   ]);
   const rows = new Map((sellerRows || []).map((row) => [sellerDailyKey(row), { ...row, adSpendAmount: 0 }]));
+  const sellerNameByCode = new Map();
+  const sellerAccountIdByCode = new Map();
+  (sellerRows || []).forEach((row) => {
+    if (row.sellerEmployeeCode && row.sellerName) {
+      sellerNameByCode.set(row.sellerEmployeeCode, row.sellerName);
+    }
+    if (row.sellerEmployeeCode && row.sellerAccountId) {
+      sellerAccountIdByCode.set(row.sellerEmployeeCode, row.sellerAccountId);
+    }
+  });
+
+  const missingEmployeeCodes = [
+    ...new Set(
+      (adsRows || [])
+        .map((r) => r.sellerEmployeeCode)
+        .filter((code) => code && code !== 'UNASSIGNED' && !sellerNameByCode.has(code)),
+    ),
+  ];
+  if (missingEmployeeCodes.length) {
+    const profiles = await hrPublic.listEmployeeProfilesByEmployeeCodes(missingEmployeeCodes);
+    profiles.forEach((p) => {
+      if (p.employeeCode && p.fullName) {
+        sellerNameByCode.set(p.employeeCode, p.fullName);
+      }
+    });
+  }
+
   (adsRows || []).forEach((adsRow) => {
     const key = sellerDailyKey(adsRow);
     const current = rows.get(key);
-    if (!current) return;
     const adSpendAmount = Number(adsRow.adSpendAmount ?? adsRow.spendAmount ?? 0);
+    if (!current) {
+      rows.set(key, {
+        date: adsRow.date,
+        sellerEmployeeCode: adsRow.sellerEmployeeCode || 'UNASSIGNED',
+        sellerAccountId: sellerAccountIdByCode.get(adsRow.sellerEmployeeCode) || null,
+        sellerName: sellerNameByCode.get(adsRow.sellerEmployeeCode) || null,
+        currency: adsRow.currency || 'USD',
+        itemCount: 0,
+        orderCount: 0,
+        revenueAmount: 0,
+        baseCostAmount: 0,
+        totalCostAmount: 0,
+        additionalFulfillmentCostAmount: 0,
+        marketplaceFeeAmount: 0,
+        refundAmount: 0,
+        discountAmount: 0,
+        taxAmount: 0,
+        grossProfitAmount: -adSpendAmount,
+        partialGrossProfitAmount: -adSpendAmount,
+        operatingCostAmount: 0,
+        adSpendAmount,
+        netProfitAmount: -adSpendAmount,
+        partialNetProfitAmount: -adSpendAmount,
+        netMarginBps: null,
+        missingCostCount: 0,
+        costedItemCount: 0,
+      });
+      return;
+    }
     const grossProfitAmount =
       current.grossProfitAmount === null || current.grossProfitAmount === undefined
         ? null

@@ -205,6 +205,81 @@ describe('report.service', () => {
     ]);
   });
 
+  test('seller daily report preserves seller ad spend on days with zero orders and reflects negative profit', async () => {
+    financePublic.summarizeSellerDaily.mockResolvedValueOnce([
+      {
+        date: '2026-09-05',
+        sellerEmployeeCode: 'J2502',
+        sellerAccountId: 'account-1',
+        sellerName: 'Mai',
+        currency: 'USD',
+        itemCount: 1,
+        orderCount: 1,
+        revenueAmount: 10000,
+        baseCostAmount: 4000,
+        totalCostAmount: 4500,
+        additionalFulfillmentCostAmount: 500,
+        marketplaceFeeAmount: 1500,
+        refundAmount: 0,
+        discountAmount: 0,
+        taxAmount: 0,
+        grossProfitAmount: 4500,
+        costedItemCount: 1,
+        partialRevenueAmount: 5000,
+        partialGrossProfitAmount: 3000,
+        partialNetProfitAmount: 2500,
+        missingCostCount: 0,
+        operatingCostAmount: 3000,
+      },
+    ]);
+    financePublic.summarizeAdsSellerDaily.mockResolvedValueOnce([
+      { date: '2026-09-05', sellerEmployeeCode: 'J2502', currency: 'USD', adSpendAmount: 800 },
+      { date: '2026-09-06', sellerEmployeeCode: 'J2502', currency: 'USD', adSpendAmount: 500 },
+      { date: '2026-09-06', sellerEmployeeCode: 'J2608', currency: 'USD', adSpendAmount: 300 },
+    ]);
+    hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValueOnce([
+      { employeeCode: 'J2608', fullName: 'Nguyen Thi Hai Yen' },
+    ]);
+
+    const result = await service.getFinanceSellerDaily({}, { permissions: ['REPORTS:READ'] });
+
+    expect(hrPublic.listEmployeeProfilesByEmployeeCodes).toHaveBeenCalledWith(['J2608']);
+    expect(result).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          date: '2026-09-05',
+          sellerEmployeeCode: 'J2502',
+          adSpendAmount: 800,
+          grossProfitAmount: 3700,
+          netProfitAmount: 700,
+        }),
+        expect.objectContaining({
+          date: '2026-09-06',
+          sellerEmployeeCode: 'J2502',
+          sellerName: 'Mai',
+          sellerAccountId: 'account-1',
+          orderCount: 0,
+          revenueAmount: 0,
+          totalCostAmount: 0,
+          adSpendAmount: 500,
+          grossProfitAmount: -500,
+          netProfitAmount: -500,
+        }),
+        expect.objectContaining({
+          date: '2026-09-06',
+          sellerEmployeeCode: 'J2608',
+          sellerName: 'Nguyen Thi Hai Yen',
+          orderCount: 0,
+          revenueAmount: 0,
+          totalCostAmount: 0,
+          adSpendAmount: 300,
+          grossProfitAmount: -300,
+          netProfitAmount: -300,
+        }),
+      ]),
+    );
+  });
+
   test('finance daily scopes shop users and maps compact totals', async () => {
     financePublic.summarizeDaily.mockResolvedValueOnce([
       {
