@@ -18,6 +18,8 @@ const {
   updateVendorIntegrationConfigSchema,
   refreshVendorIntegrationCredentialSchema,
   lenfulCatalogQuerySchema,
+  merchizeCatalogQuerySchema,
+  importMerchizeCatalogProductsSchema,
   lenfulTrackingQuerySchema,
   lenfulOrderQuerySchema,
   updateVendorSchema,
@@ -138,6 +140,26 @@ async function getLenfulCatalog(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
     data: await service.getLenfulCatalog(req.params.vendorId, query),
+  });
+}
+
+async function getMerchizeCatalog(req, res) {
+  const query = assertValid(merchizeCatalogQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.getMerchizeCatalog(req.params.vendorId, query),
+  });
+}
+
+async function importMerchizeCatalogProducts(req, res) {
+  const payload = assertValid(importMerchizeCatalogProductsSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.importMerchizeCatalogProducts({
+      vendorId: req.params.vendorId,
+      products: payload.products,
+      tierName: payload.tierName,
+    }, auditAuth(req)),
   });
 }
 
@@ -278,6 +300,8 @@ module.exports = {
   deleteVendorIntegrationConfig,
   refreshVendorIntegrationCredential,
   getLenfulCatalog,
+  getMerchizeCatalog,
+  importMerchizeCatalogProducts,
   getLenfulTracking,
   getLenfulOrder,
   listVendorProducts,

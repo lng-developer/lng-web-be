@@ -26,6 +26,15 @@ const SORT_FIELDS = new Set([
   'scaleStatus',
   'qcStatus',
 ]);
+
+function toObjectId(value) {
+  if (!value) return value;
+  if (value instanceof mongoose.Types.ObjectId) return value;
+  if (typeof value === 'string' && mongoose.isValidObjectId(value)) {
+    return new mongoose.Types.ObjectId(value);
+  }
+  return value;
+}
 const LIST_SELECT = [
   'designType',
   'designTypeSource',
@@ -235,7 +244,7 @@ function buildFilter(query = {}) {
       },
     });
   }
-  if (query.listingVariantIds) filter.listingVariantId = { $in: query.listingVariantIds };
+  if (query.listingVariantIds) filter.listingVariantId = { $in: query.listingVariantIds.map(toObjectId) };
   if (query.blocker) filter.blockers = query.blocker;
   if (query.readyForScale === true) {
     filter.vendorProductSnapshot = { $ne: null };
@@ -246,8 +255,8 @@ function buildFilter(query = {}) {
       { fileChecks: { $elemMatch: { sourceType: 'PSD_TEMPLATE', inputAssetId: { $ne: null } } } },
     );
   }
-  if (query.shopId) filter.shopId = query.shopId;
-  if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds };
+  if (query.shopId) filter.shopId = toObjectId(query.shopId);
+  if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds.map(toObjectId) };
   if (query.sellerCode) {
     const regex = sellerCodeRegex(query.sellerCode);
     if (regex) filter['orderItemSnapshot.sku'] = regex;
@@ -262,19 +271,19 @@ function buildFilter(query = {}) {
     ] });
   }
   if (Object.prototype.hasOwnProperty.call(query, 'assignedDesignUserId')) {
-    filter.assignedDesignUserId = query.assignedDesignUserId;
+    filter.assignedDesignUserId = toObjectId(query.assignedDesignUserId);
   }
   if (query.assignedDesignUserIds && query.assignedDesignUserIds.length) {
     andClauses.push({ assignedDesignUserId: {
       $in: [
-        ...query.assignedDesignUserIds,
+        ...query.assignedDesignUserIds.map(toObjectId),
         ...(query.includeUnassignedDesignUser ? [null] : []),
       ],
     } });
   }
-  if (query.qcBy) filter.qcBy = query.qcBy;
+  if (query.qcBy) filter.qcBy = toObjectId(query.qcBy);
   if (Object.prototype.hasOwnProperty.call(query, 'csAssigneeId')) {
-    filter.csAssigneeId = query.csAssigneeId;
+    filter.csAssigneeId = toObjectId(query.csAssigneeId);
   }
   if (query.csUnassigned === true) filter.csAssigneeId = null;
   if (query.csStatus) filter.csStatus = query.csStatus;

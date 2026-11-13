@@ -106,6 +106,26 @@ const lenfulCatalogQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(250),
 });
 
+const merchizeCatalogQuerySchema = Joi.object({
+  q: Joi.string().trim().max(160).allow(''),
+  search: Joi.string().trim().max(160).allow(''),
+  page: Joi.number().integer().min(1),
+  limit: Joi.number().integer().min(1).max(100),
+});
+
+const importMerchizeCatalogProductsSchema = Joi.object({
+  tierName: Joi.string().trim().max(50).default('tier1'),
+  products: Joi.array().items(Joi.object({
+    _id: Joi.string().trim().allow(null, ''),
+    sku: Joi.string().trim().required(),
+    title: Joi.string().trim().required(),
+    printing_methods: Joi.array().items(Joi.string().trim()).allow(null),
+    fulfillment_location: Joi.object().unknown(true).allow(null),
+    mockup_and_templates_link: Joi.string().trim().uri().allow(null, ''),
+    variants: Joi.array().items(Joi.object().unknown(true)).default([]),
+  })).min(1).max(100).required(),
+});
+
 const lenfulTrackingQuerySchema = Joi.object({
   externalOrderId: Joi.string().trim().min(1).max(200).required(),
 });
@@ -297,6 +317,8 @@ module.exports = {
   updateVendorIntegrationConfigSchema,
   refreshVendorIntegrationCredentialSchema,
   lenfulCatalogQuerySchema,
+  merchizeCatalogQuerySchema,
+  importMerchizeCatalogProductsSchema,
   lenfulTrackingQuerySchema,
   lenfulOrderQuerySchema,
   listVendorProductsQuerySchema,

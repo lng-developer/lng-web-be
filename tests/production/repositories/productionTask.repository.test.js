@@ -6,6 +6,7 @@ jest.mock('../../../src/modules/production/models/productionTask.model', () => (
   findOneAndUpdate: jest.fn(),
 }));
 
+const mongoose = require('mongoose');
 const ProductionTask = require('../../../src/modules/production/models/productionTask.model');
 const repository = require('../../../src/modules/production/repositories/productionTask.repository');
 
@@ -90,6 +91,19 @@ describe('productionTask.repository', () => {
     expect(String(id)).toBe('660000000000000000000201');
   });
 
+  test('summarizeQueueCounts casts string assignedDesignUserId and shopId to BSON ObjectIds for aggregation match', async () => {
+    ProductionTask.aggregate.mockResolvedValueOnce([]);
+    await repository.summarizeQueueCounts({
+      assignedDesignUserId: '660000000000000000000903',
+      shopId: '660000000000000000000201',
+    });
+    const match = ProductionTask.aggregate.mock.calls[0][0][0].$match;
+    expect(match.assignedDesignUserId).toBeInstanceOf(mongoose.Types.ObjectId);
+    expect(String(match.assignedDesignUserId)).toBe('660000000000000000000903');
+    expect(match.shopId).toBeInstanceOf(mongoose.Types.ObjectId);
+    expect(String(match.shopId)).toBe('660000000000000000000201');
+  });
+
   test('list builds filters, search query, and pagination', async () => {
     const chain = mockFind([{ _id: 'task-1' }]);
 
@@ -118,7 +132,7 @@ describe('productionTask.repository', () => {
       assignedDesignUserId: null,
       csAssigneeId: null,
       csStatus: 'UNASSIGNED',
-      shopId: '660000000000000000000201',
+      shopId: new mongoose.Types.ObjectId('660000000000000000000201'),
       $or: expect.arrayContaining([
         { 'orderItemSnapshot.externalOrderId': expect.any(RegExp) },
         { 'orderItemSnapshot.externalItemId': expect.any(RegExp) },
@@ -438,9 +452,9 @@ describe('productionTask.repository', () => {
       createdAt: { $gte: createdFrom, $lte: createdTo },
       assignedAt: { $gte: assignedFrom },
       readyAt: { $lte: readyTo },
-      assignedDesignUserId: '660000000000000000000903',
-      qcBy: '660000000000000000000904',
-      csAssigneeId: '660000000000000000000905',
+      assignedDesignUserId: new mongoose.Types.ObjectId('660000000000000000000903'),
+      qcBy: new mongoose.Types.ObjectId('660000000000000000000904'),
+      csAssigneeId: new mongoose.Types.ObjectId('660000000000000000000905'),
       csStatus: 'IN_PROGRESS',
     }));
     expect(chain.sort).toHaveBeenCalledWith({ readyAt: -1, assignedAt: 1, _id: 1 });

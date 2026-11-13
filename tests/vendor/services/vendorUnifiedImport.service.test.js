@@ -369,5 +369,70 @@ describe('Unified Vendor Product & Variant Import', () => {
       expect(result.failed).toHaveLength(1);
       expect(result.failed[0]).toContain('Row 3:');
     });
+
+    test('imports selected Merchize catalog products into VendorProduct and CostCenters', async () => {
+      productRepository.findByCode.mockResolvedValue(null);
+      const createdProductId = new ObjectId().toString();
+      productRepository.create.mockResolvedValue({
+        _id: createdProductId,
+        vendorId,
+        code: 'MZ-TSHIRT',
+        name: 'Merchize Unisex T-Shirt',
+      });
+      costCenterRepository.findByProductAndCode.mockResolvedValue(null);
+      costCenterRepository.create.mockResolvedValue({});
+
+      const mockProducts = [
+        {
+          sku: 'MZ-TSHIRT',
+          title: 'Merchize Unisex T-Shirt',
+          printing_methods: ['DTG'],
+          variants: [
+            {
+              sku: 'MZ-TSHIRT-BLK-S',
+              attributes: [
+                { name: 'size', type: 'size', value_text: 'S' },
+                { name: 'color', type: 'color', value_text: 'Black' },
+              ],
+              tiers: [{ name: 'tier1', price: 12.5 }],
+              shipping_prices: [
+                { to_zone: 'US', first_item: 4.5, additional_item: 1.5 },
+                { to_zone: 'ROW', first_item: 8.0, additional_item: 3.0 },
+              ],
+            },
+          ],
+        },
+      ];
+
+      const result = await vendorService.importMerchizeCatalogProducts(
+        {
+          vendorId,
+          products: mockProducts,
+          tierName: 'tier1',
+        },
+        {},
+      );
+
+      expect(result.createdProducts).toBe(1);
+      expect(result.createdCostCenters).toBe(1);
+      expect(result.failed).toHaveLength(0);
+
+      expect(costCenterRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+        vendorProductId: createdProductId,
+        vendorId,
+        code: 'MZ-TSHIRT-BLK-S',
+        vendorSize: 'S',
+        vendorColor: 'Black',
+        baseCostAmount: 1250,
+        domesticShipping: {
+          economyAmount: 450,
+          additionalAmount: 150,
+        },
+        internationalShipping: {
+          economyAmount: 800,
+          additionalAmount: 300,
+        },
+      }));
+    });
   });
 });
