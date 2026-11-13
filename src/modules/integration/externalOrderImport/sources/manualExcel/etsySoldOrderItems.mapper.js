@@ -103,6 +103,12 @@ function buildItem(row) {
   const currency = value(row, 'Currency') || 'USD';
   const transactionId = value(row, 'Transaction ID');
   const listingId = value(row, 'Listing ID');
+  const quantity = parseQuantity(row);
+  const rawItemTotal = value(row, 'Item Total');
+  const rawPrice = value(row, 'Price');
+  const itemPriceAmount = rawItemTotal
+    ? parseMoneyToMinorUnit(rawItemTotal, currency)
+    : (rawPrice ? parseMoneyToMinorUnit(rawPrice, currency) * quantity : 0);
 
   return {
     externalItemId: transactionId,
@@ -111,11 +117,11 @@ function buildItem(row) {
     shipByDate: optionalDate(row, 'LNG Ship By'),
     sku: nullable(value(row, 'SKU')),
     title: nullable(value(row, 'Item Name')),
-    quantity: parseQuantity(row),
+    quantity,
     variantRaw: nullable(value(row, 'Variations')),
     price: {
       currency,
-      itemPriceAmount: parseMoneyToMinorUnit(value(row, 'Price') || value(row, 'Item Total'), currency),
+      itemPriceAmount,
       itemTaxAmount: parseMoneyToMinorUnit(value(row, 'Order Sales Tax'), currency),
       shippingPriceAmount: parseMoneyToMinorUnit(value(row, 'Order Shipping'), currency),
     },

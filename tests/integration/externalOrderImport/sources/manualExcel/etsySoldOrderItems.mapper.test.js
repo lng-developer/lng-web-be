@@ -144,4 +144,34 @@ describe('etsySoldOrderItems.mapper', () => {
 
     expect(dto.items[0].customizationRawSummary.hasCustomization).toBe(false);
   });
+
+  test('calculates itemPriceAmount using Item Total when present for multi-quantity orders', () => {
+    const [dto] = mapEtsySoldOrderItemRowsToExternalOrderDtos([{
+      'Order ID': '4229653401',
+      'Transaction ID': '5289224893',
+      Quantity: '3',
+      Price: '17.95',
+      'Item Total': '53.85',
+      'Order Shipping': '17.85',
+      Currency: 'USD',
+    }]);
+
+    expect(dto.items[0].quantity).toBe(3);
+    expect(dto.items[0].price.itemPriceAmount).toBe(5385);
+    expect(dto.items[0].price.shippingPriceAmount).toBe(1785);
+  });
+
+  test('falls back to Price * Quantity when Item Total is missing', () => {
+    const [dto] = mapEtsySoldOrderItemRowsToExternalOrderDtos([{
+      'Order ID': '4229653401',
+      'Transaction ID': '5289224893',
+      Quantity: '3',
+      Price: '17.95',
+      'Order Shipping': '17.85',
+      Currency: 'USD',
+    }]);
+
+    expect(dto.items[0].quantity).toBe(3);
+    expect(dto.items[0].price.itemPriceAmount).toBe(5385);
+  });
 });
