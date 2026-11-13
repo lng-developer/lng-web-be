@@ -656,6 +656,124 @@ async function getLenfulReadCredential(vendorId) {
   return credential;
 }
 
+async function getMerchizeReadCredential(vendorId) {
+  const credential = await getVendorIntegrationCredential(vendorId, 'MERCHIZE', { refreshIfExpiring: false });
+  if (!credential) throw validationError('Connected Merchize credentials are required');
+  return credential;
+}
+
+async function getMerchizeCatalog(vendorId, query = {}) {
+  await assertVendorActive(vendorId);
+  const adapter = integrationAdapterRegistry.getAdapter('MERCHIZE');
+  if (!adapter?.fetchCatalog) throw validationError('Merchize catalog adapter is not implemented');
+  return adapter.fetchCatalog({ credential: await getMerchizeReadCredential(vendorId), query });
+}
+
+async function importMerchizeCatalogProducts({ vendorId, products = [], tierName = 'tier1' } = {}, authContext) {
+  if (!vendorId) throw validationError('vendorId is required');
+  assertValidObjectId(vendorId, 'vendorId');
+  await assertVendorActive(vendorId);
+
+  const flatRows = [];
+  const selectedTier = String(tierName || 'tier1').trim().toLowerCase();
+
+  for (const product of products) {
+    const productCode = String(product.sku || '').trim();
+    const productName = String(product.title || '').trim();
+    if (!productCode || !productName) continue;
+
+    const variants = Array.isArray(product.variants) && product.variants.length > 0
+      ? product.variants
+      : [{ sku: `${productCode}-DEFAULT` }];
+
+    for (const variant of variants) {
+      const variantSku = String(variant.sku || '').trim() || `${productCode}-DEFAULT`;
+
+      let size = '';
+      let color = '';
+      const attributes = Array.isArray(variant.attributes) ? variant.attributes : [];
+      for (const attr of attributes) {
+        const attrType = String(attr.type || attr.name || '').toLowerCase();
+        const val = String(attr.value_text || attr.value || attr.text || '').trim();
+        if (attrType.includes('size')) {
+          size = val;
+        } else if (attrType.includes('color')) {
+          color = val;
+        }
+      }
+
+      let baseCostAmount = 0;
+      if (Array.isArray(variant.tiers) && variant.tiers.length > 0) {
+        const matchedTier = variant.tiers.find((t) => String(t.name || '').trim().toLowerCase() === selectedTier)
+          || variant.tiers.find((t) => String(t.name || '').trim().toLowerCase().includes('tier1'))
+          || variant.tiers[0];
+        if (matchedTier && matchedTier.price !== undefined && matchedTier.price !== null) {
+          baseCostAmount = Number(matchedTier.price);
+        }
+      }
+
+      let domesticEconomyAmount = 0;
+      let domesticAdditionalAmount = 0;
+      let internationalEconomyAmount = 0;
+      let internationalAdditionalAmount = 0;
+
+      if (Array.isArray(variant.shipping_prices)) {
+        for (const sp of variant.shipping_prices) {
+          const zone = String(sp.to_zone || '').trim().toUpperCase();
+          if (zone === 'US') {
+            domesticEconomyAmount = Number(sp.first_item || 0);
+            domesticAdditionalAmount = Number(sp.additional_item || 0);
+          } else if (zone === 'ROW' || zone === 'ALL' || zone === 'EU') {
+            if (!internationalEconomyAmount) {
+              internationalEconomyAmount = Number(sp.first_item || 0);
+              internationalAdditionalAmount = Number(sp.additional_item || 0);
+            }
+          }
+        }
+      }
+
+      const printMethod = Array.isArray(product.printing_methods) && product.printing_methods.length > 0
+        ? product.printing_methods[0]
+        : '';
+
+      flatRows.push({
+        code: productCode,
+        name: productName,
+        size,
+        color,
+        sku: variantSku,
+        costCenterCode: variantSku,
+        baseCostAmount: String(baseCostAmount.toFixed(2)),
+        domesticEconomyAmount: String(domesticEconomyAmount.toFixed(2)),
+        domesticAdditionalAmount: String(domesticAdditionalAmount.toFixed(2)),
+        internationalEconomyAmount: String(internationalEconomyAmount.toFixed(2)),
+        internationalAdditionalAmount: String(internationalAdditionalAmount.toFixed(2)),
+        printMethod,
+        currency: 'USD',
+        status: 'ACTIVE',
+      });
+    }
+  }
+
+  const result = await importVendorProductsUnified({ vendorId, rows: flatRows }, authContext);
+
+  await recordVendorOperation({
+    action: 'VENDOR_CATALOG_SYNCED',
+    entityType: 'VENDOR_PRODUCT',
+    entity: `merchize-catalog-import:${vendorId}`,
+    authContext,
+    metadata: {
+      vendorId: String(vendorId),
+      providerKey: 'MERCHIZE',
+      productCount: products.length,
+      importedRows: flatRows.length,
+      ...result,
+    },
+  });
+
+  return result;
+}
+
 async function getLenfulCatalog(vendorId, query = {}) {
   const adapter = integrationAdapterRegistry.getAdapter('LENFUL');
   if (!adapter?.fetchCatalog) throw validationError('Lenful catalog adapter is not implemented');
@@ -1854,6 +1972,8 @@ module.exports = {
   deleteVendorIntegrationConfig,
   getVendorIntegrationCredential,
   getLenfulCatalog,
+  getMerchizeCatalog,
+  importMerchizeCatalogProducts,
   getLenfulTracking,
   getLenfulOrder,
   getVendorProductionLines,

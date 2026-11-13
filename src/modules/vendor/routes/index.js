@@ -155,6 +155,18 @@ router.get(
   asyncHandler(controller.getLenfulCatalog),
 );
 router.get(
+  '/:vendorId/integration/merchize/catalog',
+  authPublic.authenticate,
+  requireVendorRead,
+  asyncHandler(controller.getMerchizeCatalog),
+);
+router.post(
+  '/:vendorId/integration/merchize/catalog/import',
+  authPublic.authenticate,
+  requireVendorWrite,
+  asyncHandler(controller.importMerchizeCatalogProducts),
+);
+router.get(
   '/:vendorId/integration/lenful/tracking',
   authPublic.authenticate,
   requireVendorRead,
