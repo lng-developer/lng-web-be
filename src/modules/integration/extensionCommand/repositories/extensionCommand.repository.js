@@ -72,8 +72,18 @@ function claimNext({ agentId, provider, leaseTokenHash, now, leaseExpiresAt, lis
 }
 
 function updateClaimed({ commandId, agentId, leaseTokenHash, patch, unset, statuses }) {
+  const hasWaitingAmazon = Array.isArray(statuses) && statuses.includes(extensionCommandStatuses.WAITING_AMAZON);
+  const leaseCondition = hasWaitingAmazon
+    ? {
+      $or: [
+        { leaseExpiresAt: { $gt: new Date() } },
+        { status: extensionCommandStatuses.WAITING_AMAZON },
+      ],
+    }
+    : { leaseExpiresAt: { $gt: new Date() } };
+
   return ExtensionCommand.findOneAndUpdate(
-    { _id: commandId, agentId, leaseTokenHash, status: { $in: statuses }, leaseExpiresAt: { $gt: new Date() } },
+    { _id: commandId, agentId, leaseTokenHash, status: { $in: statuses }, ...leaseCondition },
     { $set: patch, ...(unset ? { $unset: unset } : {}) }, { returnDocument: 'after', runValidators: true },
   ).lean();
 }
