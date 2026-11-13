@@ -772,7 +772,6 @@ async function recheckSubmittedVendorTracking(query = {}, authContext) {
     try {
       const result = await recheckVendorTracking({
         provider: submission.provider,
-        externalOrderId: submission.vendorExternalOrderId,
         vendorSubmissionId: submission.id,
       }, {
         ...(authContext || {}),
