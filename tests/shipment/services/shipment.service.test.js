@@ -1342,6 +1342,36 @@ describe('shipment.service', () => {
     expect(result.items.map((row) => row.status)).toEqual(['APPLIED', 'SKIPPED', 'SKIPPED']);
   });
 
+  test('submitted vendor tracking batch uses the marketplace order ID for LNG Group', async () => {
+    const fetchTrackingByExternalOrderId = jest.fn().mockResolvedValue({
+      provider: 'LNG_GROUP', carrier: 'VIETTEL_POST', trackingNumber: '9214490374008505030947', vendorStatus: 'IN_TRANSIT',
+    });
+    vendorSubmissionPublic.listSubmittedForTracking.mockResolvedValue([{
+      id: vendorSubmissionId,
+      provider: 'LNG_GROUP',
+      vendorExternalOrderId: 'cmwaifiok0001l5079uxdo0pr',
+      orderItemId,
+      shopId,
+    }]);
+    vendorSubmissionPublic.getById.mockResolvedValue({
+      ...submittedSubmission,
+      provider: 'LNG_GROUP',
+      externalOrderId: '113-6964403-3922666',
+      vendorExternalOrderId: 'cmwaifiok0001l5079uxdo0pr',
+      payloadSnapshot: {
+        orderItem: { externalOrderId: '113-6964403-3922666' },
+        vendorProduct: { vendor: { id: vendorId, providerKey: 'LNG_GROUP' } },
+      },
+    });
+    vendorPublic.getVendorIntegrationAssignment.mockResolvedValue({ providerKey: 'LNG_GROUP', status: 'CONNECTED' });
+    getTrackingAdapter.mockReturnValue({ fetchTrackingByExternalOrderId });
+
+    const result = await service.recheckSubmittedVendorTracking({ provider: 'LNG_GROUP' }, { system: true });
+
+    expect(result).toMatchObject({ checked: 1, applied: 1, failed: 0 });
+    expect(fetchTrackingByExternalOrderId).toHaveBeenCalledWith('113-6964403-3922666', expect.any(Object));
+  });
+
   test('submitted vendor tracking batch skips returned shipments', async () => {
     vendorSubmissionPublic.listSubmittedForTracking.mockResolvedValue([{
       id: vendorSubmissionId,

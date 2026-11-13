@@ -5,6 +5,7 @@ const merchfoxAdapter = require('./vendorTrackingAdapters/merchfox.adapter');
 const merchizeAdapter = require('./vendorTrackingAdapters/merchize.adapter');
 const printwayAdapter = require('./vendorTrackingAdapters/printway.adapter');
 const mangoteeAdapter = require('./vendorTrackingAdapters/mangotee.adapter');
+const lngGroupAdapter = require('./vendorTrackingAdapters/lngGroup.adapter');
 
 function getTrackingAdapter(provider) {
   const providerKey = normalizeProviderKey(provider);
@@ -13,6 +14,7 @@ function getTrackingAdapter(provider) {
   if (providerKey === 'MERCHIZE') return merchizeAdapter;
   if (providerKey === 'PRINTWAY') return printwayAdapter;
   if (providerKey === 'MANGOTEE') return mangoteeAdapter;
+  if (providerKey === 'LNG_GROUP') return lngGroupAdapter;
   return genericAdapter;
 }
 

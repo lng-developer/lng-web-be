@@ -14,10 +14,15 @@ function deriveTrackingIdentity(submission = {}) {
       || submission.payloadSnapshot?.orderItemSnapshot?.externalOrderId
       || submission.payloadSnapshot?.externalOrderId
     : null;
+  const lngPortalOrderId = provider === 'LNG_GROUP'
+    ? submission.payloadSnapshot?.orderItem?.externalOrderId
+      || submission.payloadSnapshot?.orderItemSnapshot?.externalOrderId
+      || submission.payloadSnapshot?.externalOrderId
+    : null;
   const identity = {
     vendorId: String(vendor.id || vendor._id || ''),
     provider,
-    vendorExternalOrderId: String(submission.vendorExternalOrderId || legacyMangoOrderId || '').trim(),
+    vendorExternalOrderId: String(lngPortalOrderId || submission.vendorExternalOrderId || legacyMangoOrderId || '').trim(),
     shopId: String(submission.shopId || ''),
     orderId: String(submission.orderId || ''),
     orderItemId: String(submission.orderItemId || ''),
