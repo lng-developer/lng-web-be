@@ -753,7 +753,10 @@ function hardBlockers(fileChecks = [], extra = []) {
   return unique([
     ...extra,
     ...fileChecks.flatMap((check) => check.blockers || []),
-  ]).filter((blocker) => blocker !== productionBlockers.SCALED_OUTPUT_MISSING);
+  ]).filter((blocker) => (
+    blocker !== productionBlockers.SCALED_OUTPUT_MISSING
+    && blocker !== productionBlockers.QC_REJECTED
+  ));
 }
 
 function requiresScaledOutput(check = {}) {
@@ -815,6 +818,24 @@ function aggregateStatus(fileChecks = [], extraBlockers = [], options = {}) {
     && check.sourceType === productionSourceTypes.CUSTOMER_IMAGE
     && check.outputAssetId
   ));
+
+  const hasQcRejected = fileChecks.some((check) => (
+    check.qcStatus === productionQcStatuses.REJECTED
+    || (check.blockers || []).includes(productionBlockers.QC_REJECTED)
+  ));
+  if (hasQcRejected && !options.submitQc && !fileChecks.some((check) => check.qcStatus === productionQcStatuses.PENDING)) {
+    const allScaled = (requiredChecks.length ? requiredChecks : manualScaledChecks).length > 0
+      && (requiredChecks.length ? requiredChecks : manualScaledChecks).every((check) => check.outputAssetId);
+    return {
+      status: productionTaskStatuses.QC_REJECTED,
+      scaleStatus: allScaled ? productionScaleStatuses.SCALED : productionScaleStatuses.NEED_SCALE,
+      qcStatus: productionQcStatuses.REJECTED,
+      blockers: unique([
+        productionBlockers.QC_REJECTED,
+        ...(allScaled || !requiredChecks.length ? [] : [productionBlockers.SCALED_OUTPUT_MISSING]),
+      ]),
+    };
+  }
   if (!requiredChecks.length) {
     if (manualScaledChecks.length) {
       if (!options.submitQc && !manualScaledChecks.some((check) => check.qcStatus === productionQcStatuses.PENDING)) {
@@ -881,6 +902,9 @@ function aggregateStatus(fileChecks = [], extraBlockers = [], options = {}) {
 function orderItemStatusForProductionAggregate(aggregate, mode = 'task') {
   if (aggregate.status === productionTaskStatuses.READY_TO_SEND_VENDOR) {
     return 'READY_TO_SEND_VENDOR';
+  }
+  if (aggregate.status === productionTaskStatuses.QC_REJECTED) {
+    return 'QC_REJECTED';
   }
   if ((mode === 'upload' || mode === 'submitQc') && aggregate.status === productionTaskStatuses.QC_PENDING) {
     return 'IN_PRODUCTION';
@@ -2136,7 +2160,11 @@ async function submitScaleForQc(taskId, authContext = {}) {
   }
   const fileChecks = (task.fileChecks || []).map((check) => (
     requiresScaledOutput(check) || check.outputAssetId
-      ? { ...check, qcStatus: productionQcStatuses.PENDING }
+      ? {
+        ...check,
+        qcStatus: productionQcStatuses.PENDING,
+        blockers: (check.blockers || []).filter((blocker) => blocker !== productionBlockers.QC_REJECTED),
+      }
       : check
   ));
   const aggregate = aggregateStatus(fileChecks, [], { submitQc: true });

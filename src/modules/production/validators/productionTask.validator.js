@@ -18,6 +18,46 @@ const allowedTaskSortFields = new Set([
   'qcStatus',
 ]);
 
+
+function createMultiEnumValidator(allowedSet, validsList) {
+  return function validateMultiEnum(value, helpers) {
+    if (!value) return value;
+    if (typeof value !== 'string' && !Array.isArray(value)) {
+      return helpers.error('any.only', { valids: validsList });
+    }
+    const items = Array.isArray(value) ? value : String(value).split(',');
+    const normalized = [];
+    for (const item of items) {
+      if (typeof item !== 'string') {
+        return helpers.error('any.only', { valids: validsList });
+      }
+      const trimmed = item.trim().toUpperCase();
+      if (!trimmed) continue;
+      if (!allowedSet.has(trimmed)) {
+        return helpers.error('any.only', { valids: validsList });
+      }
+      normalized.push(trimmed);
+    }
+    if (!normalized.length) {
+      return helpers.error('any.only', { valids: validsList });
+    }
+    return Array.isArray(value) ? normalized : normalized.join(',');
+  };
+}
+
+const validateTaskStatus = createMultiEnumValidator(
+  new Set(Object.values(productionTaskStatuses)),
+  Object.values(productionTaskStatuses),
+);
+const validateScaleStatus = createMultiEnumValidator(
+  new Set(Object.values(productionScaleStatuses)),
+  Object.values(productionScaleStatuses),
+);
+const validateQcStatus = createMultiEnumValidator(
+  new Set(Object.values(productionQcStatuses)),
+  Object.values(productionQcStatuses),
+);
+
 function validateTaskSort(value, helpers) {
   if (!value) return value;
   const invalid = String(value).split(',')
@@ -53,9 +93,9 @@ const orderItemParamSchema = Joi.object({
 const listTasksQuerySchema = Joi.object({
   designType: Joi.string().trim().uppercase().valid('NORMAL', 'CUSTOM_IMAGE', 'UNCLASSIFIED'),
   view: Joi.string().trim().uppercase().valid('SCALE', 'QC'),
-  status: Joi.string().trim().uppercase().valid(...Object.values(productionTaskStatuses)),
-  scaleStatus: Joi.string().trim().uppercase().valid(...Object.values(productionScaleStatuses)),
-  qcStatus: Joi.string().trim().uppercase().valid(...Object.values(productionQcStatuses)),
+  status: Joi.any().custom(validateTaskStatus),
+  scaleStatus: Joi.any().custom(validateScaleStatus),
+  qcStatus: Joi.any().custom(validateQcStatus),
   csStatus: Joi.string().trim().uppercase().valid('UNASSIGNED', 'ASSIGNED', 'IN_PROGRESS', 'DONE'),
   salesChannelCode: Joi.string().trim().uppercase().valid('AMAZON', 'ETSY'),
   psdReadyOnly: Joi.boolean(),

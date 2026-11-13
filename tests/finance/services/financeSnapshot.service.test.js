@@ -592,6 +592,40 @@ describe('financeSnapshot.service', () => {
     });
   });
 
+  test('recalculates unshipped refunded item with zero fulfillment cost and calculated profit', async () => {
+    orderPublic.findItemById.mockResolvedValueOnce({
+      ...item,
+      externalStatus: 'Refunded',
+      status: 'TRACKING_PENDING',
+    });
+    shipmentPublic.getShipmentByOrderItem.mockResolvedValueOnce(null);
+    mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce(fulfillmentPlan);
+    financeImportRepository.sumFeesByOrderItem.mockResolvedValueOnce(92);
+    financeImportRepository.sumRefundsByOrderItem.mockResolvedValueOnce(3980);
+
+    const result = await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] });
+
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(
+      orderItemId,
+      expect.objectContaining({
+        baseCostAmount: 0,
+        totalCostAmount: 0,
+        costStatus: 'PRESENT',
+        snapshotStatus: 'ESTIMATED',
+        financialStatus: 'REFUNDED',
+        grossProfitAmount: -192,
+        profitStatus: 'ACTUAL',
+      }),
+      { session: transactionSession },
+    );
+    expect(result).toMatchObject({
+      snapshotStatus: 'ESTIMATED',
+      cost: { baseCostAmount: 0, totalCostAmount: 0, costStatus: 'PRESENT' },
+      revenue: { financialStatus: 'REFUNDED', customerPaidAmount: 3980, refundAmount: 3980 },
+      margin: { grossProfitAmount: -192 },
+    });
+  });
+
   test('does not calculate profit when the base cost line is missing', async () => {
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({
       ...fulfillmentPlan,

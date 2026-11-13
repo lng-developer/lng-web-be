@@ -22,6 +22,16 @@ describe('production task validators', () => {
     expect(result.details).toHaveLength(4);
   });
 
+  test('accepts comma-separated statuses and arrays', () => {
+    expect(validate(listTasksQuerySchema, { status: 'READY_TO_SEND_VENDOR,SENT_TO_VENDOR' })).toEqual({
+      value: { status: 'READY_TO_SEND_VENDOR,SENT_TO_VENDOR' },
+    });
+    expect(validate(listTasksQuerySchema, { status: ['READY_TO_SEND_VENDOR', 'SENT_TO_VENDOR'] })).toEqual({
+      value: { status: ['READY_TO_SEND_VENDOR', 'SENT_TO_VENDOR'] },
+    });
+    expect(validate(listTasksQuerySchema, { status: 'READY_TO_SEND_VENDOR,INVALID' }).details).toBeDefined();
+  });
+
   test('accepts explicit Scale and QC queue views', () => {
     expect(validate(listTasksQuerySchema, { view: 'scale', psdReadyOnly: 'true' })).toEqual({
       value: { view: 'SCALE', psdReadyOnly: true },
