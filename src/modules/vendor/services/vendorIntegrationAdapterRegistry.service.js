@@ -48,6 +48,43 @@ async function fetchMangoteeVariations({ credential, productId, productName, pag
   return body.data || { items: [], pagination: { page, limit, pages: page } };
 }
 
+async function fetchMerchizeCatalog({ credential, query = {} } = {}) {
+  const baseUrl = String(credential?.baseUrl || '').replace(/\/+$/, '');
+  const token = credential?.accessToken;
+  const apiKey = credential?.apiKey;
+  if (!baseUrl || (!token && !apiKey)) throw new Error('MERCHIZE catalog credentials are not configured');
+
+  const url = new URL(`${baseUrl}/product/catalog`);
+  url.searchParams.set('page', String(query.page || 1));
+  url.searchParams.set('limit', String(query.limit || 50));
+  if (query.q || query.search) {
+    url.searchParams.set('search', String(query.q || query.search).trim());
+  }
+
+  const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  } else if (apiKey) {
+    headers['x-api-key'] = apiKey;
+  }
+
+  const response = await fetch(url, { headers });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.message || body.error || 'MERCHIZE catalog request failed');
+  }
+
+  const data = body.data || {};
+  return {
+    items: Array.isArray(data.products) ? data.products : [],
+    pagination: {
+      page: Number(data.page ?? query.page ?? 1),
+      limit: Number(query.limit ?? data.limit ?? 50),
+      total: Number(data.total ?? 0),
+    },
+  };
+}
+
 async function fetchLenfulCatalog({ credential, query = {} } = {}) {
   const baseUrl = String(credential?.baseUrl || '').replace(/\/+$/, '');
   const token = credential?.accessToken;
@@ -136,8 +173,9 @@ function getAdapter(adapterKey) {
   return Object.freeze({
     provider,
     async fetchCatalog({ credential, query } = {}) {
-      if (provider !== 'LENFUL') throw new Error(`Catalog read is not supported for ${provider}`);
-      return fetchLenfulCatalog({ credential, query });
+      if (provider === 'LENFUL') return fetchLenfulCatalog({ credential, query });
+      if (provider === 'MERCHIZE') return fetchMerchizeCatalog({ credential, query });
+      throw new Error(`Catalog read is not supported for ${provider}`);
     },
     async fetchOrder({ credential, orderNumber } = {}) {
       if (provider !== 'LENFUL') throw new Error(`Order read is not supported for ${provider}`);
@@ -161,4 +199,11 @@ function getAdapter(adapterKey) {
   });
 }
 
-module.exports = { fetchLenfulCatalog, fetchLenfulOrder, fetchMangoteeProductionLines, fetchMangoteeVariations, getAdapter };
+module.exports = {
+  fetchLenfulCatalog,
+  fetchLenfulOrder,
+  fetchMangoteeProductionLines,
+  fetchMangoteeVariations,
+  fetchMerchizeCatalog,
+  getAdapter,
+};
