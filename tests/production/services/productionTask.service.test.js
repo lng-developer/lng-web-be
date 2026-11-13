@@ -1327,6 +1327,45 @@ describe('productionTask.service', () => {
     }), { session: mockSession });
   });
 
+  test('adding manual file check on QC rejected task preserves QC_REJECTED status instead of BLOCKED', async () => {
+    mockTaskUpdate({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'QC_REJECTED',
+      scaleStatus: 'SCALED',
+      qcStatus: 'REJECTED',
+      blockers: ['QC_REJECTED'],
+      fileChecks: [{
+        _id: fileCheckId,
+        slotKey: 'FRONT',
+        slotLabel: 'Front',
+        required: true,
+        sourceType: 'CUSTOMER_IMAGE',
+        inputAssetId: mediaAssetId,
+        outputAssetId,
+        scaleStatus: 'SCALED',
+        qcStatus: 'REJECTED',
+        blockers: ['QC_REJECTED'],
+      }],
+    });
+
+    const result = await service.addManualFileCheck(taskId, {
+      slotKey: 'back',
+      slotLabel: 'Back',
+      sourceType: 'CUSTOMER_IMAGE',
+    }, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result.status).toBe('QC_REJECTED');
+    expect(result.qcStatus).toBe('REJECTED');
+    expect(result.blockers).toEqual(['QC_REJECTED']);
+    expect(orderPublic.transitionItemStatus).toHaveBeenCalledWith(
+      orderItemId,
+      'QC_REJECTED',
+      expect.objectContaining({ source: 'PRODUCTION' }),
+    );
+  });
+
   test('rejects duplicate manual file check slot key', async () => {
     mockTaskUpdate({
       _id: taskId,

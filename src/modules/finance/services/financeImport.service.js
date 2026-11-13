@@ -312,14 +312,19 @@ async function processTransactionRow(row, context, summary, authContext) {
     }
 
     if (isRefundRow(row)) {
-      const amount = Math.abs(row.totalAmount || row.productSalesAmount || 0);
+      const grossRefundAmount = Math.abs(
+        (row.productSalesAmount || 0)
+        + (row.shippingCreditsAmount || 0)
+        + (row.otherAmount || 0),
+      );
+      const amount = grossRefundAmount || Math.abs(row.totalAmount || 0);
       if (!context.dryRun && amount > 0) {
         const refund = await repository.upsertRefundRecord({
           ...payload,
           externalRefundId: `${row.dedupKey || `${context.sourceRef}:${row.importKey}`}:REFUND`,
           refundType: 'REFUND',
           refundAmount: amount,
-          shippingRefundAmount: 0,
+          shippingRefundAmount: Math.abs((row.shippingCreditsAmount || 0) + (row.otherAmount || 0)),
           taxRefundAmount: 0,
           adjustmentRefundAmount: 0,
           totalRefundAmount: amount,

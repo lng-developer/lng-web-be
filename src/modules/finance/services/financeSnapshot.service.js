@@ -4,6 +4,7 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
 const authPublic = require('../../auth/public');
+const catalogPublic = require('../../catalog/public');
 const hrPublic = require('../../hr/public');
 const mappingPublic = require('../../mapping/public');
 const orderPublic = require('../../order/public');
@@ -349,6 +350,16 @@ async function loadOrderItem(orderItemId) {
   return { ...item, orderedAt: order?.orderedAt || null };
 }
 
+function resolveOrderItemImageUrl(item = {}, listing = null) {
+  return listing?.productImageUrl
+    || item?.listingImage?.sourceUrl
+    || item?.externalData?.etsy?.listingImageUrl
+    || item?.externalData?.etsy?.listingImageThumbnailUrl
+    || item?.externalData?.productImageUrl
+    || item?.externalData?.imageUrl
+    || null;
+}
+
 async function listSnapshots(query = {}, authContext) {
   const { externalOrderId, ...snapshotQuery } = query;
   let orderItemIds = null;
@@ -372,14 +383,25 @@ async function listSnapshots(query = {}, authContext) {
   const externalOrderIds = new Map(
     orderItems.map((item) => [String(item._id || item.id), item.externalOrderId || null]),
   );
+  const listingIds = [...new Set(orderItems.map((i) => i.listingId).filter(Boolean).map(String))];
+  const listings = listingIds.length ? await catalogPublic.getListingSummariesByIds(listingIds) : [];
+  const listingById = new Map(listings.map((l) => [String(l._id || l.id), l]));
+  const itemById = new Map(orderItems.map((item) => [String(item._id || item.id), item]));
   const response = {
     ...toPaginatedResponse({
       ...result,
-      items: result.items.map((snapshot) => ({
-        ...snapshot,
-        externalOrderId: externalOrderIds.get(String(snapshot.orderItemId)) || null,
-        orderPnl: calculateOrderPnl(snapshot),
-      })),
+      items: result.items.map((snapshot) => {
+        const item = itemById.get(String(snapshot.orderItemId));
+        const listing = item?.listingId ? listingById.get(String(item.listingId)) : null;
+        return {
+          ...snapshot,
+          externalOrderId: externalOrderIds.get(String(snapshot.orderItemId)) || null,
+          productImageUrl: resolveOrderItemImageUrl(item, listing),
+          productTitle: item?.title || listing?.title || null,
+          productSku: item?.sku || listing?.sku || null,
+          orderPnl: calculateOrderPnl(snapshot),
+        };
+      }),
     }),
     summaryByCurrency: summaryByCurrency || [],
   };
@@ -527,17 +549,40 @@ async function listOrderProfitability(query = {}) {
   const result = await repository.listOrderProfitability(query);
   const orderItemIds = result.items.flatMap((row) => (row.orderItemIds || []).map(String));
   const orderItems = await orderPublic.findItemsByIds(orderItemIds);
+  const listingIds = [...new Set(orderItems.map((i) => i.listingId).filter(Boolean).map(String))];
+  const listings = listingIds.length ? await catalogPublic.getListingSummariesByIds(listingIds) : [];
+  const listingById = new Map(listings.map((l) => [String(l._id || l.id), l]));
   const itemById = new Map(orderItems.map((item) => [String(item._id || item.id), item]));
   const externalOrderIdByItemId = new Map(
     orderItems.map((item) => [String(item._id || item.id), item.externalOrderId || null]),
   );
-  const items = result.items.map(({ orderItemIds, orderId, shopId, ...row }) => ({
-    ...row,
-    orderId: String(orderId),
-    shopId: String(shopId),
-    externalOrderId: externalOrderIdByItemId.get(String(orderItemIds?.[0])) || null,
-    ...financialStatusCounts(orderItemIds, itemById),
-  }));
+  const items = result.items.map(({ orderItemIds, orderId, shopId, ...row }) => {
+    const thumbnails = (orderItemIds || []).map((id) => {
+      const item = itemById.get(String(id));
+      if (!item) return null;
+      const listing = item.listingId ? listingById.get(String(item.listingId)) : null;
+      return {
+        orderItemId: String(item._id || item.id),
+        title: item.title || listing?.title || null,
+        sku: item.sku || listing?.sku || null,
+        asin: item.asin || listing?.asin || null,
+        quantity: item.quantity || 1,
+        imageUrl: resolveOrderItemImageUrl(item, listing),
+      };
+    }).filter(Boolean);
+
+    return {
+      ...row,
+      orderId: String(orderId),
+      shopId: String(shopId),
+      externalOrderId: externalOrderIdByItemId.get(String(orderItemIds?.[0])) || null,
+      productImageUrl: thumbnails[0]?.imageUrl || null,
+      productTitle: thumbnails[0]?.title || null,
+      productSku: thumbnails[0]?.sku || null,
+      itemThumbnails: thumbnails,
+      ...financialStatusCounts(orderItemIds, itemById),
+    };
+  });
   const mergedItems = mergeExternalOrderProfitability(items);
   return {
     ...result,
@@ -562,8 +607,21 @@ function mergeExternalOrderProfitability(items = []) {
     const key = [item.shopId, item.salesChannelCode, item.marketplaceCode, item.currency, item.externalOrderId || item.orderId].join('|');
     const current = grouped.get(key);
     if (!current) {
-      grouped.set(key, { ...item });
+      grouped.set(key, { ...item, itemThumbnails: [...(item.itemThumbnails || [])] });
       return;
+    }
+    if (item.itemThumbnails?.length) {
+      const existingIds = new Set((current.itemThumbnails || []).map((t) => t.orderItemId));
+      item.itemThumbnails.forEach((t) => {
+        if (!existingIds.has(t.orderItemId)) {
+          current.itemThumbnails.push(t);
+        }
+      });
+    }
+    if (!current.productImageUrl && item.productImageUrl) {
+      current.productImageUrl = item.productImageUrl;
+      current.productTitle = item.productTitle;
+      current.productSku = item.productSku;
     }
     ['itemCount', 'revenueAmount', 'netRevenueAmount', 'baseCostAmount', 'marketplaceFeeAmount', 'refundAmount', 'discountAmount', 'cancelledCount', 'partiallyRefundedCount', 'refundedCount'].forEach((field) => {
       current[field] = (current[field] || 0) + (item[field] || 0);
@@ -751,7 +809,18 @@ async function calculateAndUpsertOrderItem(orderItemId, authContext, session) {
   ]);
   const revenue = calculateRevenue(item, { feeAmount, refundAmount });
   const isCancelled = revenue.financialStatus === 'CANCELLED' || String(item.status || '').toUpperCase() === 'CANCELLED';
-  const cost = calculateCost(fulfillmentPlan, isCancelled);
+  const hasShipped = Boolean(
+    shipment?.trackingNumber
+    || item.trackingNumber
+    || String(item.status || '').toUpperCase() === 'SHIPPED'
+    || shipment?.status === 'SHIPPED',
+  );
+  const isUnproducedRefund = (
+    revenue.financialStatus === 'REFUNDED'
+    || String(item.status || '').toUpperCase() === 'REFUNDED'
+  ) && !hasShipped;
+  const isZeroCost = isCancelled || isUnproducedRefund;
+  const cost = calculateCost(fulfillmentPlan, isZeroCost);
   const effectiveTotalCostAmount = existingSnapshot?.actualVendorTotalAmount
     ?? cost.totalCostAmount;
   const margin = calculateMargin(revenue, effectiveTotalCostAmount, cost.costStatus);
@@ -777,7 +846,7 @@ async function calculateAndUpsertOrderItem(orderItemId, authContext, session) {
   payload.profitStatus = profitStatusFor({
     ...payload,
     actualVendorTotalAmount: existingSnapshot?.actualVendorTotalAmount,
-    isCancelled,
+    isCancelled: isZeroCost,
   });
   payload.calculationHistory = [
     {
@@ -906,9 +975,24 @@ async function getOrderSummary(orderId, authContext) {
   if (authContext) {
     snapshots.forEach((snapshot) => financeAccess.assertSnapshotAccess(snapshot, authContext, financePermissions.READ));
   }
+  const orderItems = await orderPublic.findItemsByIds(snapshots.map((s) => String(s.orderItemId)));
+  const listingIds = [...new Set(orderItems.map((i) => i.listingId).filter(Boolean).map(String))];
+  const listings = listingIds.length ? await catalogPublic.getListingSummariesByIds(listingIds) : [];
+  const listingById = new Map(listings.map((l) => [String(l._id || l.id), l]));
+  const itemById = new Map(orderItems.map((item) => [String(item._id || item.id), item]));
   return toOrderFinanceSummaryDto(
     orderId,
-    snapshots.map((snapshot) => ({ ...snapshot, orderPnl: calculateOrderPnl(snapshot) })),
+    snapshots.map((snapshot) => {
+      const item = itemById.get(String(snapshot.orderItemId));
+      const listing = item?.listingId ? listingById.get(String(item.listingId)) : null;
+      return {
+        ...snapshot,
+        productImageUrl: resolveOrderItemImageUrl(item, listing),
+        productTitle: item?.title || listing?.title || null,
+        productSku: item?.sku || listing?.sku || null,
+        orderPnl: calculateOrderPnl(snapshot),
+      };
+    }),
   );
 }
 

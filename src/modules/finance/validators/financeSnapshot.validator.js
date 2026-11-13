@@ -40,6 +40,7 @@ const listSnapshotsQuerySchema = Joi.object({
   departmentId: objectId,
   dateFrom: Joi.date().iso(),
   dateTo: Joi.date().iso().min(Joi.ref('dateFrom')),
+  dateBasis: Joi.string().trim().uppercase().valid('ORDERED_AT', 'CALCULATED_AT'),
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
 });
@@ -137,6 +138,7 @@ const listSettlementsQuerySchema = Joi.object({
   hasUnlinkedRows: Joi.boolean(),
   dateFrom: Joi.date().iso(),
   dateTo: Joi.date().iso().min(Joi.ref('dateFrom')),
+  dateBasis: Joi.string().trim().uppercase().valid('ORDERED_AT', 'CALCULATED_AT'),
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
 });
