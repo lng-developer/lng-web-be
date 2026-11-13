@@ -4,6 +4,7 @@ const errorCodes = require('../../../../shared/constants/errorCodes');
 const AppError = require('../../../../shared/errors/appError');
 const authPublic = require('../../../auth/public');
 const shipmentPublic = require('../../../shipment/public');
+const orderPublic = require('../../../order/public');
 const repository = require('../repositories/amazonTrackingSubmission.repository');
 const extensionCommandRepository = require('../../extensionCommand/repositories/extensionCommand.repository');
 const { extensionCommandTypes, extensionCommandStatuses } = require('../../extensionCommand/constants/extensionCommand.constants');
@@ -65,6 +66,10 @@ async function createSubmission(payload, authContext) {
   const shipments = await shipmentPublic.findByIds(payload.shipmentIds);
   if (!shipments.length) throw notFound('No shipments found');
 
+  const orderItemIds = [...new Set(shipments.map((s) => s.orderItemId).filter(Boolean).map(String))];
+  const orderItems = orderItemIds.length ? await orderPublic.findItemsByIds(orderItemIds) : [];
+  const orderItemById = new Map(orderItems.map((i) => [String(i._id || i.id), i]));
+
   const validRows = [];
   const validShipmentIds = [];
 
@@ -90,10 +95,15 @@ async function createSubmission(payload, authContext) {
       shipMethod = 'FedEx Ground';
     }
 
+    const item = shipment.orderItemId ? orderItemById.get(String(shipment.orderItemId)) : null;
+
     validRows.push({
       shipmentId: shipment._id,
       orderId: shipment.orderId || null,
+      orderItemId: shipment.orderItemId || null,
       externalOrderId: shipment.externalOrderId,
+      externalItemId: item?.externalItemId || null,
+      quantity: item?.quantity || null,
       shipDate,
       carrier: shipment.carrier,
       carrierCode,
@@ -101,6 +111,37 @@ async function createSubmission(payload, authContext) {
       shipMethod,
     });
     validShipmentIds.push(shipment._id);
+  }
+
+  // Group validRows by externalOrderId
+  const rowsByOrder = new Map();
+  for (const row of validRows) {
+    const key = row.externalOrderId;
+    if (!rowsByOrder.has(key)) rowsByOrder.set(key, []);
+    rowsByOrder.get(key).push(row);
+  }
+
+  const feedRows = [];
+  for (const [, orderRows] of rowsByOrder) {
+    const trackingNumbers = new Set(orderRows.map((r) => r.trackingNumber));
+    if (trackingNumbers.size === 1) {
+      // All items in the order ship together in one package: output 1 single line with empty order-item-id
+      feedRows.push({
+        ...orderRows[0],
+        externalItemId: '',
+        quantity: '',
+      });
+    } else {
+      // Split shipment (different tracking numbers):
+      // Output each item line with order-item-id and quantity
+      for (const r of orderRows) {
+        feedRows.push({
+          ...r,
+          externalItemId: r.externalItemId || '',
+          quantity: r.quantity ? String(r.quantity) : '1',
+        });
+      }
+    }
   }
 
   // Build TSV feed strictly matching the official Amazon Shipping Confirmation Template
@@ -126,10 +167,10 @@ async function createSubmission(payload, authContext) {
     'ship_from_supply_source_id',
   ];
   const tsvHeader = templateHeaders.join('\t') + '\r\n';
-  const tsvLines = validRows.map((r) => [
+  const tsvLines = feedRows.map((r) => [
     r.externalOrderId,
-    '', // order-item-id: not required for whole order
-    '', // quantity: not required when confirming full shipment
+    r.externalItemId || '',
+    r.quantity || '',
     r.shipDate,
     r.carrierCode,
     r.carrierCode === 'Other' ? (r.carrier || 'Other') : '',
@@ -159,7 +200,7 @@ async function createSubmission(payload, authContext) {
     rows: validRows,
     filename,
     tsv,
-    rowCount: validRows.length,
+    rowCount: feedRows.length,
     checksum,
     status: amazonTrackingSubmissionStatuses.PENDING,
   });

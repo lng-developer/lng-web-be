@@ -17,7 +17,7 @@ function toDate(value) {
 }
 
 function profitabilityDateField(query = {}) {
-  return query.dateBasis === 'ORDERED_AT' ? 'orderedAt' : 'calculatedAt';
+  return query.dateBasis === 'CALCULATED_AT' ? 'calculatedAt' : 'orderedAt';
 }
 
 function buildFilter(query = {}) {
@@ -503,6 +503,14 @@ async function listOrderProfitability(query = {}) {
         orderItemIds: { $addToSet: '$orderItemId' },
         orderedAt: { $min: '$orderedAt' },
         reportDate: { $min: dateField },
+        sellerEmployeeCode: { $first: '$sellerEmployeeCode' },
+        sellerName: { $first: '$sellerName' },
+        teamId: { $first: '$teamId' },
+        teamName: { $first: '$teamName' },
+        teamCode: { $first: '$teamCode' },
+        departmentId: { $first: '$departmentId' },
+        departmentName: { $first: '$departmentName' },
+        departmentCode: { $first: '$departmentCode' },
         itemCount: { $sum: 1 },
         revenueAmount: { $sum: '$customerPaidAmount' },
         netRevenueAmount: { $sum: { $ifNull: ['$netRevenueAmount', { $subtract: ['$customerPaidAmount', { $ifNull: ['$refundAmount', 0] }] }] } },
@@ -568,6 +576,14 @@ async function listOrderProfitability(query = {}) {
         orderItemIds: 1,
         orderedAt: 1,
         reportDate: 1,
+        sellerEmployeeCode: 1,
+        sellerName: 1,
+        teamId: 1,
+        teamName: 1,
+        teamCode: 1,
+        departmentId: 1,
+        departmentName: 1,
+        departmentCode: 1,
         itemCount: 1,
         revenueAmount: 1,
         netRevenueAmount: 1,
@@ -603,8 +619,8 @@ async function listOrderProfitability(query = {}) {
             { $eq: ['$missingCostCount', 0] },
             {
               $subtract: [
-                '$revenueAmount',
-                { $add: ['$marketplaceFeeAmount', '$refundAmount', '$discountAmount', '$totalCostAmount'] },
+                '$netRevenueAmount',
+                { $add: ['$marketplaceFeeAmount', '$discountAmount', '$totalCostAmount'] },
               ],
             },
             null,
@@ -621,8 +637,8 @@ async function listOrderProfitability(query = {}) {
                       $divide: [
                         {
                           $subtract: [
-                            '$revenueAmount',
-                            { $add: ['$marketplaceFeeAmount', '$refundAmount', '$discountAmount', '$totalCostAmount'] },
+                            '$netRevenueAmount',
+                            { $add: ['$marketplaceFeeAmount', '$discountAmount', '$totalCostAmount'] },
                           ],
                         },
                         '$revenueAmount',

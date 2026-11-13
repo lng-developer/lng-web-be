@@ -174,8 +174,24 @@ function buildFilter(query = {}) {
       filter.status = query.status;
     }
   }
-  if (query.scaleStatus) filter.scaleStatus = query.scaleStatus;
-  if (query.qcStatus) filter.qcStatus = query.qcStatus;
+  if (query.scaleStatus) {
+    if (Array.isArray(query.scaleStatus)) {
+      filter.scaleStatus = { $in: query.scaleStatus };
+    } else if (typeof query.scaleStatus === 'string' && query.scaleStatus.includes(',')) {
+      filter.scaleStatus = { $in: query.scaleStatus.split(',').map((s) => s.trim()) };
+    } else {
+      filter.scaleStatus = query.scaleStatus;
+    }
+  }
+  if (query.qcStatus) {
+    if (Array.isArray(query.qcStatus)) {
+      filter.qcStatus = { $in: query.qcStatus };
+    } else if (typeof query.qcStatus === 'string' && query.qcStatus.includes(',')) {
+      filter.qcStatus = { $in: query.qcStatus.split(',').map((s) => s.trim()) };
+    } else {
+      filter.qcStatus = query.qcStatus;
+    }
+  }
   if (query.scaleQueueOnly) {
     const scaleQueueStatuses = [productionTaskStatuses.NEED_SCALE, productionTaskStatuses.QC_REJECTED];
     filter.status = scaleQueueStatuses.includes(query.status) ? query.status : { $in: scaleQueueStatuses };

@@ -145,6 +145,74 @@ describe('AmazonTrackingSubmission Service', () => {
         service.createSubmission({ shopId, agentId, shipmentIds: [shipmentId1] }, authUser)
       ).rejects.toThrow('is not in SHIPPED status');
     });
+
+    it('creates a single feed line when multiple shipments for the same order share the same tracking number', async () => {
+      extensionCommandRepository.findAgentById.mockResolvedValue({ _id: agentId, shopId });
+      shipmentPublic.findByIds.mockResolvedValue([
+        {
+          _id: shipmentId1,
+          shopId,
+          status: 'SHIPPED',
+          externalOrderId: '114-0159247-1546624',
+          carrier: 'UPS Mail Innovations',
+          trackingNumber: '92612903108421543475001234',
+          shippedAt: new Date('2026-11-11T10:00:00Z'),
+        },
+        {
+          _id: shipmentId2,
+          shopId,
+          status: 'SHIPPED',
+          externalOrderId: '114-0159247-1546624',
+          carrier: 'UPS Mail Innovations',
+          trackingNumber: '92612903108421543475001234',
+          shippedAt: new Date('2026-11-11T10:00:00Z'),
+        },
+      ]);
+      repository.create.mockResolvedValue({
+        _id: submissionId,
+        shopId,
+        agentId,
+        shipmentIds: [shipmentId1, shipmentId2],
+        filename: 'shipping-confirmation-123.txt',
+        tsv: '',
+        rowCount: 1,
+        checksum: 'fake-checksum',
+        status: 'PENDING',
+      });
+      extensionCommandRepository.createCommand.mockResolvedValue({
+        _id: commandId,
+        type: 'UPLOAD_TRACKING',
+        status: 'QUEUED',
+        trackingSubmissionId: submissionId,
+      });
+      repository.updateById.mockResolvedValue({
+        _id: submissionId,
+        shopId,
+        agentId,
+        commandId,
+        shipmentIds: [shipmentId1, shipmentId2],
+        rowCount: 1,
+        status: 'PENDING',
+      });
+      shipmentPublic.updateMarketplaceConfirmation.mockResolvedValue({ modifiedCount: 2 });
+
+      await service.createSubmission(
+        { shopId, agentId, shipmentIds: [shipmentId1, shipmentId2] },
+        authUser,
+      );
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rowCount: 1,
+          shipmentIds: [shipmentId1, shipmentId2],
+          tsv: expect.stringMatching(/114-0159247-1546624\t\t\t2026-11-11\tUPS\t\t92612903108421543475001234/),
+        }),
+      );
+      expect(shipmentPublic.updateMarketplaceConfirmation).toHaveBeenCalledWith(
+        [shipmentId1, shipmentId2],
+        { status: 'SUBMITTED', submissionId },
+      );
+    });
   });
 
   describe('Agent tracking lifecycle callbacks', () => {
