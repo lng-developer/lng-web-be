@@ -55,6 +55,8 @@ const listOrdersQuerySchema = paginationQuerySchema.keys({
   employeeCode: Joi.string().trim().uppercase().max(80),
   sort: Joi.string().trim().max(300).custom(validateOrderSort),
   status: Joi.string().valid(...Object.values(orderStatuses)),
+  stage: Joi.string().trim().uppercase().max(60),
+  itemStatus: Joi.string().trim().uppercase().max(60),
   costCenterStatus: Joi.string().trim().uppercase().valid(...Object.values(costCenterStatuses)),
   psdStatus: Joi.string().trim().uppercase().valid(...Object.values(psdStatuses)),
   addressValidationStatus: Joi.string().trim().uppercase().valid(...Object.values(addressValidationStatuses)),
