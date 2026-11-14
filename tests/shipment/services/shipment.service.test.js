@@ -1,6 +1,7 @@
 jest.mock('../../../src/modules/vendorSubmission/public', () => ({
   getById: jest.fn(),
   listSubmittedForTracking: jest.fn(),
+  cancelAfterExternalCancellation: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/vendor/public', () => ({
@@ -370,6 +371,31 @@ describe('shipment.service', () => {
       },
     }));
     expect(result.status).toBe('SHIPPED');
+  });
+
+  test('tracking update resolves safe shippedAt from order SLA shipByDate when vendor provides no date', async () => {
+    const pastSlaDate = new Date('2026-11-10T12:00:00.000Z');
+    if (typeof orderPublic.findById === 'function') {
+      orderPublic.findById.mockResolvedValueOnce({
+        _id: orderId,
+        orderedAt: new Date('2026-11-08T10:00:00.000Z'),
+        shipByDate: pastSlaDate,
+      });
+    }
+
+    await service.updateTracking(shipmentId, {
+      carrier: 'USPS',
+      trackingNumber: '940011189922385',
+    }, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(repository.updateTrackingIfNotDelivered).toHaveBeenCalledWith(shipmentId, expect.objectContaining({
+      carrier: 'USPS',
+      trackingNumber: '940011189922385',
+      shippedAt: pastSlaDate,
+    }));
   });
 
   test('tracking update requires carrier and tracking number', async () => {
@@ -1427,6 +1453,38 @@ describe('shipment.service', () => {
     expect(repository.updateStatusIfCurrent).not.toHaveBeenCalled();
   });
 
+  test('submitted vendor tracking batch skips already shipped or tracked shipments', async () => {
+    const fetchTrackingByExternalOrderId = jest.fn();
+    vendorSubmissionPublic.listSubmittedForTracking.mockResolvedValue([{
+      id: vendorSubmissionId,
+      provider: 'PRINTWAY',
+      vendorExternalOrderId: '4095267035',
+      orderItemId,
+      shopId,
+    }]);
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: shipmentId,
+      orderItemId,
+      status: 'SHIPPED',
+      carrier: 'USPS',
+      trackingNumber: '9400111899223850000001',
+      shippedAt: new Date(),
+    });
+    getTrackingAdapter.mockReturnValueOnce({ fetchTrackingByExternalOrderId });
+
+    const result = await service.recheckSubmittedVendorTracking({}, {
+      permissions: ['SHIPMENTS:WRITE'],
+    });
+
+    expect(result).toMatchObject({ checked: 1, applied: 0, skipped: 1, failed: 0 });
+    expect(result.items).toEqual([expect.objectContaining({
+      status: 'SKIPPED',
+      reason: 'SHIPMENT_ALREADY_TRACKED',
+    })]);
+    expect(fetchTrackingByExternalOrderId).not.toHaveBeenCalled();
+    expect(repository.updateTrackingIfNotDelivered).not.toHaveBeenCalled();
+  });
+
   test('keeps processing remaining submissions after one vendor adapter failure', async () => {
     const validOrderItemId = '660000000000000000130014';
     vendorSubmissionPublic.listSubmittedForTracking.mockResolvedValue([
@@ -1510,5 +1568,70 @@ describe('shipment.service', () => {
       statusCode: 400,
       code: 'VALIDATION_ERROR',
     });
+  });
+
+  test('vendor tracking recheck applies CANCELLED status when vendor cancelled production', async () => {
+    vendorSubmissionPublic.getById.mockResolvedValueOnce({
+      ...submittedSubmission,
+      orderExternalOrderId: '111-1735702-9483436',
+    });
+
+    vendorPublic.getVendorIntegrationAssignment.mockResolvedValueOnce({
+      providerKey: 'MERCHIZE',
+      status: 'CONNECTED',
+    });
+    vendorPublic.getVendorIntegrationCredential.mockResolvedValueOnce({
+      apiKey: 'test-key',
+    });
+
+    getTrackingAdapter.mockReturnValueOnce({
+      fetchTrackingByExternalOrderId: jest.fn().mockResolvedValue({
+        rawStatus: 'cancelled_production',
+        vendorStatus: 'cancelled_production',
+        shipmentStatus: 'CANCELLED',
+        trackingNumber: null,
+        carrier: null,
+      }),
+    });
+
+    const pendingShipment = {
+      ...shipment,
+      status: 'TRACKING_PENDING',
+      trackingNumber: null,
+      carrier: null,
+    };
+    repository.findActiveByVendorSubmission.mockResolvedValueOnce(pendingShipment);
+    repository.findById.mockResolvedValueOnce(pendingShipment);
+    repository.updateStatusIfCurrent.mockResolvedValueOnce({
+      ...pendingShipment,
+      status: 'CANCELLED',
+    });
+
+    const result = await service.recheckVendorTracking({
+      vendorSubmissionId,
+    }, { permissions: ['SHIPMENTS:WRITE'], accountId: actorId });
+
+    expect(result.applied).toBe(true);
+    expect(result.shipment.status).toBe('CANCELLED');
+    expect(repository.updateStatusIfCurrent).toHaveBeenCalledWith(
+      shipmentId,
+      'TRACKING_PENDING',
+      expect.objectContaining({
+        status: 'CANCELLED',
+      }),
+    );
+    expect(vendorSubmissionPublic.cancelAfterExternalCancellation).toHaveBeenCalledWith(
+      vendorSubmissionId,
+      expect.objectContaining({
+        cancelReason: expect.stringMatching(/cancelled production/i),
+      }),
+      expect.anything(),
+    );
+    expect(orderPublic.appendTimelineOnce).toHaveBeenCalledWith(
+      expect.objectContaining({
+        idempotencyKey: `SHIPMENT_STATUS:${shipmentId}:CANCELLED`,
+        eventType: 'SHIPMENT_CANCELLED',
+      }),
+    );
   });
 });

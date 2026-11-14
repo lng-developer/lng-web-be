@@ -47,6 +47,10 @@ describe('vendorTrackingNormalizer.service', () => {
     ['return_to_sender', 'RETURNED'],
     ['cancelled', 'CANCELLED'],
     ['canceled', 'CANCELLED'],
+    ['cancelled_production', 'CANCELLED'],
+    ['canceled_production', 'CANCELLED'],
+    ['cancel_order', 'CANCELLED'],
+    ['cancel', 'CANCELLED'],
   ])('maps %s to canonical shipment status %s', (status, shipmentStatus) => {
     const result = normalizer.normalizeVendorTrackingPayload('mangotee', {
       trackingNumber: '1Z999AA10123456784',

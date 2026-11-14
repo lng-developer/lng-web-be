@@ -14,6 +14,7 @@ const { shipmentPermissions, shipmentStatuses } = require('../constants/shipment
 const repository = require('../repositories/shipment.repository');
 const { getTrackingAdapter } = require('./vendorTrackingAdapterRegistry.service');
 const { normalizeShipmentStatus } = require('./vendorTrackingNormalizer.service');
+const aftershipTrackingService = require('./aftershipTracking.service');
 const {
   assertMatchingTrackingIdentity,
   deriveTrackingIdentity,
@@ -454,13 +455,58 @@ async function updateTracking(shipmentId, payload = {}, authContext) {
     await repairTrackingSideEffects(shipment, carrier, trackingNumber, authContext);
     return toShipmentDto(shipment);
   }
+function getPstTodayEnd() {
+  const pstFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' });
+  const [year, month, day] = pstFormatter.format(new Date()).split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
+}
+
+async function resolveSafeShipDate(shipment, vendorShippedAt) {
+  const todayPst = getPstTodayEnd();
+
+  if (shipment?.shippedAt) {
+    const existingDate = new Date(shipment.shippedAt);
+    if (!Number.isNaN(existingDate.getTime())) {
+      return existingDate > todayPst ? todayPst : existingDate;
+    }
+  }
+
+  if (vendorShippedAt && !Number.isNaN(vendorShippedAt.getTime())) {
+    return vendorShippedAt > todayPst ? todayPst : vendorShippedAt;
+  }
+
+  let order = null;
+  if (shipment?.orderId && typeof orderPublic?.findById === 'function') {
+    try {
+      order = await orderPublic.findById(shipment.orderId);
+    } catch (_) {
+      order = null;
+    }
+  }
+
+  const orderedAt = order?.orderedAt ? new Date(order.orderedAt) : null;
+  const shipByDate = order?.shipByDate ? new Date(order.shipByDate) : null;
+
+  let candidate = todayPst;
+  if (shipByDate && !Number.isNaN(shipByDate.getTime())) {
+    if (shipByDate <= todayPst) {
+      candidate = shipByDate;
+    } else {
+      candidate = todayPst;
+    }
+  }
+
+  if (orderedAt && !Number.isNaN(orderedAt.getTime()) && candidate < orderedAt) {
+    candidate = orderedAt;
+  }
+
+  return candidate;
+}
   if (shipment.status === shipmentStatuses.EXCEPTION) {
     throw conflict('Exception shipment tracking cannot be changed', { status: shipment.status });
   }
   const vendorShippedAt = payload.shippedAt ? new Date(payload.shippedAt) : null;
-  const shippedAt = shipment.shippedAt
-    || (vendorShippedAt && !Number.isNaN(vendorShippedAt.getTime()) ? vendorShippedAt : null)
-    || new Date();
+  const shippedAt = await resolveSafeShipDate(shipment, vendorShippedAt);
   const updated = await repository.updateTrackingIfNotDelivered(shipmentId, {
     carrier,
     trackingNumber,
@@ -558,11 +604,31 @@ async function updateStatus(shipmentId, payload = {}, authContext) {
       await notifyOrderOwnerOfException(updated);
     }
   }
+  if (status === shipmentStatuses.CANCELLED) {
+    await appendShipmentTimeline(
+      updated,
+      'SHIPMENT_CANCELLED',
+      authContext,
+      { reason: payload.note || 'Vendor shipment cancelled' },
+      `SHIPMENT_STATUS:${updated._id || updated.id}:${status}`,
+    ).catch(() => {});
+    if (updated.vendorSubmissionId) {
+      try {
+        await vendorSubmissionPublic.cancelAfterExternalCancellation(
+          String(updated.vendorSubmissionId),
+          { cancelReason: payload.note || `Vendor ${updated.provider || 'vendor'} cancelled production` },
+          authContext,
+        );
+      } catch (err) {
+        logger.warn('vendor_submission_cancel_failed', { vendorSubmissionId: updated.vendorSubmissionId, error: err });
+      }
+    }
+  }
   return toShipmentDto(updated);
 }
 
 async function fetchVendorTracking(identity, options = {}) {
-  const { provider, vendorId, vendorExternalOrderId } = identity;
+  const { provider, vendorId, vendorExternalOrderId, orderExternalOrderId } = identity;
   try {
     const integration = await vendorPublic.getVendorIntegrationAssignment(vendorId);
     const configuredProvider = String(integration?.adapterKey || integration?.providerKey || '').trim().toUpperCase();
@@ -585,7 +651,11 @@ async function fetchVendorTracking(identity, options = {}) {
     }
     const credential = await vendorPublic.getVendorIntegrationCredential(vendorId, provider);
     if (!credential) throw validationError('Vendor tracking credentials are not configured', { provider, vendorId });
-    return await adapter.fetchTrackingByExternalOrderId(vendorExternalOrderId, { ...options, credential });
+    return await adapter.fetchTrackingByExternalOrderId(vendorExternalOrderId, {
+      ...options,
+      credential,
+      orderExternalOrderId,
+    });
   } catch (error) {
     throw conflict('Vendor tracking request failed', {
       provider,
@@ -599,7 +669,21 @@ async function applyTrackingUpdate(vendorSubmissionId, update = {}, authContext)
   let existing = await repository.findActiveByVendorSubmission(vendorSubmissionId);
   const nextStatus = normalizeShipmentStatus(update.shipmentStatus);
   const trackingNumber = String(update.trackingNumber || '').trim();
-  const carrier = String(update.carrier || update.provider || '').trim();
+  let carrier = String(update.carrier || update.provider || '').trim();
+
+  if (trackingNumber && (carrier === 'VIETTEL_POST' || carrier === 'LNG_GROUP' || !carrier)) {
+    try {
+      const normalized = await aftershipTrackingService.normalizeForAmazon({
+        trackingNumber,
+        carrier,
+        shippedAt: update.shippedAt || null,
+      });
+      if (normalized?.carrier) {
+        carrier = normalized.carrier;
+      }
+    } catch (_) {}
+  }
+
   const trackingUrl = update.trackingUrl ? String(update.trackingUrl).trim() : null;
   const trackingUnchanged = Boolean(existing && trackingNumber
     && existing.carrier === carrier
@@ -615,6 +699,10 @@ async function applyTrackingUpdate(vendorSubmissionId, update = {}, authContext)
     return { applied: true, shipment: toShipmentDto(existing) };
   }
 
+  if (!existing && nextStatus === shipmentStatuses.CANCELLED) {
+    existing = await createFromVendorSubmission(vendorSubmissionId, authContext);
+  }
+
   if (nextStatus && existing) {
     if (terminalShipmentStatuses.has(existing.status)) {
       return { applied: true, shipment: toShipmentDto(existing) };
@@ -623,9 +711,15 @@ async function applyTrackingUpdate(vendorSubmissionId, update = {}, authContext)
       (!trackingNumber || trackingUnchanged || existing.status === shipmentStatuses.EXCEPTION)
       && statusTransitions[existing.status]?.has(nextStatus)
     ) {
+      const statusNote = nextStatus === shipmentStatuses.CANCELLED
+        ? (update.note ? `${update.note}: cancelled production` : 'Vendor reported cancelled production')
+        : update.note;
       return {
         applied: true,
-        shipment: await updateStatus(existing._id || existing.id, { status: nextStatus }, authContext),
+        shipment: await updateStatus(existing._id || existing.id, {
+          status: nextStatus,
+          note: statusNote,
+        }, authContext),
       };
     }
   }
@@ -715,8 +809,21 @@ function compactBatchError(error) {
   };
 }
 
+function isReadyForMarketplace(shipment) {
+  return Boolean(
+    shipment
+    && String(shipment.trackingNumber || '').trim()
+    && String(shipment.carrier || '').trim()
+    && shipment.shippedAt
+  );
+}
+
 function shouldSkipShipment(shipment) {
-  return [shipmentStatuses.DELIVERED, shipmentStatuses.RETURNED, shipmentStatuses.CANCELLED].includes(shipment?.status);
+  if (!shipment) return false;
+  if ([shipmentStatuses.DELIVERED, shipmentStatuses.RETURNED, shipmentStatuses.CANCELLED].includes(shipment.status)) {
+    return true;
+  }
+  return isReadyForMarketplace(shipment);
 }
 
 async function recheckSubmittedVendorTracking(query = {}, authContext) {
@@ -759,12 +866,18 @@ async function recheckSubmittedVendorTracking(query = {}, authContext) {
     const existingShipment = await repository.findByOrderItem(submission.orderItemId);
     if (shouldSkipShipment(existingShipment)) {
       await repository.touchLastCheckedAtByVendorSubmission(submission.id, new Date()).catch(() => {});
+      let reason = 'SHIPMENT_DELIVERED';
+      if (existingShipment.status === shipmentStatuses.RETURNED) {
+        reason = 'SHIPMENT_RETURNED';
+      } else if (existingShipment.status === shipmentStatuses.CANCELLED) {
+        reason = 'SHIPMENT_CANCELLED';
+      } else if (isReadyForMarketplace(existingShipment)) {
+        reason = 'SHIPMENT_ALREADY_TRACKED';
+      }
       items.push({
         ...base,
         status: 'SKIPPED',
-        reason: existingShipment.status === shipmentStatuses.RETURNED
-          ? 'SHIPMENT_RETURNED'
-          : existingShipment.status === shipmentStatuses.CANCELLED ? 'SHIPMENT_CANCELLED' : 'SHIPMENT_DELIVERED',
+        reason,
       });
       continue;
     }

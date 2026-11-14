@@ -71,6 +71,7 @@ const schema = Joi.object({
   TEAMS_ENCRYPTION_KEY: Joi.string().allow('').default(''),
   TEAMS_OAUTH_REDIRECT_URI: Joi.string().uri({ scheme: ['https'] }).allow('').default(''),
   TEAMS_OUTBOX_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
+  AFTERSHIP_API_KEY: Joi.string().allow('').default(''),
 }).unknown(true);
 
 const { value, error } = schema.validate(process.env, {
@@ -156,5 +157,8 @@ module.exports = {
     encryptionKey: value.TEAMS_ENCRYPTION_KEY || null,
     oauthRedirectUri: value.TEAMS_OAUTH_REDIRECT_URI || null,
     outboxEnabled: value.TEAMS_OUTBOX_ENABLED,
+  },
+  aftership: {
+    apiKey: value.AFTERSHIP_API_KEY || null,
   },
 };

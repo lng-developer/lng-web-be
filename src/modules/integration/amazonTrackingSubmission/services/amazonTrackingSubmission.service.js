@@ -84,14 +84,28 @@ async function createSubmission(payload, authContext) {
       throw badRequest(`Shipment ${shipment._id} is missing tracking details (carrier, trackingNumber, or shippedAt)`);
     }
 
-    const shipDate = formatDate(shipment.shippedAt);
-    const carrierCode = normalizeCarrierCode(shipment.carrier);
-    let shipMethod = 'Standard';
-    if (carrierCode === 'USPS') {
+    let normalized = null;
+    if (typeof shipmentPublic.normalizeTrackingForAmazon === 'function') {
+      try {
+        normalized = await shipmentPublic.normalizeTrackingForAmazon({
+          trackingNumber: shipment.trackingNumber,
+          carrier: shipment.carrier,
+          shippedAt: shipment.shippedAt,
+        });
+      } catch (_err) {
+        normalized = null;
+      }
+    }
+
+    const shipDate = normalized?.shipDate || formatDate(shipment.shippedAt);
+    const resolvedCarrier = normalized?.carrier || shipment.carrier;
+    const carrierCode = normalized?.carrierCode || normalizeCarrierCode(resolvedCarrier);
+    let shipMethod = normalized?.shipMethod || 'Standard';
+    if (carrierCode === 'USPS' && shipMethod === 'Standard') {
       shipMethod = 'USPS First Class';
-    } else if (carrierCode === 'UPS') {
+    } else if (carrierCode === 'UPS' && shipMethod === 'Standard') {
       shipMethod = 'UPS Ground';
-    } else if (carrierCode === 'FedEx') {
+    } else if (carrierCode === 'FedEx' && shipMethod === 'Standard') {
       shipMethod = 'FedEx Ground';
     }
 
@@ -105,9 +119,9 @@ async function createSubmission(payload, authContext) {
       externalItemId: item?.externalItemId || null,
       quantity: item?.quantity || null,
       shipDate,
-      carrier: shipment.carrier,
+      carrier: resolvedCarrier,
       carrierCode,
-      trackingNumber: shipment.trackingNumber,
+      trackingNumber: normalized?.trackingNumber || shipment.trackingNumber,
       shipMethod,
     });
     validShipmentIds.push(shipment._id);

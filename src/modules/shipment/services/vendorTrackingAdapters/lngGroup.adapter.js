@@ -16,7 +16,14 @@ function normalizeLngGroupTracking(externalOrderId, payload = {}) {
     trackingUrl: cleanString(packageInfo.trackingUrl),
     vendorStatus: cleanString(packageInfo.status).toUpperCase(),
     rawStatus: cleanString(packageInfo.status),
-    shippedAt: cleanString(packageInfo.shippedAt),
+    shippedAt: cleanString(
+      packageInfo.shippedAt
+      || packageInfo.shipDate
+      || packageInfo.shipdate
+      || order.shippedAt
+      || order.shipDate
+      || order.shipdate
+    ),
   };
 }
 
@@ -27,7 +34,7 @@ module.exports = Object.freeze({
     return normalizeVendorTrackingPayload(provider, payload);
   },
 
-  async fetchTrackingByExternalOrderId(externalOrderId, { credential } = {}) {
+  async fetchTrackingByExternalOrderId(externalOrderId, { credential, orderExternalOrderId } = {}) {
     const baseUrl = credential?.baseUrl;
     const token = credential?.accessToken;
     if (!baseUrl || !token) {
@@ -36,10 +43,17 @@ module.exports = Object.freeze({
       throw error;
     }
 
-    const response = await fetch(
-      `${baseUrl.replace(/\/+$/, '')}/api/portal/orders/${encodeURIComponent(externalOrderId)}`,
+    const targetOrderId = orderExternalOrderId || externalOrderId;
+    let response = await fetch(
+      `${baseUrl.replace(/\/+$/, '')}/api/portal/orders/${encodeURIComponent(targetOrderId)}`,
       { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } },
     );
+    if (response.status === 404 && targetOrderId !== externalOrderId) {
+      response = await fetch(
+        `${baseUrl.replace(/\/+$/, '')}/api/portal/orders/${encodeURIComponent(externalOrderId)}`,
+        { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } },
+      );
+    }
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || payload?.success === false) {
       const error = new Error('LNG Group tracking request failed');

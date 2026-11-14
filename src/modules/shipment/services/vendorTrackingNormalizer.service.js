@@ -37,7 +37,14 @@ function normalizeShipmentStatus(value) {
   if (['shipped', 'fulfilled', 'completed', 'complete'].includes(status)) return 'SHIPPED';
   if (['exception', 'failed', 'failure', 'delivery_exception'].includes(status)) return 'EXCEPTION';
   if (['returned', 'return_to_sender'].includes(status)) return 'RETURNED';
-  if (['cancelled', 'canceled'].includes(status)) return 'CANCELLED';
+  if ([
+    'cancelled',
+    'canceled',
+    'cancelled_production',
+    'canceled_production',
+    'cancel_order',
+    'cancel',
+  ].includes(status)) return 'CANCELLED';
   return null;
 }
 
@@ -141,7 +148,16 @@ function collectTrackingCandidates(root) {
       obj.url,
       isPlainObject(obj.tracking) ? obj.tracking.url : '',
     );
-    const updatedAt = firstValue(obj.updated_at, obj.updatedAt, obj.shipped_at, obj.shippedAt, obj.created_at, obj.createdAt);
+    const updatedAt = firstValue(
+      obj.updated_at,
+      obj.updatedAt,
+      obj.shipped_at,
+      obj.shippedAt,
+      obj.created_at,
+      obj.createdAt,
+      obj.created,
+      obj.updated,
+    );
     const updatedAtMs = updatedAt ? new Date(updatedAt).getTime() : 0;
 
     if (trackingNumber || carrier || status || trackingUrl) {

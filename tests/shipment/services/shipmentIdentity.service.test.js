@@ -32,6 +32,21 @@ describe('shipmentIdentity.service', () => {
     });
   });
 
+  test('derives orderExternalOrderId when present in snapshot or submission', () => {
+    expect(deriveTrackingIdentity({
+      ...identity,
+      externalOrderId: '111-1735702-9483436',
+    })).toEqual({
+      vendorId: '660000000000000000130009',
+      provider: 'MERCHIZE',
+      vendorExternalOrderId: 'MZ-100',
+      shopId: '660000000000000000130005',
+      orderId: '660000000000000000130003',
+      orderItemId: '660000000000000000130004',
+      orderExternalOrderId: '111-1735702-9483436',
+    });
+  });
+
   test('rejects compatibility fields that do not match persisted identity', () => {
     const derived = deriveTrackingIdentity(identity);
     expect(() => assertMatchingTrackingIdentity(derived, { provider: 'PRINTWAY' }))
