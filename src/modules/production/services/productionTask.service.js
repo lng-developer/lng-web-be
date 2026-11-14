@@ -1083,6 +1083,7 @@ function snapshotPayload({ item, order, plan, listing, template, customization, 
       asin: item.asin || null,
       etsyListingId,
       externalListingId: item.externalListingId || null,
+      variantRaw: item.variantRaw || null,
       sku: item.sku || null,
       title: item.title || null,
       productImageUrl: productImageUrlFrom(item, listing, customization),
@@ -1462,6 +1463,8 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
       ));
       readinessSnapshots.designType = buyerImages.length
         ? 'CUSTOM_IMAGE'
+        : item.salesChannelCode === 'ETSY' && item.customizationRawSummary?.hasCustomization === false
+          ? 'NORMAL'
         : customization?.status === 'PARSED' && !customization.needsReview
           && Array.isArray(customization.customerInputs?.images)
           && (customization.customerInputs.texts?.length || customization.customerInputs.options?.length)
@@ -1646,13 +1649,16 @@ function toPsdRecheckItem(task, result) {
 }
 
 async function attachEtsyListingIds(tasks = []) {
-  const missing = tasks.filter((task) => (
+  const etsyTasks = tasks.filter((task) => (
     task &&
-    (task.orderItemSnapshot?.salesChannelCode === 'ETSY' || task.salesChannelCode === 'ETSY') &&
+    (task.orderItemSnapshot?.salesChannelCode === 'ETSY' || task.salesChannelCode === 'ETSY')
+  ));
+  const missing = etsyTasks.filter((task) => (
     !task.orderItemSnapshot?.etsyListingId &&
     !task.listingSnapshot?.etsyListingId
   ));
-  if (!missing.length) return tasks;
+  const missingVariants = etsyTasks.filter((task) => !task.orderItemSnapshot?.variantRaw);
+  if (!missing.length && !missingVariants.length) return tasks;
 
   const listingIds = unique(missing.map((task) => toId(task.listingSnapshot?.id || task.listingSnapshot?._id)).filter(Boolean));
   const listings = listingIds.length && typeof catalogPublic.getListingsByIds === 'function'
@@ -1660,27 +1666,33 @@ async function attachEtsyListingIds(tasks = []) {
     : [];
   const byListingId = new Map(listings.map((l) => [toId(l._id || l.id), l.etsyListingId]));
 
-  const stillMissingItemIds = missing
+  const itemIds = unique([
+    ...missing
     .filter((task) => !byListingId.get(toId(task.listingSnapshot?.id || task.listingSnapshot?._id)))
     .map((task) => toId(task.orderItemId))
-    .filter(Boolean);
-  const items = stillMissingItemIds.length && typeof orderPublic.findItemsByIds === 'function'
-    ? await orderPublic.findItemsByIds(stillMissingItemIds)
+    .filter(Boolean),
+    ...missingVariants.map((task) => toId(task.orderItemId)).filter(Boolean),
+  ]);
+  const items = itemIds.length && typeof orderPublic.findItemsByIds === 'function'
+    ? await orderPublic.findItemsByIds(itemIds)
     : [];
-  const byItemId = new Map(items.map((item) => [toId(item._id || item.id), item.externalListingId]));
+  const byItemId = new Map(items.map((item) => [toId(item._id || item.id), item]));
 
   return tasks.map((task) => {
     const listingId = toId(task.listingSnapshot?.id || task.listingSnapshot?._id);
+    const item = byItemId.get(toId(task.orderItemId));
     const etsyListingId = byListingId.get(listingId)
-      || byItemId.get(toId(task.orderItemId))
+      || item?.externalListingId
       || null;
-    if (!etsyListingId) return task;
+    const variantRaw = task.orderItemSnapshot?.variantRaw || item?.variantRaw || null;
+    if (!etsyListingId && !variantRaw) return task;
     return {
       ...task,
       orderItemSnapshot: {
         ...(task.orderItemSnapshot || {}),
         etsyListingId: task.orderItemSnapshot?.etsyListingId || etsyListingId,
         externalListingId: task.orderItemSnapshot?.externalListingId || etsyListingId,
+        variantRaw,
       },
       listingSnapshot: {
         ...(task.listingSnapshot || {}),

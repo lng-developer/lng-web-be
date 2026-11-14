@@ -22,6 +22,7 @@ jest.mock('../../../src/modules/order/public', () => ({
   findById: jest.fn(),
   findOrdersByIds: jest.fn(),
   findItemById: jest.fn(),
+  findItemsByIds: jest.fn(),
   findItemIds: jest.fn(),
   transitionItemStatus: jest.fn(),
   updateOrderWorkbenchItem: jest.fn(),
@@ -262,6 +263,7 @@ describe('productionTask.service', () => {
     orderPublic.findById.mockResolvedValue(order);
     orderPublic.findOrdersByIds.mockResolvedValue([order]);
     orderPublic.findItemById.mockResolvedValue(item);
+    orderPublic.findItemsByIds.mockResolvedValue([]);
     orderPublic.transitionItemStatus.mockResolvedValue({});
     orderPublic.appendTimeline.mockResolvedValue({});
     shopPublic.findById.mockResolvedValue({ _id: shopId, name: 'LNG Main Shop' });
@@ -819,11 +821,11 @@ describe('productionTask.service', () => {
 
     await expect(service.createOrRecheckTaskForOrderItem(orderItemId, {
       permissions: ['PRODUCTION:WRITE'],
-    })).resolves.toMatchObject({ orderItemId });
+    })).resolves.toMatchObject({ orderItemId, designType: 'NORMAL' });
 
     expect(customizationPublic.getOrderItemCustomizationView).not.toHaveBeenCalled();
     expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId,
-      expect.objectContaining({ customizationSnapshot: null }));
+      expect.objectContaining({ customizationSnapshot: null, designType: 'NORMAL' }));
   });
 
   test('uses the order item listing when an old fulfillment plan has no listing snapshot', async () => {
@@ -2264,6 +2266,34 @@ describe('productionTask.service', () => {
 
     expect(orderPublic.findOrdersByIds).toHaveBeenCalledWith([orderId, secondOrderId]);
     expect(orderPublic.findById).not.toHaveBeenCalled();
+  });
+
+  test('enriches Etsy task rows with current variant selections when their snapshot is missing', async () => {
+    const etsyItem = {
+      ...item,
+      salesChannelCode: 'ETSY',
+      externalListingId: '1793859852095',
+      variantRaw: 'Choose Your Size: 4 INCHES, Choose Design: Santa Gifts',
+    };
+    repository.list.mockResolvedValueOnce({
+      items: [{
+        _id: taskId,
+        shopId,
+        orderItemId,
+        orderSnapshot: order,
+        orderItemSnapshot: { salesChannelCode: 'ETSY', externalListingId: '1793859852095' },
+        status: 'NEED_SCALE',
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+    orderPublic.findItemsByIds.mockResolvedValueOnce([etsyItem]);
+
+    const result = await service.listTasks({}, { permissions: ['PRODUCTION:READ'] });
+
+    expect(orderPublic.findItemsByIds).toHaveBeenCalledWith([orderItemId]);
+    expect(result.items[0].orderItem.variantRaw).toBe(etsyItem.variantRaw);
   });
 
   test('starts independent list enrichment batches without waiting for shop enrichment', async () => {

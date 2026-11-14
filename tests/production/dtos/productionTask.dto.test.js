@@ -5,6 +5,20 @@ const {
 } = require('../../../src/modules/production/dtos/productionTask.dto');
 
 describe('productionTask.dto', () => {
+  test('exposes Etsy variant selections separately from customization', () => {
+    const dto = toProductionTaskSummaryDto({
+      _id: '660000000000000000100001',
+      orderItemSnapshot: {
+        salesChannelCode: 'ETSY',
+        variantRaw: 'Choose Your Size: 4 INCHES, Choose Design: Santa Gifts',
+      },
+    });
+
+    expect(dto.orderItem).toMatchObject({
+      variantRaw: 'Choose Your Size: 4 INCHES, Choose Design: Santa Gifts',
+    });
+  });
+
   test('does not replace a missing task source with a different listing source', () => {
     const dto = toProductionTaskSummaryDto({
       _id: '660000000000000000100001',
