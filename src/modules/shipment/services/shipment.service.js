@@ -558,11 +558,31 @@ async function updateStatus(shipmentId, payload = {}, authContext) {
       await notifyOrderOwnerOfException(updated);
     }
   }
+  if (status === shipmentStatuses.CANCELLED) {
+    await appendShipmentTimeline(
+      updated,
+      'SHIPMENT_CANCELLED',
+      authContext,
+      { reason: payload.note || 'Vendor shipment cancelled' },
+      `SHIPMENT_STATUS:${updated._id || updated.id}:${status}`,
+    ).catch(() => {});
+    if (updated.vendorSubmissionId) {
+      try {
+        await vendorSubmissionPublic.cancelAfterExternalCancellation(
+          String(updated.vendorSubmissionId),
+          { cancelReason: payload.note || `Vendor ${updated.provider || 'vendor'} cancelled production` },
+          authContext,
+        );
+      } catch (err) {
+        logger.warn('vendor_submission_cancel_failed', { vendorSubmissionId: updated.vendorSubmissionId, error: err });
+      }
+    }
+  }
   return toShipmentDto(updated);
 }
 
 async function fetchVendorTracking(identity, options = {}) {
-  const { provider, vendorId, vendorExternalOrderId } = identity;
+  const { provider, vendorId, vendorExternalOrderId, orderExternalOrderId } = identity;
   try {
     const integration = await vendorPublic.getVendorIntegrationAssignment(vendorId);
     const configuredProvider = String(integration?.adapterKey || integration?.providerKey || '').trim().toUpperCase();
@@ -585,7 +605,11 @@ async function fetchVendorTracking(identity, options = {}) {
     }
     const credential = await vendorPublic.getVendorIntegrationCredential(vendorId, provider);
     if (!credential) throw validationError('Vendor tracking credentials are not configured', { provider, vendorId });
-    return await adapter.fetchTrackingByExternalOrderId(vendorExternalOrderId, { ...options, credential });
+    return await adapter.fetchTrackingByExternalOrderId(vendorExternalOrderId, {
+      ...options,
+      credential,
+      orderExternalOrderId,
+    });
   } catch (error) {
     throw conflict('Vendor tracking request failed', {
       provider,
@@ -615,6 +639,10 @@ async function applyTrackingUpdate(vendorSubmissionId, update = {}, authContext)
     return { applied: true, shipment: toShipmentDto(existing) };
   }
 
+  if (!existing && nextStatus === shipmentStatuses.CANCELLED) {
+    existing = await createFromVendorSubmission(vendorSubmissionId, authContext);
+  }
+
   if (nextStatus && existing) {
     if (terminalShipmentStatuses.has(existing.status)) {
       return { applied: true, shipment: toShipmentDto(existing) };
@@ -623,9 +651,15 @@ async function applyTrackingUpdate(vendorSubmissionId, update = {}, authContext)
       (!trackingNumber || trackingUnchanged || existing.status === shipmentStatuses.EXCEPTION)
       && statusTransitions[existing.status]?.has(nextStatus)
     ) {
+      const statusNote = nextStatus === shipmentStatuses.CANCELLED
+        ? (update.note ? `${update.note}: cancelled production` : 'Vendor reported cancelled production')
+        : update.note;
       return {
         applied: true,
-        shipment: await updateStatus(existing._id || existing.id, { status: nextStatus }, authContext),
+        shipment: await updateStatus(existing._id || existing.id, {
+          status: nextStatus,
+          note: statusNote,
+        }, authContext),
       };
     }
   }

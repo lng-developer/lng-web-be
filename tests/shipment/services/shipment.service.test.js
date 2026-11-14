@@ -1,6 +1,7 @@
 jest.mock('../../../src/modules/vendorSubmission/public', () => ({
   getById: jest.fn(),
   listSubmittedForTracking: jest.fn(),
+  cancelAfterExternalCancellation: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/vendor/public', () => ({
@@ -1510,5 +1511,70 @@ describe('shipment.service', () => {
       statusCode: 400,
       code: 'VALIDATION_ERROR',
     });
+  });
+
+  test('vendor tracking recheck applies CANCELLED status when vendor cancelled production', async () => {
+    vendorSubmissionPublic.getById.mockResolvedValueOnce({
+      ...submittedSubmission,
+      orderExternalOrderId: '111-1735702-9483436',
+    });
+
+    vendorPublic.getVendorIntegrationAssignment.mockResolvedValueOnce({
+      providerKey: 'MERCHIZE',
+      status: 'CONNECTED',
+    });
+    vendorPublic.getVendorIntegrationCredential.mockResolvedValueOnce({
+      apiKey: 'test-key',
+    });
+
+    getTrackingAdapter.mockReturnValueOnce({
+      fetchTrackingByExternalOrderId: jest.fn().mockResolvedValue({
+        rawStatus: 'cancelled_production',
+        vendorStatus: 'cancelled_production',
+        shipmentStatus: 'CANCELLED',
+        trackingNumber: null,
+        carrier: null,
+      }),
+    });
+
+    const pendingShipment = {
+      ...shipment,
+      status: 'TRACKING_PENDING',
+      trackingNumber: null,
+      carrier: null,
+    };
+    repository.findActiveByVendorSubmission.mockResolvedValueOnce(pendingShipment);
+    repository.findById.mockResolvedValueOnce(pendingShipment);
+    repository.updateStatusIfCurrent.mockResolvedValueOnce({
+      ...pendingShipment,
+      status: 'CANCELLED',
+    });
+
+    const result = await service.recheckVendorTracking({
+      vendorSubmissionId,
+    }, { permissions: ['SHIPMENTS:WRITE'], accountId: actorId });
+
+    expect(result.applied).toBe(true);
+    expect(result.shipment.status).toBe('CANCELLED');
+    expect(repository.updateStatusIfCurrent).toHaveBeenCalledWith(
+      shipmentId,
+      'TRACKING_PENDING',
+      expect.objectContaining({
+        status: 'CANCELLED',
+      }),
+    );
+    expect(vendorSubmissionPublic.cancelAfterExternalCancellation).toHaveBeenCalledWith(
+      vendorSubmissionId,
+      expect.objectContaining({
+        cancelReason: expect.stringMatching(/cancelled production/i),
+      }),
+      expect.anything(),
+    );
+    expect(orderPublic.appendTimelineOnce).toHaveBeenCalledWith(
+      expect.objectContaining({
+        idempotencyKey: `SHIPMENT_STATUS:${shipmentId}:CANCELLED`,
+        eventType: 'SHIPMENT_CANCELLED',
+      }),
+    );
   });
 });

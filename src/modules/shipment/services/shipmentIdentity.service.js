@@ -19,18 +19,30 @@ function deriveTrackingIdentity(submission = {}) {
       || submission.payloadSnapshot?.orderItemSnapshot?.externalOrderId
       || submission.payloadSnapshot?.externalOrderId
     : null;
-  const identity = {
-    vendorId: String(vendor.id || vendor._id || ''),
+  const orderExternalOrderId = String(
+    submission.payloadSnapshot?.orderSnapshot?.externalOrderId
+    || submission.payloadSnapshot?.orderItemSnapshot?.externalOrderId
+    || submission.payloadSnapshot?.orderItem?.externalOrderId
+    || submission.payloadSnapshot?.externalOrderId
+    || submission.externalOrderId
+    || submission.orderExternalOrderId
+    || ''
+  ).trim();
+  const requiredIdentity = {
+    vendorId: String(vendor.id || vendor._id || submission.vendorId || ''),
     provider,
     vendorExternalOrderId: String(lngPortalOrderId || submission.vendorExternalOrderId || legacyMangoOrderId || '').trim(),
     shopId: String(submission.shopId || ''),
     orderId: String(submission.orderId || ''),
     orderItemId: String(submission.orderItemId || ''),
   };
-  if (Object.values(identity).some((value) => !value)) {
+  if (Object.values(requiredIdentity).some((value) => !value)) {
     throw validationError('Vendor tracking identity is incomplete');
   }
-  return identity;
+  return {
+    ...requiredIdentity,
+    orderExternalOrderId: orderExternalOrderId || null,
+  };
 }
 
 function assertMatchingTrackingIdentity(identity, input = {}) {

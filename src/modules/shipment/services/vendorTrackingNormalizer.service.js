@@ -37,7 +37,14 @@ function normalizeShipmentStatus(value) {
   if (['shipped', 'fulfilled', 'completed', 'complete'].includes(status)) return 'SHIPPED';
   if (['exception', 'failed', 'failure', 'delivery_exception'].includes(status)) return 'EXCEPTION';
   if (['returned', 'return_to_sender'].includes(status)) return 'RETURNED';
-  if (['cancelled', 'canceled'].includes(status)) return 'CANCELLED';
+  if ([
+    'cancelled',
+    'canceled',
+    'cancelled_production',
+    'canceled_production',
+    'cancel_order',
+    'cancel',
+  ].includes(status)) return 'CANCELLED';
   return null;
 }
 
