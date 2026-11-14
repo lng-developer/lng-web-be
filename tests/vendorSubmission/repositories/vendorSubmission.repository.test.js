@@ -129,6 +129,34 @@ describe('vendorSubmission.repository', () => {
     ]));
   });
 
+  test('excludes submissions that already have a shipped, delivered, or tracked shipment', async () => {
+    jest.spyOn(VendorSubmission, 'aggregate').mockResolvedValue([]);
+
+    await repository.listSubmittedForTracking({ limit: 10 });
+
+    const pipeline = VendorSubmission.aggregate.mock.calls[0][0];
+    expect(pipeline).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        $match: expect.objectContaining({
+          $or: expect.arrayContaining([
+            { trackingShipment: { $exists: false } },
+            expect.objectContaining({
+              $or: expect.arrayContaining([
+                { 'trackingShipment.trackingNumber': { $in: [null, ''] } },
+                { 'trackingShipment.carrier': { $in: [null, ''] } },
+                { 'trackingShipment.shippedAt': { $in: [null, ''] } },
+                { 'trackingShipment.status': 'TRACKING_PENDING' },
+              ]),
+              'trackingShipment.status': expect.objectContaining({
+                $nin: ['DELIVERED', 'RETURNED', 'CANCELLED'],
+              }),
+            }),
+          ]),
+        }),
+      }),
+    ]));
+  });
+
   test('includes only legacy MangoTee submissions with an order external id', async () => {
     jest.spyOn(VendorSubmission, 'aggregate').mockResolvedValue([]);
 

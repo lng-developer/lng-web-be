@@ -37,6 +37,27 @@ describe('vendorIntegrationAdapterRegistry.service', () => {
       .resolves.toEqual({ provider: 'MERCHIZE' });
   });
 
+  test('tests Mangotee credentials with a production-lines request', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: true, data: { items: [{ id: 'line-1', name: 'LUMI', is_active: true }] } }),
+    });
+
+    await expect(getAdapter('MANGOTEE').testConnection({
+      credential: {
+        accessToken: 'mangotee-api-key',
+        baseUrl: 'https://v3.mangoteeprints.com/api/public/v1',
+      },
+    })).resolves.toEqual({ provider: 'MANGOTEE' });
+
+    const [url, options] = global.fetch.mock.calls[0];
+    expect(String(url)).toBe('https://v3.mangoteeprints.com/api/public/v1/production-lines');
+    expect(options.headers).toMatchObject({
+      'X-API-Key': 'mangotee-api-key',
+      Accept: 'application/json',
+    });
+  });
+
   test('treats Merchize Order not found response as an authenticated connection probe', async () => {
     const tracking = require('../../../src/modules/shipment/services/vendorTrackingAdapterRegistry.service');
     tracking.getTrackingAdapter.mockReturnValueOnce({

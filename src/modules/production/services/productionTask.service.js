@@ -1168,8 +1168,8 @@ async function commitProductionMutation({
     const updated = await repository.updateByIdIf(toId(task), filter, patch, { session });
     if (!updated) throw conflict('Production task changed concurrently');
     if (targetItemStatus) await transitionOrderItemStatus(task.orderItemId, targetItemStatus, session);
-    await appendTaskTimeline(task, eventType, authContext, session);
-    await recordProductionOperation({ action, task, authContext, changes, metadata, session });
+    await appendTaskTimeline(updated, eventType, authContext, session);
+    await recordProductionOperation({ action, task: updated, authContext, changes, metadata, session });
     return updated;
   });
 }
@@ -2104,9 +2104,9 @@ async function addManualFileCheck(taskId, payload = {}, authContext) {
     await repository.updateById(taskId, aggregate, { session });
     const result = { ...appended, ...aggregate };
     await transitionOrderItemStatus(task.orderItemId, orderItemStatusForProductionAggregate(aggregate, 'manual'), session);
-    await appendTaskTimeline(task, 'PRODUCTION_MANUAL_FILE_CHECK_ADDED', authContext, session);
+    await appendTaskTimeline(result, 'PRODUCTION_MANUAL_FILE_CHECK_ADDED', authContext, session);
     await recordProductionOperation({
-      action: 'PRODUCTION_FILE_CHECK_ADDED', task, authContext, session,
+      action: 'PRODUCTION_FILE_CHECK_ADDED', task: result, authContext, session,
       metadata: { slotKey, inputAssetPresent: Boolean(inputAssetId) },
     });
     return result;
@@ -2149,9 +2149,9 @@ async function uploadScaledFileForTask(task, fileCheckId, mediaAssetId, authCont
     await transitionOrderItemStatus(
       task.orderItemId, orderItemStatusForProductionAggregate(aggregate, 'upload'), session,
     );
-    await appendTaskTimeline(task, 'PRODUCTION_SCALED_FILE_UPLOADED', authContext, session);
+    await appendTaskTimeline(result, 'PRODUCTION_SCALED_FILE_UPLOADED', authContext, session);
     await recordProductionOperation({
-      action: 'PRODUCTION_SCALED_FILE_UPLOADED', task, authContext, session,
+      action: 'PRODUCTION_SCALED_FILE_UPLOADED', task: result, authContext, session,
       metadata: { fileCheckId, outputAssetId: mediaAssetId },
     });
     return result;
