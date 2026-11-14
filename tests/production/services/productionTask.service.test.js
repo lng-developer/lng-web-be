@@ -1398,6 +1398,27 @@ describe('productionTask.service', () => {
     }), { session: mockSession });
   });
 
+  test('does not move an in-production item backward while adding a manual scale slot', async () => {
+    orderPublic.findItemById.mockResolvedValue({ ...item, status: 'IN_PRODUCTION' });
+    mockTaskUpdate({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      fileChecks: [],
+    });
+
+    await service.addManualFileCheck(taskId, {
+      slotKey: 'front',
+      sourceType: 'CUSTOMER_IMAGE',
+    }, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalledWith(
+      orderItemId,
+      'NEED_PRODUCTION',
+      expect.anything(),
+    );
+  });
+
   test('adding manual file check on QC rejected task preserves QC_REJECTED status instead of BLOCKED', async () => {
     mockTaskUpdate({
       _id: taskId,
