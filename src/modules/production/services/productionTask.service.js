@@ -1435,7 +1435,9 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
     || plan.internalTemplate?.id;
   const template = templateId ? await catalogPublic.getInternalTemplateById(templateId) : null;
   const psdReadiness = variant?.psdReadiness || null;
-  const customization = await customizationPublic.getOrderItemCustomizationView(orderItemId, authContext);
+  const customization = item.customizationRawSummary?.hasCustomization === false
+    ? null
+    : await customizationPublic.getOrderItemCustomizationView(orderItemId, authContext);
   const derivedFileChecks = buildFileChecks({
     listing: listing ? { ...listing, psdReadiness } : listing,
     template,
