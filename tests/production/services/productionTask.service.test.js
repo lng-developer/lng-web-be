@@ -809,6 +809,23 @@ describe('productionTask.service', () => {
     );
   });
 
+  test('creates an Etsy task without loading a customization payload when the item has no customization', async () => {
+    orderPublic.findItemById.mockResolvedValueOnce({
+      ...item,
+      salesChannelCode: 'ETSY',
+      marketplaceCode: 'ETSY_US',
+      customizationRawSummary: { hasCustomization: false, provider: 'ETSY' },
+    });
+
+    await expect(service.createOrRecheckTaskForOrderItem(orderItemId, {
+      permissions: ['PRODUCTION:WRITE'],
+    })).resolves.toMatchObject({ orderItemId });
+
+    expect(customizationPublic.getOrderItemCustomizationView).not.toHaveBeenCalled();
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId,
+      expect.objectContaining({ customizationSnapshot: null }));
+  });
+
   test('uses the order item listing when an old fulfillment plan has no listing snapshot', async () => {
     orderPublic.findItemById.mockResolvedValueOnce({ ...item, listingId: listing.id });
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce({ ...plan, listing: null });
