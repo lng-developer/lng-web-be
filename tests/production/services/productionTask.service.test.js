@@ -399,6 +399,31 @@ describe('productionTask.service', () => {
     expect(repository.updateByIdIf.mock.calls[0][2]).not.toHaveProperty('designType');
   });
 
+  test('does not move an in-production item backward when rechecking an existing task', async () => {
+    const existing = {
+      _id: taskId,
+      orderItemId,
+      status: 'QC_PENDING',
+      fileChecks: [],
+    };
+    orderPublic.findItemById.mockResolvedValueOnce({ ...item, status: 'IN_PRODUCTION' });
+    repository.findByOrderItem.mockResolvedValueOnce(existing);
+    repository.updateByIdIf.mockImplementationOnce(async (_id, _filter, patch) => ({
+      ...existing,
+      ...patch,
+    }));
+
+    await service.createOrRecheckTaskForOrderItem(orderItemId, {
+      permissions: ['PRODUCTION:WRITE'],
+    });
+
+    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalledWith(
+      orderItemId,
+      'NEED_PRODUCTION',
+      expect.anything(),
+    );
+  });
+
   test('Etsy cancellation blocks production creation', async () => {
     orderPublic.assertMarketplaceAllowsFulfillment.mockRejectedValue(new Error('Etsy cancellation requires review'));
     await expect(service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] }))
