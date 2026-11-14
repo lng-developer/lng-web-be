@@ -1462,6 +1462,8 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
       ));
       readinessSnapshots.designType = buyerImages.length
         ? 'CUSTOM_IMAGE'
+        : item.salesChannelCode === 'ETSY' && item.customizationRawSummary?.hasCustomization === false
+          ? 'NORMAL'
         : customization?.status === 'PARSED' && !customization.needsReview
           && Array.isArray(customization.customerInputs?.images)
           && (customization.customerInputs.texts?.length || customization.customerInputs.options?.length)
