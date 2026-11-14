@@ -1093,13 +1093,28 @@ function parseMoneyAmount(value, key = 'amount') {
     if (Number.isNaN(value) || value < 0) throw validationError(`${key} must be a non-negative number`);
     return Number.isInteger(value) ? value : Math.round(value * 100);
   }
-  const str = String(value).trim();
+  let str = String(value).trim();
   if (str === '') return undefined;
   const hasCurrencySign = /[$€£]/.test(str);
-  const cleaned = str.replace(/[$€£,\s]/g, '');
-  const num = Number(cleaned);
+  str = str.replace(/[$€£\s]/g, '');
+
+  if (str.includes('.') && str.includes(',')) {
+    if (str.lastIndexOf(',') > str.lastIndexOf('.')) {
+      str = str.replace(/\./g, '').replace(',', '.');
+    } else {
+      str = str.replace(/,/g, '');
+    }
+  } else if (str.includes(',')) {
+    if (/^\d*,\d{1,2}$/.test(str)) {
+      str = str.replace(',', '.');
+    } else {
+      str = str.replace(/,/g, '');
+    }
+  }
+
+  const num = Number(str);
   if (Number.isNaN(num) || num < 0) throw validationError(`${key} must be a non-negative number`);
-  if (cleaned.includes('.') || hasCurrencySign) {
+  if (str.includes('.') || hasCurrencySign) {
     return Math.round(num * 100);
   }
   return Math.round(num);
