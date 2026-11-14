@@ -1529,8 +1529,12 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
       });
     }
     const task = result.task;
-    if (result.created || !RECHECK_TERMINAL_STATUSES.has(task.status)) {
-      await transitionOrderItemStatus(orderItemId, orderItemStatusForProductionAggregate(task), session);
+    const nextOrderItemStatus = orderItemStatusForProductionAggregate(task);
+    const wouldRegressInProductionItem = !result.created
+      && item.status === 'IN_PRODUCTION'
+      && nextOrderItemStatus === 'NEED_PRODUCTION';
+    if ((result.created || !RECHECK_TERMINAL_STATUSES.has(task.status)) && !wouldRegressInProductionItem) {
+      await transitionOrderItemStatus(orderItemId, nextOrderItemStatus, session);
     }
     if (result.created) {
       await appendProductionTimeline({
