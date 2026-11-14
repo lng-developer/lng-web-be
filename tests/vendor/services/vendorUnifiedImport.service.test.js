@@ -80,6 +80,12 @@ describe('Unified Vendor Product & Variant Import', () => {
       expect(parseMoneyAmount('$12')).toBe(1200);
       expect(parseMoneyAmount('€15.50')).toBe(1550);
       expect(parseMoneyAmount('$1,250.00')).toBe(125000);
+      expect(parseMoneyAmount('$10,44')).toBe(1044);
+      expect(parseMoneyAmount('$12,60')).toBe(1260);
+      expect(parseMoneyAmount('10,44')).toBe(1044);
+      expect(parseMoneyAmount('12,6')).toBe(1260);
+      expect(parseMoneyAmount('€1.250,50')).toBe(125050);
+      expect(parseMoneyAmount(',50')).toBe(50);
     });
 
     it('preserves integer minor units without decimals (e.g. legacy cents)', () => {
