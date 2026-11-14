@@ -31,6 +31,36 @@ function nullable(valueToNormalize) {
   return valueToNormalize === '' ? null : valueToNormalize;
 }
 
+function addBusinessDays(startDate, days = 2) {
+  const date = new Date(startDate);
+  if (Number.isNaN(date.getTime())) return null;
+  let added = 0;
+  while (added < days) {
+    date.setDate(date.getDate() + 1);
+    const dayOfWeek = date.getDay();
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      added += 1;
+    }
+  }
+  return date;
+}
+
+function resolveAmazonShipByDate(row) {
+  const explicit = nullable(
+    value(row, 'latest-ship-date')
+    || value(row, 'promise-date')
+    || value(row, 'ship-by-date')
+    || value(row, 'latest_ship_date'),
+  );
+  if (explicit) return explicit;
+
+  const purchaseDateRaw = nullable(value(row, 'purchase-date'));
+  if (!purchaseDateRaw) return null;
+
+  const calculated = addBusinessDays(purchaseDateRaw, 2);
+  return calculated ? calculated.toISOString() : null;
+}
+
 function parseQuantity(row) {
   const raw = value(row, 'quantity-purchased') || value(row, 'number-of-items') || '1';
   const parsed = Number.parseInt(raw, 10);
@@ -131,7 +161,7 @@ function buildOrder(row, context, items) {
     externalOrderId: value(row, 'order-id'),
     externalStatus: normalizeAmazonStatus(value(row, 'order-status') || value(row, 'item-status')),
     orderedAt: nullable(value(row, 'purchase-date')),
-    shipByDate: nullable(value(row, 'latest-ship-date')),
+    shipByDate: resolveAmazonShipByDate(row),
     buyer: {
       name: nullable(value(row, 'buyer-name')),
       emailMasked: nullable(value(row, 'buyer-email')),

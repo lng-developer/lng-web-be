@@ -148,7 +148,16 @@ function collectTrackingCandidates(root) {
       obj.url,
       isPlainObject(obj.tracking) ? obj.tracking.url : '',
     );
-    const updatedAt = firstValue(obj.updated_at, obj.updatedAt, obj.shipped_at, obj.shippedAt, obj.created_at, obj.createdAt);
+    const updatedAt = firstValue(
+      obj.updated_at,
+      obj.updatedAt,
+      obj.shipped_at,
+      obj.shippedAt,
+      obj.created_at,
+      obj.createdAt,
+      obj.created,
+      obj.updated,
+    );
     const updatedAtMs = updatedAt ? new Date(updatedAt).getTime() : 0;
 
     if (trackingNumber || carrier || status || trackingUrl) {

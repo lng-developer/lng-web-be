@@ -13,14 +13,20 @@ function normalizeMerchizeTracking(externalOrderId, payload = {}) {
     || cleanString(entry?.externalOrderNumber) === externalOrderId
     || cleanString(entry?.code) === externalOrderId
     || cleanString(entry?._id) === externalOrderId
-  )) || {};
+    || (entry?.name && externalOrderId && cleanString(entry.name).startsWith(externalOrderId))
+  )) || rows.find((entry) => {
+    const hasExplicitOtherOrder = entry?.external_number || entry?.externalNumber || entry?.external_order_number || entry?.externalOrderNumber || entry?.code;
+    return !hasExplicitOtherOrder && cleanString(entry?.tracking_number || entry?.trackingNumber);
+  }) || {};
   const status = cleanString(row?.order_status || row?.production_status || row?.shipment_status || row?.status);
+  const shippedAt = cleanString(row?.created || row?.updated || row?.shipped_at || row?.shippedAt);
   return {
     provider: 'MERCHIZE',
     externalOrderId,
     carrier: cleanString(row?.tracking_company || row?.carrier),
     trackingNumber: cleanString(row?.tracking_number || row?.trackingNumber),
     trackingUrl: cleanString(row?.tracking_url || row?.trackingUrl),
+    shippedAt: shippedAt || null,
     vendorStatus: status.toUpperCase(),
     rawStatus: status,
   };
@@ -35,12 +41,26 @@ function normalizeMerchizeOrderDetail(externalOrderId, payload = {}) {
     || cleanString(entry?.externalOrderNumber) === externalOrderId
     || cleanString(entry?.code) === externalOrderId
     || cleanString(entry?._id) === externalOrderId
-  )) || {};
+    || (entry?.name && externalOrderId && cleanString(entry.name).startsWith(externalOrderId))
+  )) || rows.find((entry) => {
+    const hasExplicitOtherOrder = entry?.external_number || entry?.externalNumber || entry?.external_order_number || entry?.externalOrderNumber || entry?.code;
+    return !hasExplicitOtherOrder;
+  }) || {};
 
   const shipment = Array.isArray(row?.shipment_statuses) && row.shipment_statuses.length > 0
     ? row.shipment_statuses[0]
     : {};
   const status = cleanString(row?.order_status || row?.production_status || row?.status || shipment?.status || shipment?.shipment_status);
+  const shippedAt = cleanString(
+    shipment?.created
+    || shipment?.updated
+    || shipment?.shipped_at
+    || shipment?.shippedAt
+    || row?.created
+    || row?.updated
+    || row?.shipped_at
+    || row?.shippedAt,
+  );
 
   return {
     provider: 'MERCHIZE',
@@ -48,6 +68,7 @@ function normalizeMerchizeOrderDetail(externalOrderId, payload = {}) {
     carrier: cleanString(shipment?.tracking_company || shipment?.carrier || row?.tracking_company || row?.carrier),
     trackingNumber: cleanString(shipment?.tracking_number || shipment?.trackingNumber || row?.tracking_number || row?.trackingNumber),
     trackingUrl: cleanString(shipment?.tracking_url || shipment?.trackingUrl || row?.tracking_url || row?.trackingUrl),
+    shippedAt: shippedAt || null,
     vendorStatus: status.toUpperCase(),
     rawStatus: status,
   };

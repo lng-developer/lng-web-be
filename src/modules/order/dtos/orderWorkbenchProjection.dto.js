@@ -68,6 +68,7 @@ function toOrderWorkbenchRow(projection = {}) {
       } : null;
       return {
         ...item,
+        workflow: item.workflow || item.production?.workflow || null,
         production,
         psd: item.psd || toWorkbenchPsd(item.listingVariant, item.listing, item.production),
       };
