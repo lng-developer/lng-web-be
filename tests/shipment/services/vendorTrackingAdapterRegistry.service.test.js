@@ -281,6 +281,51 @@ describe('vendorTrackingAdapterRegistry.service', () => {
     }));
   });
 
+  test('falls back to order detail when Merchize tracking indicates unfulfilled or cancelled', async () => {
+    jest.spyOn(https, 'request').mockImplementation((url, _options, callback) => {
+      const request = new EventEmitter();
+      request.write = jest.fn();
+      request.end = jest.fn();
+      const response = new EventEmitter();
+      response.statusCode = 200;
+      response.setEncoding = jest.fn();
+      callback(response);
+      process.nextTick(() => {
+        if (String(url).includes('list-orders-tracking')) {
+          response.emit('data', JSON.stringify({
+            success: false,
+            message: 'Order has not fulfilled. Code: RM-27879-68429',
+          }));
+        } else if (String(url).includes('list-orders-detail')) {
+          response.emit('data', JSON.stringify({
+            success: true,
+            data: [{
+              code: 'RM-27879-68429',
+              external_number: 'AMZ-100',
+              order_status: 'cancelled_production',
+              shipment_statuses: [],
+            }],
+          }));
+        }
+        response.emit('end');
+      });
+      return request;
+    });
+
+    await expect(merchizeAdapter.fetchTrackingByExternalOrderId('AMZ-100', {
+      credential: {
+        baseUrl: 'https://api.merchize.example',
+        accessToken: 'token',
+      },
+    })).resolves.toMatchObject({
+      provider: 'MERCHIZE',
+      externalOrderId: 'AMZ-100',
+      vendorStatus: 'CANCELLED_PRODUCTION',
+      rawStatus: 'cancelled_production',
+      trackingNumber: '',
+    });
+  });
+
   test('returns Lenful fetch adapter for provider aliases', () => {
     expect(getTrackingAdapter('lenful').fetchTrackingByExternalOrderId).toEqual(expect.any(Function));
   });
