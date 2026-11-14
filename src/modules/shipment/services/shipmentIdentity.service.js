@@ -39,10 +39,13 @@ function deriveTrackingIdentity(submission = {}) {
   if (Object.values(requiredIdentity).some((value) => !value)) {
     throw validationError('Vendor tracking identity is incomplete');
   }
-  return {
+  const identity = {
     ...requiredIdentity,
-    orderExternalOrderId: orderExternalOrderId || null,
   };
+  if (orderExternalOrderId) {
+    identity.orderExternalOrderId = orderExternalOrderId;
+  }
+  return identity;
 }
 
 function assertMatchingTrackingIdentity(identity, input = {}) {
