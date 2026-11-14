@@ -108,7 +108,7 @@ async function listByOrderItemIds(orderItemIds = []) {
 
 async function listSummariesByOrderItemIds(orderItemIds = []) {
   return ProductionTask.find({ orderItemId: { $in: orderItemIds } })
-    .select('orderId orderItemId orderSnapshot orderItemSnapshot shopId status scaleStatus qcStatus blockers fulfillQty assignedDesignUserId assignedAt designNote csAssigneeId csAssignedBy csAssignedAt csStatus csNote qcBy readyAt sentToVendorAt vendorSubmissionId vendorProductSnapshot vendorCostCenterSnapshot createdAt updatedAt')
+    .select('orderId orderItemId orderSnapshot orderItemSnapshot shopId status scaleStatus qcStatus blockers fulfillQty assignedDesignUserId assignedAt designNote csAssigneeId csAssignedBy csAssignedAt csStatus csNote qcBy readyAt sentToVendorAt vendorSubmissionId vendorProductSnapshot vendorCostCenterSnapshot fileChecks createdAt updatedAt')
     .lean();
 }
 
