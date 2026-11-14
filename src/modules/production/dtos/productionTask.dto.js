@@ -546,6 +546,7 @@ function toProductionTaskSummaryDto(task) {
     workflow: toWorkflowDto(task),
     fulfillQty: task.fulfillQty,
     scaleContext: toScaleContextDto(task),
+    scaledOutputs: (task.fileChecks || []).filter((check) => check.outputAssetId).map(toFileCheckDto),
     qcPreviewFileChecks: (task.fileChecks || []).map(toFileCheckDto),
     assignedDesignUserId: toId(task.assignedDesignUserId),
     qcBy: toId(task.qcBy),
