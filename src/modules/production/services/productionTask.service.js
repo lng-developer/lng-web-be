@@ -931,6 +931,8 @@ async function filterDesignTeamProfiles(profiles = []) {
 async function transitionOrderItemStatus(orderItemId, targetStatus, session) {
   const context = { source: 'PRODUCTION' };
   if (session) context.session = session;
+  const item = await orderPublic.findItemById(orderItemId, session ? { session } : undefined);
+  if (item?.status === 'IN_PRODUCTION' && targetStatus === 'NEED_PRODUCTION') return item;
   return orderPublic.transitionItemStatus(orderItemId, targetStatus, context);
 }
 
