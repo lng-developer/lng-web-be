@@ -792,11 +792,11 @@ describe('productionTask.service', () => {
 
     await expect(service.createOrRecheckTaskForOrderItem(orderItemId, {
       permissions: ['PRODUCTION:WRITE'],
-    })).resolves.toMatchObject({ orderItemId });
+    })).resolves.toMatchObject({ orderItemId, designType: 'NORMAL' });
 
     expect(customizationPublic.getOrderItemCustomizationView).not.toHaveBeenCalled();
     expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId,
-      expect.objectContaining({ customizationSnapshot: null }));
+      expect.objectContaining({ customizationSnapshot: null, designType: 'NORMAL' }));
   });
 
   test('uses the order item listing when an old fulfillment plan has no listing snapshot', async () => {
