@@ -33,7 +33,8 @@ const terminalBodySchema = leasePayloadBodySchema.keys({
     importedCount: Joi.number().integer().min(0).default(0),
     failedCount: Joi.number().integer().min(0).default(0),
     diagnostics: Joi.array().items(Joi.string()).default([]),
-  }).default(),
+    processingReport: Joi.string().allow('', null).optional(),
+  }).unknown(true).default(),
 });
 
 module.exports = {
