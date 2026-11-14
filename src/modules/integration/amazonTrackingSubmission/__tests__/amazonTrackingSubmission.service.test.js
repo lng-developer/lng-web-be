@@ -213,6 +213,64 @@ describe('AmazonTrackingSubmission Service', () => {
         { status: 'SUBMITTED', submissionId },
       );
     });
+
+    it('enriches TSV feed with normalized AfterShip tracking details when available', async () => {
+      extensionCommandRepository.findAgentById.mockResolvedValue({
+        _id: agentId,
+        shopId,
+      });
+
+      shipmentPublic.findByIds.mockResolvedValue([
+        {
+          _id: shipmentId1,
+          shopId,
+          status: 'SHIPPED',
+          externalOrderId: '111-9999999-8888888',
+          carrier: 'VIETTEL_POST',
+          trackingNumber: ' 9400 1000 0000 0000 0000 00 ',
+          shippedAt: new Date('2026-11-14T08:00:00Z'),
+        },
+      ]);
+
+      if (shipmentPublic.normalizeTrackingForAmazon) {
+        shipmentPublic.normalizeTrackingForAmazon.mockResolvedValue({
+          trackingNumber: '9400100000000000000000',
+          carrier: 'USPS',
+          carrierCode: 'USPS',
+          shipMethod: 'USPS First Class',
+          shipDate: '2026-11-14',
+        });
+      }
+
+      extensionCommandRepository.createCommand.mockResolvedValue({
+        _id: commandId,
+        taskType: 'UPLOAD_TRACKING',
+      });
+
+      repository.create.mockResolvedValue({
+        _id: submissionId,
+        shopId,
+        agentId,
+        commandId,
+        shipmentIds: [shipmentId1],
+        rowCount: 1,
+        status: 'PENDING',
+      });
+      shipmentPublic.updateMarketplaceConfirmation.mockResolvedValue({ modifiedCount: 1 });
+
+      await service.createSubmission(
+        { shopId, agentId, shipmentIds: [shipmentId1] },
+        authUser,
+      );
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rowCount: 1,
+          shipmentIds: [shipmentId1],
+          tsv: expect.stringMatching(/111-9999999-8888888\t\t\t2026-11-14\tUSPS\t\t9400100000000000000000\tUSPS First Class/),
+        }),
+      );
+    });
   });
 
   describe('Agent tracking lifecycle callbacks', () => {

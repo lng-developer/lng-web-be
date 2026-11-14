@@ -19,6 +19,7 @@ function normalizeCarrierCode(carrier) {
   if (clean.includes('OSM')) return 'OSM Worldwide';
   if (clean.includes('YUN')) return 'YunExpress';
   if (clean.includes('4PX')) return '4PX';
+  if (clean.includes('VIETTEL')) return 'Other';
   return String(carrier).trim();
 }
 

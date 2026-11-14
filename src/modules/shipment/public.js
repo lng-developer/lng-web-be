@@ -35,6 +35,10 @@ const publicPort = {
     return service().updateMarketplaceConfirmation(...args);
   },
   updateStatus(...args) { return service().updateStatus(...args); },
+  normalizeTrackingForAmazon(input, options) {
+    const aftership = require('./services/aftershipTracking.service');
+    return aftership.normalizeForAmazon(input, options);
+  },
   getVendorTrackingAdapter(provider) {
     const adapter = getTrackingAdapter(provider);
     return adapter === genericTrackingAdapter ? null : adapter;
