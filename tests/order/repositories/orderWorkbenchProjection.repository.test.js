@@ -206,4 +206,28 @@ describe('orderWorkbenchProjection.repository', () => {
     });
     expect(result).toEqual(expect.objectContaining({ ALL: 7, NO_PSD: 2, NEEDS_MAPPING: 1 }));
   });
+
+  test('filters by stage TRACKING_PENDING and READY_FOR_SCALE', async () => {
+    OrderWorkbenchProjection.find.mockReturnValue({
+      sort: jest.fn().mockReturnThis(), skip: jest.fn().mockReturnThis(), limit: jest.fn().mockReturnThis(), lean: jest.fn().mockResolvedValue([]),
+    });
+    OrderWorkbenchProjection.countDocuments.mockResolvedValue(0);
+
+    await repository.findPage({ stage: 'TRACKING_PENDING' });
+    expect(OrderWorkbenchProjection.find).toHaveBeenCalledWith(expect.objectContaining({
+      'items.item.status': 'TRACKING_PENDING',
+    }));
+
+    await repository.findPage({ stage: 'READY_FOR_SCALE' });
+    expect(OrderWorkbenchProjection.find).toHaveBeenCalledWith(expect.objectContaining({
+      $and: expect.arrayContaining([
+        {
+          $or: [
+            { 'items.production.scaleStatus': 'NEED_SCALE' },
+            { 'items.item.status': 'NEED_PRODUCTION' },
+          ],
+        },
+      ]),
+    }));
+  });
 });

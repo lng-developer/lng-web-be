@@ -150,6 +150,93 @@ function applyTabFilter(filter, tab = orderListTabs.ALL) {
   return next;
 }
 
+function addAndClause(filter, clause) {
+  if (!filter.$and) filter.$and = [];
+  filter.$and.push(clause);
+}
+
+function applyStageFilter(filter, stage) {
+  if (!stage) return filter;
+  const s = String(stage).toUpperCase();
+
+  switch (s) {
+    case 'TRACKING_PENDING':
+      filter['items.item.status'] = 'TRACKING_PENDING';
+      break;
+    case 'READY_FOR_SCALE':
+      addAndClause(filter, {
+        $or: [
+          { 'items.production.scaleStatus': 'NEED_SCALE' },
+          { 'items.item.status': 'NEED_PRODUCTION' },
+        ],
+      });
+      break;
+    case 'IN_SCALE':
+      filter['items.production.scaleStatus'] = 'NEED_SCALE';
+      filter['items.production.assignedDesignUserId'] = { $ne: null };
+      break;
+    case 'QC_PENDING':
+      filter['items.production.qcStatus'] = 'PENDING';
+      break;
+    case 'QC_REJECTED':
+      addAndClause(filter, {
+        $or: [
+          { 'items.production.qcStatus': 'REJECTED' },
+          { 'items.production.productionStatus': 'QC_REJECTED' },
+        ],
+      });
+      break;
+    case 'READY_TO_SEND_VENDOR':
+      addAndClause(filter, {
+        $or: [
+          { 'items.item.status': 'READY_TO_SEND_VENDOR' },
+          { 'items.production.productionStatus': 'READY_TO_SEND_VENDOR' },
+        ],
+      });
+      break;
+    case 'SENT_TO_VENDOR':
+      addAndClause(filter, {
+        $or: [
+          { 'items.item.status': 'SENT_TO_VENDOR' },
+          { 'items.production.productionStatus': 'SENT_TO_VENDOR' },
+        ],
+      });
+      break;
+    case 'SHIPPED':
+      addAndClause(filter, {
+        $or: [
+          { status: 'SHIPPED' },
+          { 'items.item.status': 'SHIPPED' },
+        ],
+      });
+      break;
+    case 'DELIVERED':
+      filter.deliveredAt = { $exists: true, $ne: null };
+      break;
+    case 'CANCELLED':
+      addAndClause(filter, {
+        $or: [
+          { status: 'CANCELLED' },
+          { 'items.item.status': 'CANCELLED' },
+        ],
+      });
+      break;
+    case 'OPEN_CASE':
+      filter.caseStatus = 'OPEN';
+      break;
+    case 'NEED_ADDRESS':
+      filter.addressValidationStatus = { $nin: [addressValidationStatuses.VALID, addressValidationStatuses.OVERRIDDEN] };
+      break;
+    case 'NEED_PSD':
+      filter.hasCurrentPsd = false;
+      break;
+    default:
+      filter['items.item.status'] = s;
+      break;
+  }
+  return filter;
+}
+
 function appendSearchFilters(filter, { search, employeeCode, vendorId } = {}) {
   if (search) {
     const regex = { $regex: escapeRegex(search), $options: 'i' };
@@ -386,8 +473,9 @@ async function setListingVariantPsdById(variantId, psdTemplateAssetId, psdReadin
   );
 }
 
-async function findPage({ page = 1, limit = 20, tab = orderListTabs.ALL, sort, search, employeeCode, vendorId, ...query } = {}) {
+async function findPage({ page = 1, limit = 20, tab = orderListTabs.ALL, sort, search, employeeCode, vendorId, stage, itemStatus, ...query } = {}) {
   const filter = applyTabFilter(buildFilter(query), tab);
+  applyStageFilter(filter, stage || itemStatus);
   appendSearchFilters(filter, { search, employeeCode, vendorId });
   const [items, total] = await Promise.all([
     OrderWorkbenchProjection.find(filter)

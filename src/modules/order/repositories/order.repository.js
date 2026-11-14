@@ -814,7 +814,7 @@ async function listWorkbench(query = {}) {
   } = query;
   const filter = applyTabFilter(buildFilter(filters), tab);
   if (tab === orderListTabs.NO_PSD) filter.hasCurrentPsd = false;
-  const itemStatus = getItemStatusForTab(tab);
+  const itemStatus = query.stage || query.itemStatus || getItemStatusForTab(tab);
   const currentPsd = tab === orderListTabs.NO_PSD;
   const prePagination = matchingStages({
     filter, search, employeeCode, itemStatus, vendorId, projectItems: true, currentPsd,
