@@ -10,7 +10,11 @@ const notificationPublic = require('../../notification/public');
 const orderPublic = require('../../order/public');
 const vendorPublic = require('../../vendor/public');
 const vendorSubmissionPublic = require('../../vendorSubmission/public');
-const { shipmentPermissions, shipmentStatuses } = require('../constants/shipment.constants');
+const {
+  shipmentPermissions,
+  shipmentStatuses,
+  SUPPORTED_TRACKING_PROVIDERS,
+} = require('../constants/shipment.constants');
 const repository = require('../repositories/shipment.repository');
 const { getTrackingAdapter } = require('./vendorTrackingAdapterRegistry.service');
 const { normalizeShipmentStatus } = require('./vendorTrackingNormalizer.service');
@@ -827,6 +831,28 @@ function shouldSkipShipment(shipment) {
 }
 
 async function recheckSubmittedVendorTracking(query = {}, authContext) {
+  if (query.perVendor && !query.provider) {
+    if (query.shopId) {
+      assertCanAccessShop(query.shopId, shipmentPermissions.WRITE, authContext);
+    }
+    const limit = Math.min(Math.max(Number(query.limit) || 25, 1), 100);
+    const combined = { checked: 0, applied: 0, skipped: 0, failed: 0, items: [] };
+    for (const provider of SUPPORTED_TRACKING_PROVIDERS) {
+      const res = await recheckSubmittedVendorTracking({
+        ...query,
+        provider,
+        perVendor: false,
+        limit,
+      }, authContext);
+      combined.checked += res.checked;
+      combined.applied += res.applied;
+      combined.skipped += res.skipped;
+      combined.failed += res.failed;
+      combined.items.push(...res.items);
+    }
+    return combined;
+  }
+
   const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 100);
   const listQuery = {
     provider: query.provider ? String(query.provider).trim().toUpperCase() : undefined,

@@ -103,7 +103,10 @@ async function recheckSubmittedVendorTracking(req, res) {
   if (payload.limit) payload.limit = Math.min(payload.limit, 100);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.recheckSubmittedVendorTracking(payload, auditAuth(req)),
+    data: await service.recheckSubmittedVendorTracking({
+      ...payload,
+      perVendor: payload.provider ? false : (payload.perVendor ?? true),
+    }, auditAuth(req)),
   });
 }
 

@@ -1634,4 +1634,43 @@ describe('shipment.service', () => {
       }),
     );
   });
+
+  test('submitted vendor tracking batch with perVendor: true queries each supported provider with limit', async () => {
+    vendorSubmissionPublic.listSubmittedForTracking.mockResolvedValue([]);
+
+    const result = await service.recheckSubmittedVendorTracking({ limit: 25, perVendor: true }, { system: true });
+
+    expect(result).toMatchObject({
+      checked: 0,
+      applied: 0,
+      skipped: 0,
+      failed: 0,
+      items: [],
+    });
+    expect(vendorSubmissionPublic.listSubmittedForTracking).toHaveBeenCalledTimes(6);
+    expect(vendorSubmissionPublic.listSubmittedForTracking).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'LNG_GROUP', limit: 25 }),
+      expect.anything(),
+    );
+    expect(vendorSubmissionPublic.listSubmittedForTracking).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'MERCHIZE', limit: 25 }),
+      expect.anything(),
+    );
+    expect(vendorSubmissionPublic.listSubmittedForTracking).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'PRINTWAY', limit: 25 }),
+      expect.anything(),
+    );
+    expect(vendorSubmissionPublic.listSubmittedForTracking).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'LENFUL', limit: 25 }),
+      expect.anything(),
+    );
+    expect(vendorSubmissionPublic.listSubmittedForTracking).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'MERCHFOX', limit: 25 }),
+      expect.anything(),
+    );
+    expect(vendorSubmissionPublic.listSubmittedForTracking).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'MANGOTEE', limit: 25 }),
+      expect.anything(),
+    );
+  });
 });

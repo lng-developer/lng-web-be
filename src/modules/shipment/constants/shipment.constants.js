@@ -25,9 +25,19 @@ const vendorWebhookOutcomes = Object.freeze({
   SKIPPED: 'SKIPPED',
 });
 
+const SUPPORTED_TRACKING_PROVIDERS = Object.freeze([
+  'LNG_GROUP',
+  'MERCHIZE',
+  'PRINTWAY',
+  'LENFUL',
+  'MERCHFOX',
+  'MANGOTEE',
+]);
+
 module.exports = {
   marketplaceConfirmationStatuses,
   shipmentPermissions,
   shipmentStatuses,
   vendorWebhookOutcomes,
+  SUPPORTED_TRACKING_PROVIDERS,
 };

@@ -4,7 +4,7 @@ const { getPaginationOffset, normalizePagination, toPaginatedResult } = require(
 const { escapeRegex } = require('../../../shared/utils/search');
 const { vendorSubmissionStatuses } = require('../constants/vendorSubmission.constants');
 
-const AUTOMATED_TRACKING_PROVIDERS = ['LENFUL', 'MERCHFOX', 'MERCHIZE', 'PRINTWAY', 'MANGOTEE'];
+const AUTOMATED_TRACKING_PROVIDERS = ['LENFUL', 'MERCHFOX', 'MERCHIZE', 'PRINTWAY', 'MANGOTEE', 'LNG_GROUP'];
 
 function toObjectId(value) {
   return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
