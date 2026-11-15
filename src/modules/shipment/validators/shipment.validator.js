@@ -1,5 +1,9 @@
 const Joi = require('joi');
-const { shipmentStatuses, marketplaceConfirmationStatuses } = require('../constants/shipment.constants');
+const {
+  shipmentStatuses,
+  marketplaceConfirmationStatuses,
+  SUPPORTED_TRACKING_PROVIDERS,
+} = require('../constants/shipment.constants');
 
 const objectId = Joi.string().hex().length(24);
 const dateOnly = Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/);
@@ -89,7 +93,7 @@ const listWebhookLogsQuerySchema = Joi.object({
 });
 
 const vendorTrackingRecheckSchema = Joi.object({
-  provider: Joi.string().trim().uppercase().valid('LENFUL', 'MERCHIZE', 'MERCHFOX', 'PRINTWAY'),
+  provider: Joi.string().trim().uppercase().valid(...SUPPORTED_TRACKING_PROVIDERS),
   externalOrderId: Joi.string().trim().min(1).max(120),
   dateFrom: dateOnly,
   dateTo: dateOnly,
@@ -97,9 +101,10 @@ const vendorTrackingRecheckSchema = Joi.object({
 });
 
 const vendorTrackingBatchRecheckSchema = Joi.object({
-  provider: Joi.string().trim().uppercase().valid('LENFUL', 'MERCHIZE', 'MERCHFOX', 'PRINTWAY'),
+  provider: Joi.string().trim().uppercase().valid(...SUPPORTED_TRACKING_PROVIDERS),
   shopId: objectId,
   limit: Joi.number().integer().min(1),
+  perVendor: Joi.boolean(),
 });
 
 const trackingSyncConfigSchema = Joi.object({

@@ -264,6 +264,21 @@ describe('shipment routes', () => {
     expect(service.recheckSubmittedVendorTracking).toHaveBeenCalledWith({
       provider: 'PRINTWAY',
       limit: 100,
+      perVendor: false,
+    }, expect.objectContaining({
+      permissions: ['SHIPMENTS:WRITE'], source: 'HTTP', auditContext: expect.objectContaining({ requestId: null }),
+    }));
+
+    const allowedPerVendor = await request(createServer(), {
+      method: 'POST',
+      path: '/vendor-tracking/recheck-submitted',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['SHIPMENTS:WRITE'] }) },
+      body: { limit: 25 },
+    });
+    expect(allowedPerVendor.statusCode).toBe(200);
+    expect(service.recheckSubmittedVendorTracking).toHaveBeenCalledWith({
+      limit: 25,
+      perVendor: true,
     }, expect.objectContaining({
       permissions: ['SHIPMENTS:WRITE'], source: 'HTTP', auditContext: expect.objectContaining({ requestId: null }),
     }));
