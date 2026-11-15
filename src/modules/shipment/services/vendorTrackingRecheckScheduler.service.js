@@ -15,6 +15,7 @@ async function runOnce(authContext = { system: true, source: 'VENDOR_TRACKING_RE
       const settings = await trackingSyncConfigService.get();
       const result = await shipmentService.recheckSubmittedVendorTracking({
         limit: settings.batchSize,
+        perVendor: true,
       }, {
         ...authContext,
         system: authContext.system ?? true,

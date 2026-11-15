@@ -29,7 +29,7 @@ describe('vendorTrackingRecheckScheduler', () => {
       permissions: ['SHIPMENTS:WRITE'],
     });
 
-    expect(shipmentService.recheckSubmittedVendorTracking).toHaveBeenCalledWith({ limit: 25 }, expect.objectContaining({
+    expect(shipmentService.recheckSubmittedVendorTracking).toHaveBeenCalledWith({ limit: 25, perVendor: true }, expect.objectContaining({
       system: false,
       source: 'HTTP',
       permissions: ['SHIPMENTS:WRITE'],
