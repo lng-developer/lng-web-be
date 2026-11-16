@@ -1653,8 +1653,7 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
 
   const existingPlan = await repository.findByOrderItem(orderItemId);
   let needsProductionOverride = false;
-  const isRematchRecovery = (existingPlan?.blockingReasons || []).includes('VENDOR_REMATCH_REQUIRED')
-    || existingPlan?.status === fulfillmentPlanStatuses.BLOCKED;
+  const isRematchRecovery = (existingPlan?.blockingReasons || []).includes('VENDOR_REMATCH_REQUIRED');
   if (existingPlan && [fulfillmentPlanStatuses.READY, fulfillmentPlanStatuses.CONFIRMED].includes(existingPlan.status)) {
     const sameSelection = idEquals(existingPlan.vendorProductId, payload.vendorProductId)
       && idEquals(existingPlan.vendorCostCenterId, payload.vendorCostCenterId);
