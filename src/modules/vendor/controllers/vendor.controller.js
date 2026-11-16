@@ -20,6 +20,10 @@ const {
   lenfulCatalogQuerySchema,
   merchizeCatalogQuerySchema,
   importMerchizeCatalogProductsSchema,
+  mangoteeCatalogQuerySchema,
+  importMangoteeCatalogProductsSchema,
+  printwayCatalogQuerySchema,
+  importPrintwayCatalogProductsSchema,
   lenfulTrackingQuerySchema,
   lenfulOrderQuerySchema,
   updateVendorSchema,
@@ -163,6 +167,47 @@ async function importMerchizeCatalogProducts(req, res) {
   });
 }
 
+async function getMangoteeCatalog(req, res) {
+  const query = assertValid(mangoteeCatalogQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.getMangoteeCatalog(req.params.vendorId, query),
+  });
+}
+
+async function importMangoteeCatalogProducts(req, res) {
+  const payload = assertValid(importMangoteeCatalogProductsSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.importMangoteeCatalogProducts({
+      vendorId: req.params.vendorId,
+      products: payload.products,
+    }, auditAuth(req)),
+  });
+}
+
+async function getPrintwayCatalog(req, res) {
+  const query = assertValid(printwayCatalogQuerySchema, req.query);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.getPrintwayCatalog(req.params.vendorId, query),
+  });
+}
+
+async function importPrintwayCatalogProducts(req, res) {
+  const payload = assertValid(importPrintwayCatalogProductsSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.importPrintwayCatalogProducts({
+      vendorId: req.params.vendorId,
+      products: payload.products,
+      tierName: payload.tierName,
+      preferredLocation: payload.preferredLocation,
+      fetchShipping: payload.fetchShipping,
+    }, auditAuth(req)),
+  });
+}
+
 async function getLenfulTracking(req, res) {
   const query = assertValid(lenfulTrackingQuerySchema, req.query);
   res.status(httpStatus.OK).json({
@@ -302,6 +347,10 @@ module.exports = {
   getLenfulCatalog,
   getMerchizeCatalog,
   importMerchizeCatalogProducts,
+  getMangoteeCatalog,
+  importMangoteeCatalogProducts,
+  getPrintwayCatalog,
+  importPrintwayCatalogProducts,
   getLenfulTracking,
   getLenfulOrder,
   listVendorProducts,

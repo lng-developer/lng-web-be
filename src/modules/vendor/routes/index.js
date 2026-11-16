@@ -167,6 +167,30 @@ router.post(
   asyncHandler(controller.importMerchizeCatalogProducts),
 );
 router.get(
+  '/:vendorId/integration/mangotee/catalog',
+  authPublic.authenticate,
+  requireVendorRead,
+  asyncHandler(controller.getMangoteeCatalog),
+);
+router.post(
+  '/:vendorId/integration/mangotee/catalog/import',
+  authPublic.authenticate,
+  requireVendorWrite,
+  asyncHandler(controller.importMangoteeCatalogProducts),
+);
+router.get(
+  '/:vendorId/integration/printway/catalog',
+  authPublic.authenticate,
+  requireVendorRead,
+  asyncHandler(controller.getPrintwayCatalog),
+);
+router.post(
+  '/:vendorId/integration/printway/catalog/import',
+  authPublic.authenticate,
+  requireVendorWrite,
+  asyncHandler(controller.importPrintwayCatalogProducts),
+);
+router.get(
   '/:vendorId/integration/lenful/tracking',
   authPublic.authenticate,
   requireVendorRead,
