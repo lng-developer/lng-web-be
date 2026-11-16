@@ -185,6 +185,13 @@ router.post(
 );
 
 router.post(
+  '/orders/recalculate-bulk',
+  authPublic.authenticate,
+  requireWrite,
+  asyncHandler(controller.recalculateOrdersBulk),
+);
+
+router.post(
   '/orders/:orderId/recalculate',
   authPublic.authenticate,
   requireWrite,

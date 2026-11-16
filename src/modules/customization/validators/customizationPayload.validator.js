@@ -73,8 +73,8 @@ const downloadAssetsSchema = Joi.object({
 
 const inspectZipSchema = Joi.object({
   maxEntries: Joi.number().integer().min(1).max(1000).default(50),
-  maxTotalUncompressedBytes: Joi.number().integer().min(1).max(1024 * 1024 * 1024).default(50 * 1024 * 1024),
-  maxSingleEntryUncompressedBytes: Joi.number().integer().min(1).max(1024 * 1024 * 1024).default(20 * 1024 * 1024),
+  maxTotalUncompressedBytes: Joi.number().integer().min(1).max(1024 * 1024 * 1024).default(100 * 1024 * 1024),
+  maxSingleEntryUncompressedBytes: Joi.number().integer().min(1).max(1024 * 1024 * 1024).default(50 * 1024 * 1024),
 });
 
 function validate(schema, payload) {

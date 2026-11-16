@@ -201,7 +201,7 @@ const cancelOrderItemSchema = Joi.object({
   reason: Joi.string().trim().max(1000).required(),
 });
 const vendorRematchRecoverySchema = Joi.object({
-  externalCancellationConfirmed: Joi.boolean().valid(true).required(),
+  externalCancellationConfirmed: Joi.boolean().default(false),
   reason: Joi.string().trim().max(1000).required(),
 });
 

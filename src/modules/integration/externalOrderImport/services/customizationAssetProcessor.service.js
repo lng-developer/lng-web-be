@@ -181,22 +181,22 @@ async function processCustomizationAssets(payload = {}, { isFinalAttempt = false
 
     const downloadResult = await customizationPublic.downloadAssetsForOrderItem(payload.orderItemId, {
       retryFailed: false,
-      maxBytes: 10 * 1024 * 1024,
-      timeoutMs: 15000,
-      idleTimeoutMs: 10000,
+      maxBytes: 50 * 1024 * 1024,
+      timeoutMs: 30000,
+      idleTimeoutMs: 15000,
       maxRedirects: 3,
     });
 
     if ((downloadResult.downloadedCount || 0) > 0) {
       await customizationPublic.inspectDownloadedZipForOrderItem(payload.orderItemId, {
         maxEntries: 50,
-        maxTotalUncompressedBytes: 50 * 1024 * 1024,
-        maxSingleEntryUncompressedBytes: 20 * 1024 * 1024,
+        maxTotalUncompressedBytes: 100 * 1024 * 1024,
+        maxSingleEntryUncompressedBytes: 50 * 1024 * 1024,
       });
       const extractResult = await customizationPublic.extractZipImagesForOrderItem(payload.orderItemId, {
         maxImages: 10,
-        maxSingleImageBytes: 10 * 1024 * 1024,
-        maxTotalImageBytes: 50 * 1024 * 1024,
+        maxSingleImageBytes: 50 * 1024 * 1024,
+        maxTotalImageBytes: 100 * 1024 * 1024,
       });
       await handleExtractedCustomization(payload, extractResult);
       await syncListingPreviewImage(payload.orderItemId, extractResult);

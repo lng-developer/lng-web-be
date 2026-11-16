@@ -20,17 +20,25 @@ async function recoverForVendorRematch(orderItemId, payload = {}, authContext = 
   const order = item && await orderRepository.findById(item.orderId);
   if (!item || !order) throw new AppError('Order item not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   await orderAccess.assertCanWriteOrder(order, authContext);
-  if (!payload.externalCancellationConfirmed) throw new AppError('External vendor cancellation must be confirmed', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
   const submission = await vendorSubmission.getByOrderItemId(orderItemId);
-  if (!submission || !['SUBMITTED', 'CANCELLED'].includes(submission.status)) throw conflict('Only submitted or externally cancelled vendor orders can be reset for rematch', { status: submission?.status || null });
+  const isSubmitted = submission?.status === 'SUBMITTED';
+
+  if (isSubmitted && !payload.externalCancellationConfirmed) {
+    throw new AppError('External vendor cancellation must be confirmed', httpStatus.BAD_REQUEST, true, errorCodes.VALIDATION_ERROR);
+  }
+  if (submission && !['READY', 'PENDING', 'SUBMITTED', 'CANCELLED'].includes(submission.status)) {
+    throw conflict('Only ready, submitted or cancelled vendor orders can be reset for rematch', { status: submission?.status || null });
+  }
   const currentShipment = await shipment.getShipmentByOrderItem(orderItemId);
   if (currentShipment && (currentShipment.trackingNumber || currentShipment.marketplaceConfirmationStatus !== 'PENDING')) {
     throw conflict('Cannot reset an order with tracking or marketplace confirmation');
   }
-  const reason = payload.reason;
-  if (submission.status === 'SUBMITTED') {
+  const reason = payload.reason || 'Reset for vendor rematch';
+  if (isSubmitted) {
     await vendorSubmission.cancelAfterExternalCancellation(submission.id, { cancelReason: reason }, authContext);
     if (currentShipment) await shipment.updateStatus(currentShipment.id, { status: 'CANCELLED', note: reason }, authContext);
+  } else if (submission && submission.status !== 'CANCELLED') {
+    await vendorSubmission.cancel(submission.id, { cancelReason: reason }, authContext);
   }
   await production.cancelTaskAfterExternalVendorCancellation(orderItemId, { reason }, authContext);
   await mapping.resetFulfillmentPlanForVendorRematch(orderItemId, authContext);

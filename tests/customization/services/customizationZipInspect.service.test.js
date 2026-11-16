@@ -279,7 +279,7 @@ describe('customizationZipInspect.service', () => {
     const result = await service.extractZipImagesForOrderItem(orderItemId);
 
     expect(safeRemoteFetchStream).toHaveBeenCalledWith('https://example.test/file.zip', expect.objectContaining({
-      maxBytes: 10485760,
+      maxBytes: 52428800,
     }));
     expect(mediaPublic.storeAsset).toHaveBeenCalledTimes(2);
     expect(mediaPublic.storeAsset).toHaveBeenNthCalledWith(1, expect.objectContaining({

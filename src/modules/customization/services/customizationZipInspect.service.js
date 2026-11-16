@@ -22,7 +22,7 @@ const {
 
 const ORDER_WRITE_PERMISSION = 'ORDERS:WRITE';
 const SHOP_SCOPE_TYPE = 'shop';
-const DEFAULT_REMOTE_ZIP_MAX_BYTES = 10 * 1024 * 1024;
+const DEFAULT_REMOTE_ZIP_MAX_BYTES = 50 * 1024 * 1024;
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png']);
 const JSON_EXTENSION = '.json';
 const MAX_JSON_BYTES = 1024 * 1024;
@@ -395,12 +395,12 @@ function linkCustomerImages(customerInputs, extractedImages) {
   };
 }
 
-async function downloadZipToTempFile(sourceUrl, options) {
+async function downloadZipToTempFile(sourceUrl, options = {}) {
   const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'customization-zip-'));
   const localPath = path.join(tempDir, 'source.zip');
   const { stream } = await safeRemoteFetchStream(sourceUrl, {
-    timeoutMs: positiveInteger(options.timeoutMs, 15000),
-    idleTimeoutMs: positiveInteger(options.idleTimeoutMs, 10000),
+    timeoutMs: positiveInteger(options.timeoutMs, 30000),
+    idleTimeoutMs: positiveInteger(options.idleTimeoutMs, 15000),
     maxBytes: positiveInteger(options.maxBytes, DEFAULT_REMOTE_ZIP_MAX_BYTES),
     maxRedirects: positiveInteger(options.maxRedirects, 3),
   });
@@ -413,7 +413,7 @@ async function downloadZipToTempFile(sourceUrl, options) {
   };
 }
 
-async function extractImagesFromZipFile(localPath, targetAsset, payload = {}) {
+async function extractImagesFromZipFile(localPath, targetAsset, payload = {}, options = {}) {
   const zipfile = await openZip(localPath);
   const extractedImages = [];
   const failedImages = [];
@@ -449,7 +449,7 @@ async function extractImagesFromZipFile(localPath, targetAsset, payload = {}) {
         finish();
         return;
       }
-      const entryManifest = buildZipEntryManifestEntry(entry, totalProcessed);
+      const entryManifest = buildZipEntryManifestEntry(entry, totalProcessed, options);
       const extension = entryManifest.extension;
 
       if (entryManifest.directory || !entryManifest.safe) {
@@ -484,6 +484,12 @@ async function extractImagesFromZipFile(localPath, targetAsset, payload = {}) {
         }
 
         const stream = await openZipReadStream(zipfile, entry);
+        const uncompressedSize = Number(entry.uncompressedSize) || 0;
+        const isLargeImage = uncompressedSize > 10 * 1024 * 1024;
+        const imageMaxBytes = isLargeImage
+          ? Math.max(uncompressedSize, positiveInteger(options.maxSingleImageBytes, 50 * 1024 * 1024))
+          : 10 * 1024 * 1024;
+
         const mediaAsset = await mediaPublic.storeAsset({
           stream,
           filename: entryManifest.filename,
@@ -493,6 +499,7 @@ async function extractImagesFromZipFile(localPath, targetAsset, payload = {}) {
           shopId: payload.shopId || null,
           ownerType: 'CUSTOMIZATION_PAYLOAD',
           ownerId: payload._id ? String(payload._id) : null,
+          maxBytes: imageMaxBytes,
           metadata: {
             source: 'CUSTOMIZATION_ZIP_ENTRY',
             sourceZipAssetId: targetAsset.assetId ? String(targetAsset.assetId) : null,
@@ -714,7 +721,7 @@ async function extractImagesForPayload(payload, options = {}, authContext) {
   const temp = await downloadZipToTempFile(targetAsset.sourceUrl, options);
 
   try {
-    const result = await extractImagesFromZipFile(temp.localPath, targetAsset, payload);
+    const result = await extractImagesFromZipFile(temp.localPath, targetAsset, payload, options);
     const extractedAt = new Date();
     const updatedAsset = setInspectionMetadata(targetAsset, {
       zipImageExtractionStatus: result.failedCount > 0 ? 'PARTIAL_FAILED' : 'EXTRACTED',

@@ -512,6 +512,33 @@ describe('productionTask.service', () => {
     }), expect.any(Object));
   });
 
+  test('revives a CANCELLED production task when item is active and ready fulfillment plan is present', async () => {
+    const current = {
+      _id: taskId,
+      orderItemId,
+      shopId,
+      status: 'CANCELLED',
+      scaleStatus: 'SCALED',
+      qcStatus: 'PASSED',
+      blockers: [],
+      fileChecks: [
+        { _id: fileCheckId, slotKey: 'FRONT', sourceType: 'CUSTOMER_IMAGE', inputAssetId: mediaAssetId, outputAssetId, scaleStatus: 'SCALED', qcStatus: 'PASSED' }
+      ],
+      assignedDesignUserId: '660000000000000000000201',
+      qcBy: '660000000000000000000202',
+      updatedAt: new Date('2026-11-12T00:00:00.000Z'),
+    };
+    repository.findByOrderItem.mockResolvedValueOnce(current);
+    repository.updateById.mockImplementation(async (id, patch) => ({ ...current, _id: id, ...patch }));
+
+    const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result.status).toBe('READY_TO_SEND_VENDOR');
+    const patch = repository.updateByIdIf.mock.calls[0][2];
+    expect(patch.status).toBe('READY_TO_SEND_VENDOR');
+    expect(patch.fileChecks).toContainEqual(expect.objectContaining({ outputAssetId, qcStatus: 'PASSED' }));
+  });
+
   test('cancels unsubmitted vendor submission before mapping override', async () => {
     repository.findByOrderItem.mockResolvedValueOnce({
       _id: taskId,

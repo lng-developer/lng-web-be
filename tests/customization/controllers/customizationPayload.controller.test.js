@@ -171,8 +171,8 @@ describe('customizationPayload.controller', () => {
       '660000000000000000000401',
       {
         maxEntries: 10,
-        maxTotalUncompressedBytes: 52428800,
-        maxSingleEntryUncompressedBytes: 20971520,
+        maxTotalUncompressedBytes: 104857600,
+        maxSingleEntryUncompressedBytes: 52428800,
       },
       auth,
     );
@@ -212,8 +212,8 @@ describe('customizationPayload.controller', () => {
       '660000000000000000000401',
       {
         maxEntries: 50,
-        maxTotalUncompressedBytes: 52428800,
-        maxSingleEntryUncompressedBytes: 20971520,
+        maxTotalUncompressedBytes: 104857600,
+        maxSingleEntryUncompressedBytes: 52428800,
       },
       auth,
     );
