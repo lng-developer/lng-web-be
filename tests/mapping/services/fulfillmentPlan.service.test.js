@@ -301,6 +301,7 @@ describe('fulfillmentPlan.service', () => {
     });
     orderPublic.listItemsByOrder.mockResolvedValue([item]);
     orderPublic.updateItemListingId.mockResolvedValue({ _id: orderItemId, listingId });
+    orderPublic.refreshFulfillmentStatusesForOrder = jest.fn().mockResolvedValue({ _id: orderId });
     catalogPublic.findListingForOrderItem.mockImplementation((params) => catalogPublic.findListingBySku(params));
     catalogPublic.findOrCreateListingForOrderItem.mockResolvedValue(listing);
     catalogPublic.findOrCreateDraftListingForOrderItem.mockResolvedValue(listing);
@@ -515,7 +516,7 @@ describe('fulfillmentPlan.service', () => {
     }, { permissions: ['MAPPING:WRITE'] });
 
     expect(refreshFulfillmentStatusesForOrder).toHaveBeenCalledWith(orderId);
-    delete orderPublic.refreshFulfillmentStatusesForOrder;
+    orderPublic.refreshFulfillmentStatusesForOrder = jest.fn().mockResolvedValue({ _id: orderId });
   });
 
   test('rechecks an existing READY manual selection when rules no longer auto-match', async () => {
