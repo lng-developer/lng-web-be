@@ -13,6 +13,9 @@ jest.mock('../../../src/modules/order/services/orderItemStatusTransition.service
 jest.mock('../../../src/modules/order/services/orderWorkbenchProjection.service', () => ({
   rebuildOrderWorkbenchProjection: jest.fn(),
 }));
+jest.mock('../../../src/modules/order/services/orderCostCenterStatus.service', () => ({
+  refreshFulfillmentStatusesForOrder: jest.fn(),
+}));
 jest.mock('../../../src/modules/vendorSubmission/public', () => ({
   getByOrderItemId: jest.fn(),
   cancel: jest.fn(),
@@ -34,6 +37,7 @@ const orderRepository = require('../../../src/modules/order/repositories/order.r
 const orderAccess = require('../../../src/modules/order/services/orderAccess.service');
 const status = require('../../../src/modules/order/services/orderItemStatusTransition.service');
 const workbench = require('../../../src/modules/order/services/orderWorkbenchProjection.service');
+const orderCostCenterStatus = require('../../../src/modules/order/services/orderCostCenterStatus.service');
 const vendorSubmission = require('../../../src/modules/vendorSubmission/public');
 const production = require('../../../src/modules/production/public');
 const mapping = require('../../../src/modules/mapping/public');
@@ -66,6 +70,7 @@ describe('vendorRematchRecovery.service', () => {
     expect(shipment.updateStatus).not.toHaveBeenCalled();
     expect(production.cancelTaskAfterExternalVendorCancellation).toHaveBeenCalledWith(orderItemId, { reason: payload.reason }, authContext);
     expect(mapping.resetFulfillmentPlanForVendorRematch).toHaveBeenCalledWith(orderItemId, authContext);
+    expect(orderCostCenterStatus.refreshFulfillmentStatusesForOrder).toHaveBeenCalledWith(orderId);
     expect(workbench.rebuildOrderWorkbenchProjection).toHaveBeenCalledWith(orderId, authContext, { source: 'VENDOR_REMATCH_RECOVERY' });
   });
 
@@ -79,6 +84,7 @@ describe('vendorRematchRecovery.service', () => {
     expect(vendorSubmission.cancelAfterExternalCancellation).not.toHaveBeenCalled();
     expect(production.cancelTaskAfterExternalVendorCancellation).toHaveBeenCalledWith(orderItemId, { reason: 'Change vendor before submit' }, authContext);
     expect(mapping.resetFulfillmentPlanForVendorRematch).toHaveBeenCalledWith(orderItemId, authContext);
+    expect(orderCostCenterStatus.refreshFulfillmentStatusesForOrder).toHaveBeenCalledWith(orderId);
     expect(workbench.rebuildOrderWorkbenchProjection).toHaveBeenCalledWith(orderId, authContext, { source: 'VENDOR_REMATCH_RECOVERY' });
   });
 
