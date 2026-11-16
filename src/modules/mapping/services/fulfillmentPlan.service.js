@@ -2010,6 +2010,14 @@ async function resetFulfillmentPlanForVendorRematch(orderItemId, authContext = {
     snapshot: { ...existing.snapshot, vendor: null, vendorProduct: null, vendorCostCenter: null, costEstimate: null },
   });
   await syncWorkbenchFulfillmentPlan(plan);
+  if (typeof orderPublic.refreshFulfillmentStatusesForOrder === 'function') {
+    await orderPublic.refreshFulfillmentStatusesForOrder(plan.orderId);
+  } else if (typeof orderPublic.updateCostCenterStatusForOrder === 'function') {
+    await Promise.all([
+      orderPublic.updateCostCenterStatusForOrder(plan.orderId),
+      orderPublic.updatePsdStatusForOrder(plan.orderId),
+    ]);
+  }
   return toFulfillmentPlanDto(plan);
 }
 

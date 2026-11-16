@@ -8,6 +8,7 @@ jest.mock('../../../src/modules/order/public', () => ({
   updateItemListingId: jest.fn(),
   updateCostCenterStatusForOrder: jest.fn(),
   updatePsdStatusForOrder: jest.fn(),
+  refreshFulfillmentStatusesForOrder: jest.fn(),
   updateOrderWorkbenchItem: jest.fn(),
 }));
 
@@ -300,6 +301,7 @@ describe('fulfillmentPlan.service', () => {
     });
     orderPublic.listItemsByOrder.mockResolvedValue([item]);
     orderPublic.updateItemListingId.mockResolvedValue({ _id: orderItemId, listingId });
+    orderPublic.refreshFulfillmentStatusesForOrder = jest.fn().mockResolvedValue({ _id: orderId });
     catalogPublic.findListingForOrderItem.mockImplementation((params) => catalogPublic.findListingBySku(params));
     catalogPublic.findOrCreateListingForOrderItem.mockResolvedValue(listing);
     catalogPublic.findOrCreateDraftListingForOrderItem.mockResolvedValue(listing);
@@ -514,7 +516,7 @@ describe('fulfillmentPlan.service', () => {
     }, { permissions: ['MAPPING:WRITE'] });
 
     expect(refreshFulfillmentStatusesForOrder).toHaveBeenCalledWith(orderId);
-    delete orderPublic.refreshFulfillmentStatusesForOrder;
+    orderPublic.refreshFulfillmentStatusesForOrder = jest.fn().mockResolvedValue({ _id: orderId });
   });
 
   test('rechecks an existing READY manual selection when rules no longer auto-match', async () => {
@@ -1670,6 +1672,41 @@ describe('fulfillmentPlan.service', () => {
       source: 'MAPPING_OVERRIDE',
     }));
     expect(result.status).toBe('READY');
+  });
+
+  test('resetFulfillmentPlanForVendorRematch resets plan and refreshes order fulfillment statuses', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: '660000000000000000006001',
+      orderId,
+      orderItemId,
+      shopId,
+      status: 'READY',
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+      snapshot: { vendorCostCenter: { id: costCenterId } },
+    });
+    repository.upsertByOrderItem.mockResolvedValueOnce({
+      _id: '660000000000000000006001',
+      orderId,
+      orderItemId,
+      shopId,
+      status: 'BLOCKED',
+      vendorProductId: null,
+      vendorCostCenterId: null,
+      blockingReasons: ['VENDOR_REMATCH_REQUIRED'],
+      snapshot: { vendor: null, vendorProduct: null, vendorCostCenter: null, costEstimate: null },
+    });
+
+    const result = await service.resetFulfillmentPlanForVendorRematch(orderItemId, { permissions: ['MAPPING:WRITE'] });
+
+    expect(result.status).toBe('BLOCKED');
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      status: 'BLOCKED',
+      vendorProductId: null,
+      vendorCostCenterId: null,
+      blockingReasons: ['VENDOR_REMATCH_REQUIRED'],
+    }));
+    expect(orderPublic.refreshFulfillmentStatusesForOrder).toHaveBeenCalledWith(orderId);
   });
 
   test('manual select rejects existing MANUAL READY plan when production guard blocks override', async () => {

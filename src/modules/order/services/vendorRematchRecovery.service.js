@@ -6,6 +6,7 @@ const orderItemRepository = require('../repositories/orderItem.repository');
 const status = require('./orderItemStatusTransition.service');
 const orderAccess = require('./orderAccess.service');
 const workbench = require('./orderWorkbenchProjection.service');
+const orderCostCenterStatus = require('./orderCostCenterStatus.service');
 const { orderItemStatuses } = require('../constants/orderStatuses');
 
 const vendorSubmission = require('../../vendorSubmission/public');
@@ -43,6 +44,7 @@ async function recoverForVendorRematch(orderItemId, payload = {}, authContext = 
   await production.cancelTaskAfterExternalVendorCancellation(orderItemId, { reason }, authContext);
   await mapping.resetFulfillmentPlanForVendorRematch(orderItemId, authContext);
   const updated = await status.transitionItemStatus(orderItemId, orderItemStatuses.MAPPING_PENDING, { ...authContext, source: 'MAPPING', allowVendorRematchRecovery: true });
+  await orderCostCenterStatus.refreshFulfillmentStatusesForOrder(updated.orderId);
   await workbench.rebuildOrderWorkbenchProjection(updated.orderId, authContext, { source: 'VENDOR_REMATCH_RECOVERY' });
   return updated;
 }
