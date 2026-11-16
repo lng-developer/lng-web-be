@@ -54,6 +54,10 @@ const orderIdParamsSchema = Joi.object({
   orderId: objectId.required(),
 });
 
+const bulkRecalculateOrdersSchema = Joi.object({
+  orderIds: Joi.array().items(objectId).min(1).max(200).required(),
+});
+
 const financeImportContextSchema = Joi.object({
   shopId: objectId.required(),
   salesChannelCode: Joi.string().trim().uppercase().required(),
@@ -176,5 +180,6 @@ module.exports = {
   exportSnapshotsQuerySchema,
   listSnapshotsQuerySchema,
   orderIdParamsSchema,
+  bulkRecalculateOrdersSchema,
   validate,
 };

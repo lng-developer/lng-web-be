@@ -15,6 +15,7 @@ jest.mock('../../../src/modules/order/services/orderWorkbenchProjection.service'
 }));
 jest.mock('../../../src/modules/vendorSubmission/public', () => ({
   getByOrderItemId: jest.fn(),
+  cancel: jest.fn(),
   cancelAfterExternalCancellation: jest.fn(),
 }));
 jest.mock('../../../src/modules/production/public', () => ({
@@ -66,5 +67,25 @@ describe('vendorRematchRecovery.service', () => {
     expect(production.cancelTaskAfterExternalVendorCancellation).toHaveBeenCalledWith(orderItemId, { reason: payload.reason }, authContext);
     expect(mapping.resetFulfillmentPlanForVendorRematch).toHaveBeenCalledWith(orderItemId, authContext);
     expect(workbench.rebuildOrderWorkbenchProjection).toHaveBeenCalledWith(orderId, authContext, { source: 'VENDOR_REMATCH_RECOVERY' });
+  });
+
+  test('resets a READY submission without requiring externalCancellationConfirmed', async () => {
+    vendorSubmission.getByOrderItemId.mockResolvedValue({ id: '660000000000000000000501', status: 'READY' });
+
+    const result = await service.recoverForVendorRematch(orderItemId, { reason: 'Change vendor before submit' }, authContext);
+
+    expect(result.status).toBe('MAPPING_PENDING');
+    expect(vendorSubmission.cancel).toHaveBeenCalledWith('660000000000000000000501', { cancelReason: 'Change vendor before submit' }, authContext);
+    expect(vendorSubmission.cancelAfterExternalCancellation).not.toHaveBeenCalled();
+    expect(production.cancelTaskAfterExternalVendorCancellation).toHaveBeenCalledWith(orderItemId, { reason: 'Change vendor before submit' }, authContext);
+    expect(mapping.resetFulfillmentPlanForVendorRematch).toHaveBeenCalledWith(orderItemId, authContext);
+    expect(workbench.rebuildOrderWorkbenchProjection).toHaveBeenCalledWith(orderId, authContext, { source: 'VENDOR_REMATCH_RECOVERY' });
+  });
+
+  test('requires externalCancellationConfirmed when submission is SUBMITTED', async () => {
+    vendorSubmission.getByOrderItemId.mockResolvedValue({ id: '660000000000000000000501', status: 'SUBMITTED' });
+
+    await expect(service.recoverForVendorRematch(orderItemId, { reason: 'No confirm' }, authContext))
+      .rejects.toThrow('External vendor cancellation must be confirmed');
   });
 });

@@ -773,7 +773,7 @@ function preserveExistingScaledOutputs(fileChecks = [], existingFileChecks = [])
   const existingBySlotKey = new Map((existingFileChecks || [])
     .map((check) => [`${normalizeSlotKey(check.slotKey)}:${check.sourceType}`, check]));
 
-  return fileChecks.map((check) => {
+  const derived = fileChecks.map((check) => {
     const existing = existingBySlotKey.get(`${normalizeSlotKey(check.slotKey)}:${check.sourceType}`);
     if (!existing || toId(existing.inputAssetId) !== toId(check.inputAssetId)) return check;
 
@@ -799,6 +799,14 @@ function preserveExistingScaledOutputs(fileChecks = [], existingFileChecks = [])
       ...(existing.createdAt ? { createdAt: existing.createdAt } : {}),
     };
   });
+
+  const derivedKeys = new Set(fileChecks.map((check) => normalizeSlotKey(check.slotKey)));
+  const manualChecks = (existingFileChecks || []).filter((check) => (
+    !derivedKeys.has(normalizeSlotKey(check.slotKey))
+    && check.sourceType !== productionSourceTypes.PSD_TEMPLATE
+  ));
+
+  return [...derived, ...manualChecks];
 }
 
 function aggregateStatus(fileChecks = [], extraBlockers = [], options = {}) {
@@ -838,6 +846,14 @@ function aggregateStatus(fileChecks = [], extraBlockers = [], options = {}) {
   }
   if (!requiredChecks.length) {
     if (manualScaledChecks.length) {
+      if (manualScaledChecks.every((check) => check.qcStatus === productionQcStatuses.PASSED)) {
+        return {
+          status: productionTaskStatuses.READY_TO_SEND_VENDOR,
+          scaleStatus: productionScaleStatuses.SCALED,
+          qcStatus: productionQcStatuses.PASSED,
+          blockers: [],
+        };
+      }
       if (!options.submitQc && !manualScaledChecks.some((check) => check.qcStatus === productionQcStatuses.PENDING)) {
         return {
           status: productionTaskStatuses.NEED_SCALE,
@@ -1475,8 +1491,11 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
     }
     let result;
     if (current) {
+      const isCancelledRevival = current.status === productionTaskStatuses.CANCELLED
+        && item.status !== 'CANCELLED'
+        && item.status !== 'REFUNDED';
+      const restartForVendorChange = Boolean(authContext?.restartForVendorChange) || isCancelledRevival;
       const terminal = RECHECK_TERMINAL_STATUSES.has(current.status);
-      const restartForVendorChange = Boolean(authContext?.restartForVendorChange);
       const task = await repository.updateByIdIf(
         toId(current),
         current.updatedAt ? { updatedAt: current.updatedAt } : {},
@@ -1488,12 +1507,20 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
           qcStatus: initialQcStatus,
           blockers: initialBlockers,
           ...(restartForVendorChange ? {
-            assignedDesignUserId: null,
-            assignedAt: null,
-            designNote: null,
-            qcBy: null,
-            qcAt: null,
-            readyAt: initialStatus === productionTaskStatuses.READY_TO_SEND_VENDOR ? new Date() : null,
+            assignedDesignUserId: initialStatus === productionTaskStatuses.READY_TO_SEND_VENDOR
+              ? current.assignedDesignUserId || null
+              : null,
+            assignedAt: initialStatus === productionTaskStatuses.READY_TO_SEND_VENDOR
+              ? current.assignedAt || null
+              : null,
+            designNote: current.designNote || null,
+            qcBy: initialStatus === productionTaskStatuses.READY_TO_SEND_VENDOR
+              ? current.qcBy || null
+              : null,
+            qcAt: initialStatus === productionTaskStatuses.READY_TO_SEND_VENDOR
+              ? current.qcAt || null
+              : null,
+            readyAt: initialStatus === productionTaskStatuses.READY_TO_SEND_VENDOR ? current.readyAt || new Date() : null,
             sentToVendorAt: null,
             vendorSubmissionId: null,
           } : {}),

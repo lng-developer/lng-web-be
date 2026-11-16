@@ -431,6 +431,39 @@ describe('financeSnapshot.service', () => {
     expect(repository.upsertByOrderItem.mock.calls.every((call) => call[2]?.session === transactionSession)).toBe(true);
   });
 
+  test('recalculateOrders recalculates multiple orders and returns bulk summary', async () => {
+    const secondOrderId = '660000000000000000140299';
+    orderPublic.listItemsByOrder.mockResolvedValue([item]);
+    orderPublic.findItemById.mockResolvedValue(item);
+    mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValue(fulfillmentPlan);
+
+    const result = await service.recalculateOrders([orderId, secondOrderId, orderId], { permissions: ['FINANCE:WRITE'] });
+
+    expect(result.totalRequested).toBe(2);
+    expect(result.successCount).toBe(2);
+    expect(result.failureCount).toBe(0);
+    expect(result.recalculatedItemCount).toBe(2);
+    expect(result.succeeded).toHaveLength(2);
+    expect(result.failed).toEqual([]);
+  });
+
+  test('recalculateOrders handles partial failures gracefully', async () => {
+    const invalidOrderId = 'invalid-order-id';
+    orderPublic.listItemsByOrder.mockResolvedValueOnce([item]);
+    orderPublic.findItemById.mockResolvedValueOnce(item);
+    mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce(fulfillmentPlan);
+
+    const result = await service.recalculateOrders([orderId, invalidOrderId], { permissions: ['FINANCE:WRITE'] });
+
+    expect(result.totalRequested).toBe(2);
+    expect(result.successCount).toBe(1);
+    expect(result.failureCount).toBe(1);
+    expect(result.succeeded[0].orderId).toBe(orderId);
+    expect(result.failed[0]).toMatchObject({
+      orderId: invalidOrderId,
+    });
+  });
+
   test('public item recalculation cannot bypass audit with internal-looking options', async () => {
     await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] }, null, { suppressAudit: true });
 

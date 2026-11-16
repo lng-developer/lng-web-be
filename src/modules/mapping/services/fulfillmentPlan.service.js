@@ -1653,6 +1653,8 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
 
   const existingPlan = await repository.findByOrderItem(orderItemId);
   let needsProductionOverride = false;
+  const isRematchRecovery = (existingPlan?.blockingReasons || []).includes('VENDOR_REMATCH_REQUIRED')
+    || existingPlan?.status === fulfillmentPlanStatuses.BLOCKED;
   if (existingPlan && [fulfillmentPlanStatuses.READY, fulfillmentPlanStatuses.CONFIRMED].includes(existingPlan.status)) {
     const sameSelection = idEquals(existingPlan.vendorProductId, payload.vendorProductId)
       && idEquals(existingPlan.vendorCostCenterId, payload.vendorCostCenterId);
@@ -1663,6 +1665,9 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
       throw conflict('Plan already resolved', { blockingReasons: [fulfillmentBlockingReasons.PLAN_ALREADY_RESOLVED] });
     }
     needsProductionOverride = !sameSelection && canManualOverrideReady;
+  }
+  if (!needsProductionOverride && isRematchRecovery) {
+    needsProductionOverride = true;
   }
 
   const vendorProduct = await vendorPublic.getVendorProductById(payload.vendorProductId);

@@ -8,6 +8,7 @@ const publicPort = {
   listFilterOptions: service.listFilterOptionsByQuery,
   listSnapshotsByOrderItemIds: service.listSnapshotsByOrderItemIds,
   recalculateOrder: service.recalculateOrder,
+  recalculateOrders: service.recalculateOrders,
   recalculateOrderItem: service.recalculateOrderItem,
   updateActualVendorCost: service.updateActualVendorCost,
   requestSnapshotRecalculation: enqueueSnapshotRecalculation,

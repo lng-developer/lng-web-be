@@ -3,8 +3,8 @@ const { customizationZipInspectionStatuses } = require('../constants/customizati
 
 const DEFAULT_LIMITS = Object.freeze({
   maxEntries: 50,
-  maxTotalUncompressedBytes: 50 * 1024 * 1024,
-  maxSingleEntryUncompressedBytes: 20 * 1024 * 1024,
+  maxTotalUncompressedBytes: 100 * 1024 * 1024,
+  maxSingleEntryUncompressedBytes: 50 * 1024 * 1024,
 });
 
 const UNSAFE_EXTENSIONS = new Set(['.exe', '.bat', '.cmd', '.sh', '.js', '.vbs', '.ps1', '.msi']);
