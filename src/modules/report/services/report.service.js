@@ -155,18 +155,18 @@ function mergeSellerPerformanceWithAds(sellerRows = [], adsRows = [], { includeA
     };
     const adSpendAmount = Number(adsRow.spendAmount || 0);
     const totalAdSpendAmount = Number(row.adSpendAmount || 0) + adSpendAmount;
-    const grossProfitBeforeAds =
+    const grossProfitBeforeRefundAndAds =
       row.grossProfitAmount === null || row.grossProfitAmount === undefined
         ? null
-        : Number(row.grossProfitAmount) + Number(row.adSpendAmount || 0);
+        : Number(row.grossProfitAmount) + Number(row.refundAmount || 0);
     const grossProfitAmount =
-      row.grossProfitAmount === null || row.grossProfitAmount === undefined
+      grossProfitBeforeRefundAndAds === null
         ? null
-        : grossProfitBeforeAds - totalAdSpendAmount;
+        : grossProfitBeforeRefundAndAds - totalAdSpendAmount;
     const netProfitAmount =
       grossProfitAmount === null
         ? null
-        : grossProfitAmount - Number(row.operatingCostAmount || 0);
+        : grossProfitAmount - Number(row.refundAmount || 0) - Number(row.operatingCostAmount || 0);
     rows.set(key, {
       ...row,
       adSpendAmount: totalAdSpendAmount,
@@ -240,18 +240,18 @@ function mergeTeamPerformanceWithAds(teamRows = [], adsRows = [], teamBySellerCo
     };
     const adSpendAmount = Number(adsRow.spendAmount || 0);
     const totalAdSpendAmount = Number(current.adSpendAmount || 0) + adSpendAmount;
-    const grossProfitBeforeAds =
+    const grossProfitBeforeRefundAndAds =
       current.grossProfitAmount === null || current.grossProfitAmount === undefined
         ? null
-        : Number(current.grossProfitAmount) + Number(current.adSpendAmount || 0);
+        : Number(current.grossProfitAmount) + Number(current.refundAmount || 0);
     const grossProfitAmount =
-      current.grossProfitAmount === null || current.grossProfitAmount === undefined
+      grossProfitBeforeRefundAndAds === null
         ? null
-        : grossProfitBeforeAds - totalAdSpendAmount;
+        : grossProfitBeforeRefundAndAds - totalAdSpendAmount;
     const netProfitAmount =
       grossProfitAmount === null
         ? null
-        : grossProfitAmount - Number(current.operatingCostAmount || 0);
+        : grossProfitAmount - Number(current.refundAmount || 0) - Number(current.operatingCostAmount || 0);
     rows.set(key, {
       ...current,
       adSpendAmount: totalAdSpendAmount,
@@ -499,27 +499,37 @@ async function getFinanceSellerDaily(query = {}, authContext) {
       });
       return;
     }
-    const grossProfitAmount =
+    const grossProfitBeforeRefund =
       current.grossProfitAmount === null || current.grossProfitAmount === undefined
         ? null
-        : Number(current.grossProfitAmount) - adSpendAmount;
+        : Number(current.grossProfitAmount) + Number(current.refundAmount || 0);
+    const grossProfitAmount =
+      grossProfitBeforeRefund === null
+        ? null
+        : grossProfitBeforeRefund - adSpendAmount;
     const netProfitAmount =
       grossProfitAmount === null
         ? null
-        : grossProfitAmount - Number(current.operatingCostAmount || 0);
-    const partialGrossProfitAmount =
+        : grossProfitAmount - Number(current.refundAmount || 0) - Number(current.operatingCostAmount || 0);
+    const partialGrossProfitBeforeRefund =
       current.partialGrossProfitAmount === null || current.partialGrossProfitAmount === undefined
         ? null
-        : Number(current.partialGrossProfitAmount) - Math.round(
-            (adSpendAmount * Number(current.partialRevenueAmount || 0)) / Number(current.revenueAmount || 1),
-          );
+        : Number(current.partialGrossProfitAmount) + Number(current.refundAmount || 0);
+    const proratedAdSpend = Math.round(
+      (adSpendAmount * Number(current.partialRevenueAmount || 0)) / Number(current.revenueAmount || 1),
+    );
+    const partialGrossProfitAmount =
+      partialGrossProfitBeforeRefund === null
+        ? null
+        : partialGrossProfitBeforeRefund - proratedAdSpend;
+    const proratedOperatingCost = Math.round(
+      (Number(current.operatingCostAmount || 0) * Number(current.partialRevenueAmount || 0)) /
+        Number(current.revenueAmount || 1),
+    );
     const partialNetProfitAmount =
       partialGrossProfitAmount === null
         ? null
-        : partialGrossProfitAmount - Math.round(
-            (Number(current.operatingCostAmount || 0) * Number(current.partialRevenueAmount || 0)) /
-              Number(current.revenueAmount || 1),
-          );
+        : partialGrossProfitAmount - Number(current.refundAmount || 0) - proratedOperatingCost;
     rows.set(key, {
       ...current,
       adSpendAmount,

@@ -1,6 +1,7 @@
 const httpStatus = require('../../../shared/constants/httpStatus');
 const service = require('../services/financeSnapshot.service');
 const {
+  bulkRecalculateOrdersSchema,
   exportSnapshotsQuerySchema,
   listSnapshotsQuerySchema,
   orderIdParamsSchema,
@@ -71,6 +72,14 @@ async function recalculateOrder(req, res) {
   });
 }
 
+async function recalculateOrdersBulk(req, res) {
+  const payload = assertValid(bulkRecalculateOrdersSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.recalculateOrders(payload.orderIds, req.auth, getHttpContext(req)),
+  });
+}
+
 async function getOrderSummary(req, res) {
   res.status(httpStatus.OK).json({
     success: true,
@@ -85,5 +94,6 @@ module.exports = {
   listSnapshots,
   listFilterOptions,
   recalculateOrder,
+  recalculateOrdersBulk,
   recalculateOrderItem,
 };

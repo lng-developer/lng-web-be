@@ -69,8 +69,8 @@ describe('customizationAssetDownload.service', () => {
     const result = await service.downloadAssetsForOrderItem(orderItemId, {}, { permissions: ['ORDERS:WRITE'] });
 
     expect(safeRemoteFetchStream).toHaveBeenCalledWith(sourceUrl, expect.objectContaining({
-      timeoutMs: 15000,
-      maxBytes: 10485760,
+      timeoutMs: 30000,
+      maxBytes: 52428800,
       maxRedirects: 3,
     }));
     expect(mediaPublic.storeAsset).not.toHaveBeenCalled();

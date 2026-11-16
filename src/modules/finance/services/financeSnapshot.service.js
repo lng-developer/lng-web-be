@@ -969,6 +969,42 @@ async function recalculateOrder(orderId, authContext, httpContext) {
   });
 }
 
+async function recalculateOrders(orderIds = [], authContext, httpContext) {
+  const uniqueOrderIds = [...new Set((orderIds || []).map(String).filter(Boolean))];
+  const succeeded = [];
+  const failed = [];
+  let recalculatedItemCount = 0;
+
+  for (const orderId of uniqueOrderIds) {
+    try {
+      const result = await recalculateOrder(orderId, authContext, httpContext);
+      recalculatedItemCount += result.recalculatedCount || 0;
+      succeeded.push({
+        orderId,
+        itemCount: result.itemCount,
+        recalculatedCount: result.recalculatedCount,
+        missingCostCount: result.missingCostCount,
+        summary: result.summary,
+      });
+    } catch (error) {
+      failed.push({
+        orderId,
+        message: error.message,
+        code: error.code || 'RECALCULATE_FAILED',
+      });
+    }
+  }
+
+  return {
+    totalRequested: uniqueOrderIds.length,
+    successCount: succeeded.length,
+    failureCount: failed.length,
+    recalculatedItemCount,
+    succeeded,
+    failed,
+  };
+}
+
 async function getOrderSummary(orderId, authContext) {
   assertValidObjectId(orderId, 'orderId');
   const snapshots = await repository.listByOrder(orderId);
@@ -1009,6 +1045,7 @@ module.exports = {
   listFilterOptionsByQuery,
   listSnapshotsByOrderItemIds,
   recalculateOrder,
+  recalculateOrders,
   recalculateOrderItem,
   updateActualVendorCost,
   summarizeBySeller,

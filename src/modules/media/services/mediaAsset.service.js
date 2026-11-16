@@ -154,10 +154,13 @@ function uploadToCloudinary({ stream, originalFilename, mimeType, maxBytes }) {
   });
 }
 
-async function uploadToWasabi({ stream, originalFilename, mimeType, maxBytes }) {
+async function uploadToWasabi({ stream, originalFilename, mimeType, maxBytes, ownerType = null }) {
   const hashAndLimit = createHashAndLimitTransform(maxBytes);
   const extension = getSafeExtension(originalFilename);
-  const key = `scaled-outputs/${crypto.randomUUID()}${extension}`;
+  const folder = ownerType === 'PRODUCTION_TASK'
+    ? 'scaled-outputs'
+    : (ownerType === 'CUSTOMIZATION_PAYLOAD' ? 'customization-assets' : 'media-assets');
+  const key = `${folder}/${crypto.randomUUID()}${extension}`;
 
   const chunks = [];
   for await (const chunk of stream.pipe(hashAndLimit)) {
@@ -240,6 +243,7 @@ async function storeAsset({
       originalFilename,
       mimeType,
       maxBytes,
+      ownerType,
     });
 
     return repository.create({

@@ -1648,6 +1648,30 @@ describe('fulfillmentPlan.service', () => {
     expect(result.status).toBe('READY');
   });
 
+  test('manual select after vendor rematch triggers production restart', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: '660000000000000000006001',
+      orderItemId,
+      status: 'BLOCKED',
+      selectionMode: null,
+      vendorProductId: null,
+      vendorCostCenterId: null,
+      snapshot: {},
+      blockingReasons: ['VENDOR_REMATCH_REQUIRED'],
+    });
+
+    const result = await service.selectFulfillmentPlan(orderItemId, {
+      vendorProductId,
+      vendorCostCenterId: costCenterId,
+    }, { permissions: ['MAPPING:WRITE'], accountId: '660000000000000000009001' });
+
+    expect(productionPublic.restartForVendorChange).toHaveBeenCalledWith(orderItemId, expect.objectContaining({
+      system: true,
+      source: 'MAPPING_OVERRIDE',
+    }));
+    expect(result.status).toBe('READY');
+  });
+
   test('manual select rejects existing MANUAL READY plan when production guard blocks override', async () => {
     productionPublic.prepareForMappingOverride.mockRejectedValueOnce(Object.assign(new Error('sent'), {
       statusCode: 409,

@@ -280,6 +280,54 @@ describe('report.service', () => {
     );
   });
 
+  test('seller daily report subtracts ads before gross profit and subtracts refunds after gross profit', async () => {
+    financePublic.summarizeSellerDaily.mockResolvedValueOnce([
+      {
+        date: '2026-11-11',
+        sellerEmployeeCode: 'J2512',
+        sellerAccountId: 'account-1',
+        sellerName: 'Duc',
+        currency: 'USD',
+        itemCount: 2,
+        orderCount: 2,
+        revenueAmount: 9275,
+        baseCostAmount: 1020,
+        totalCostAmount: 2340,
+        additionalFulfillmentCostAmount: 1320,
+        marketplaceFeeAmount: 428,
+        refundAmount: 4290,
+        discountAmount: 0,
+        taxAmount: 594,
+        grossProfitAmount: 2237,
+        costedItemCount: 2,
+        partialRevenueAmount: 9275,
+        partialGrossProfitAmount: 2237,
+        partialNetProfitAmount: 2237,
+        missingCostCount: 0,
+        operatingCostAmount: 0,
+      },
+    ]);
+    financePublic.summarizeAdsSellerDaily.mockResolvedValueOnce([
+      { date: '2026-11-11', sellerEmployeeCode: 'J2512', currency: 'USD', adSpendAmount: 1921 },
+    ]);
+
+    const result = await service.getFinanceSellerDaily({}, { permissions: ['REPORTS:READ'] });
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        date: '2026-11-11',
+        sellerEmployeeCode: 'J2512',
+        revenueAmount: 9275,
+        totalCostAmount: 2340,
+        marketplaceFeeAmount: 428,
+        adSpendAmount: 1921,
+        grossProfitAmount: 4606,
+        refundAmount: 4290,
+        netProfitAmount: 316,
+      }),
+    ]);
+  });
+
   test('finance daily scopes shop users and maps compact totals', async () => {
     financePublic.summarizeDaily.mockResolvedValueOnce([
       {

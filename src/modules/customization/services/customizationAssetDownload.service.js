@@ -12,9 +12,9 @@ const { customizationStatuses } = require('../constants/customizationStatuses');
 
 const ORDER_WRITE_PERMISSION = 'ORDERS:WRITE';
 const SHOP_SCOPE_TYPE = 'shop';
-const DEFAULT_TIMEOUT_MS = 15000;
-const DEFAULT_IDLE_TIMEOUT_MS = 10000;
-const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
+const DEFAULT_TIMEOUT_MS = 30000;
+const DEFAULT_IDLE_TIMEOUT_MS = 15000;
+const DEFAULT_MAX_BYTES = 50 * 1024 * 1024;
 const DEFAULT_MAX_REDIRECTS = 3;
 
 function appError(message, statusCode, code, details) {
