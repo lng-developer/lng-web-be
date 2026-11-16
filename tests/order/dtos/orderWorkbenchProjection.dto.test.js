@@ -15,6 +15,7 @@ describe('orderWorkbenchProjection dto', () => {
       case: { title: 'Address issue' },
       items: [{
         item: { sku: 'J2501-TS2S' },
+        workflow: null,
         production: { qcStatus: 'APPROVED', scaledOutputs: [] },
         psd: { listingPsd: null, listingVariant: null },
       }],

@@ -10,7 +10,11 @@ const notificationPublic = require('../../notification/public');
 const orderPublic = require('../../order/public');
 const vendorPublic = require('../../vendor/public');
 const vendorSubmissionPublic = require('../../vendorSubmission/public');
-const { shipmentPermissions, shipmentStatuses } = require('../constants/shipment.constants');
+const {
+  shipmentPermissions,
+  shipmentStatuses,
+  SUPPORTED_TRACKING_PROVIDERS,
+} = require('../constants/shipment.constants');
 const repository = require('../repositories/shipment.repository');
 const { getTrackingAdapter } = require('./vendorTrackingAdapterRegistry.service');
 const { normalizeShipmentStatus } = require('./vendorTrackingNormalizer.service');
@@ -455,13 +459,58 @@ async function updateTracking(shipmentId, payload = {}, authContext) {
     await repairTrackingSideEffects(shipment, carrier, trackingNumber, authContext);
     return toShipmentDto(shipment);
   }
+function getPstTodayEnd() {
+  const pstFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' });
+  const [year, month, day] = pstFormatter.format(new Date()).split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
+}
+
+async function resolveSafeShipDate(shipment, vendorShippedAt) {
+  const todayPst = getPstTodayEnd();
+
+  if (shipment?.shippedAt) {
+    const existingDate = new Date(shipment.shippedAt);
+    if (!Number.isNaN(existingDate.getTime())) {
+      return existingDate > todayPst ? todayPst : existingDate;
+    }
+  }
+
+  if (vendorShippedAt && !Number.isNaN(vendorShippedAt.getTime())) {
+    return vendorShippedAt > todayPst ? todayPst : vendorShippedAt;
+  }
+
+  let order = null;
+  if (shipment?.orderId && typeof orderPublic?.findById === 'function') {
+    try {
+      order = await orderPublic.findById(shipment.orderId);
+    } catch (_) {
+      order = null;
+    }
+  }
+
+  const orderedAt = order?.orderedAt ? new Date(order.orderedAt) : null;
+  const shipByDate = order?.shipByDate ? new Date(order.shipByDate) : null;
+
+  let candidate = todayPst;
+  if (shipByDate && !Number.isNaN(shipByDate.getTime())) {
+    if (shipByDate <= todayPst) {
+      candidate = shipByDate;
+    } else {
+      candidate = todayPst;
+    }
+  }
+
+  if (orderedAt && !Number.isNaN(orderedAt.getTime()) && candidate < orderedAt) {
+    candidate = orderedAt;
+  }
+
+  return candidate;
+}
   if (shipment.status === shipmentStatuses.EXCEPTION) {
     throw conflict('Exception shipment tracking cannot be changed', { status: shipment.status });
   }
   const vendorShippedAt = payload.shippedAt ? new Date(payload.shippedAt) : null;
-  const shippedAt = shipment.shippedAt
-    || (vendorShippedAt && !Number.isNaN(vendorShippedAt.getTime()) ? vendorShippedAt : null)
-    || new Date();
+  const shippedAt = await resolveSafeShipDate(shipment, vendorShippedAt);
   const updated = await repository.updateTrackingIfNotDelivered(shipmentId, {
     carrier,
     trackingNumber,
@@ -764,11 +813,46 @@ function compactBatchError(error) {
   };
 }
 
+function isReadyForMarketplace(shipment) {
+  return Boolean(
+    shipment
+    && String(shipment.trackingNumber || '').trim()
+    && String(shipment.carrier || '').trim()
+    && shipment.shippedAt
+  );
+}
+
 function shouldSkipShipment(shipment) {
-  return [shipmentStatuses.DELIVERED, shipmentStatuses.RETURNED, shipmentStatuses.CANCELLED].includes(shipment?.status);
+  if (!shipment) return false;
+  if ([shipmentStatuses.DELIVERED, shipmentStatuses.RETURNED, shipmentStatuses.CANCELLED].includes(shipment.status)) {
+    return true;
+  }
+  return isReadyForMarketplace(shipment);
 }
 
 async function recheckSubmittedVendorTracking(query = {}, authContext) {
+  if (query.perVendor && !query.provider) {
+    if (query.shopId) {
+      assertCanAccessShop(query.shopId, shipmentPermissions.WRITE, authContext);
+    }
+    const limit = Math.min(Math.max(Number(query.limit) || 25, 1), 100);
+    const combined = { checked: 0, applied: 0, skipped: 0, failed: 0, items: [] };
+    for (const provider of SUPPORTED_TRACKING_PROVIDERS) {
+      const res = await recheckSubmittedVendorTracking({
+        ...query,
+        provider,
+        perVendor: false,
+        limit,
+      }, authContext);
+      combined.checked += res.checked;
+      combined.applied += res.applied;
+      combined.skipped += res.skipped;
+      combined.failed += res.failed;
+      combined.items.push(...res.items);
+    }
+    return combined;
+  }
+
   const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 100);
   const listQuery = {
     provider: query.provider ? String(query.provider).trim().toUpperCase() : undefined,
@@ -808,12 +892,18 @@ async function recheckSubmittedVendorTracking(query = {}, authContext) {
     const existingShipment = await repository.findByOrderItem(submission.orderItemId);
     if (shouldSkipShipment(existingShipment)) {
       await repository.touchLastCheckedAtByVendorSubmission(submission.id, new Date()).catch(() => {});
+      let reason = 'SHIPMENT_DELIVERED';
+      if (existingShipment.status === shipmentStatuses.RETURNED) {
+        reason = 'SHIPMENT_RETURNED';
+      } else if (existingShipment.status === shipmentStatuses.CANCELLED) {
+        reason = 'SHIPMENT_CANCELLED';
+      } else if (isReadyForMarketplace(existingShipment)) {
+        reason = 'SHIPMENT_ALREADY_TRACKED';
+      }
       items.push({
         ...base,
         status: 'SKIPPED',
-        reason: existingShipment.status === shipmentStatuses.RETURNED
-          ? 'SHIPMENT_RETURNED'
-          : existingShipment.status === shipmentStatuses.CANCELLED ? 'SHIPMENT_CANCELLED' : 'SHIPMENT_DELIVERED',
+        reason,
       });
       continue;
     }

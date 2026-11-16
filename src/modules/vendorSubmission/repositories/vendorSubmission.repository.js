@@ -4,7 +4,7 @@ const { getPaginationOffset, normalizePagination, toPaginatedResult } = require(
 const { escapeRegex } = require('../../../shared/utils/search');
 const { vendorSubmissionStatuses } = require('../constants/vendorSubmission.constants');
 
-const AUTOMATED_TRACKING_PROVIDERS = ['LENFUL', 'MERCHFOX', 'MERCHIZE', 'PRINTWAY', 'MANGOTEE'];
+const AUTOMATED_TRACKING_PROVIDERS = ['LENFUL', 'MERCHFOX', 'MERCHIZE', 'PRINTWAY', 'MANGOTEE', 'LNG_GROUP'];
 
 function toObjectId(value) {
   return mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : value;
@@ -145,12 +145,30 @@ async function listSubmittedForTracking(query = {}) {
           { $match: { $expr: { $eq: ['$vendorSubmissionId', '$$vendorSubmissionId'] } } },
           { $sort: { updatedAt: -1, _id: -1 } },
           { $limit: 1 },
-          { $project: { lastCheckedAt: 1 } },
+          { $project: { lastCheckedAt: 1, status: 1, trackingNumber: 1, carrier: 1, shippedAt: 1 } },
         ],
         as: 'trackingShipment',
       },
     },
     { $unwind: { path: '$trackingShipment', preserveNullAndEmptyArrays: true } },
+    {
+      $match: {
+        $or: [
+          { trackingShipment: { $exists: false } },
+          {
+            $or: [
+              { 'trackingShipment.trackingNumber': { $in: [null, ''] } },
+              { 'trackingShipment.carrier': { $in: [null, ''] } },
+              { 'trackingShipment.shippedAt': { $in: [null, ''] } },
+              { 'trackingShipment.status': 'TRACKING_PENDING' },
+            ],
+            'trackingShipment.status': {
+              $nin: ['DELIVERED', 'RETURNED', 'CANCELLED'],
+            },
+          },
+        ],
+      },
+    },
     { $sort: { 'trackingShipment.lastCheckedAt': 1, updatedAt: 1, _id: 1 } },
     { $limit: limit },
     {

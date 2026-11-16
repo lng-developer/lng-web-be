@@ -319,6 +319,9 @@ function toExpandedItemProduction(production = null) {
     designAssignmentStatus: production.designAssignmentStatus || null,
     readyAt: production.readyAt || null,
     sentToVendorAt: production.sentToVendorAt || null,
+    ...(production.scaledOutputs?.length ? { scaledOutputs: production.scaledOutputs } : {}),
+    ...(production.qcPreviewFileChecks?.length ? { qcPreviewFileChecks: production.qcPreviewFileChecks } : {}),
+    ...(production.scaleContext ? { scaleContext: production.scaleContext } : {}),
   };
 }
 
@@ -332,6 +335,9 @@ function toWorkbenchProduction(production = null) {
     scaleBy: toWorkbenchScaleBy(production),
     qcBy: toId(production.qcBy),
     ...(production.qcByUser ? { qcByUser: production.qcByUser } : {}),
+    ...(production.scaledOutputs?.length ? { scaledOutputs: production.scaledOutputs } : {}),
+    ...(production.qcPreviewFileChecks?.length ? { qcPreviewFileChecks: production.qcPreviewFileChecks } : {}),
+    ...(production.scaleContext ? { scaleContext: production.scaleContext } : {}),
   };
 }
 

@@ -195,4 +195,26 @@ describe('amazonOrderReport.mapper', () => {
     expect(dto.externalStatus).toBe('CANCELLED');
     expect(dto.items[0].externalStatus).toBe('CANCELLED');
   });
+
+  test('calculates shipByDate SLA fallback of 2 business days when latest-ship-date is absent', () => {
+    // 2026-11-04 is Wednesday -> +2 business days = Friday 2026-11-06
+    const [dtoWednesday] = mapAmazonOrderReportRowsToExternalOrderDtos([
+      {
+        'order-id': '111-WED',
+        'order-item-id': 'ITEM-WED',
+        'purchase-date': '2026-11-04T10:00:00Z',
+      },
+    ], context);
+    expect(new Date(dtoWednesday.shipByDate).toISOString()).toBe('2026-11-06T10:00:00.000Z');
+
+    // 2026-11-06 is Friday -> +2 business days = Tuesday 2026-11-10
+    const [dtoFriday] = mapAmazonOrderReportRowsToExternalOrderDtos([
+      {
+        'order-id': '111-FRI',
+        'order-item-id': 'ITEM-FRI',
+        'purchase-date': '2026-11-06T10:00:00Z',
+      },
+    ], context);
+    expect(new Date(dtoFriday.shipByDate).toISOString()).toBe('2026-11-10T10:00:00.000Z');
+  });
 });

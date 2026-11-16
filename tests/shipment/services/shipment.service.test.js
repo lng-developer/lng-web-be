@@ -373,6 +373,31 @@ describe('shipment.service', () => {
     expect(result.status).toBe('SHIPPED');
   });
 
+  test('tracking update resolves safe shippedAt from order SLA shipByDate when vendor provides no date', async () => {
+    const pastSlaDate = new Date('2026-11-10T12:00:00.000Z');
+    if (typeof orderPublic.findById === 'function') {
+      orderPublic.findById.mockResolvedValueOnce({
+        _id: orderId,
+        orderedAt: new Date('2026-11-08T10:00:00.000Z'),
+        shipByDate: pastSlaDate,
+      });
+    }
+
+    await service.updateTracking(shipmentId, {
+      carrier: 'USPS',
+      trackingNumber: '940011189922385',
+    }, {
+      permissions: ['SHIPMENTS:WRITE'],
+      accountId: actorId,
+    });
+
+    expect(repository.updateTrackingIfNotDelivered).toHaveBeenCalledWith(shipmentId, expect.objectContaining({
+      carrier: 'USPS',
+      trackingNumber: '940011189922385',
+      shippedAt: pastSlaDate,
+    }));
+  });
+
   test('tracking update requires carrier and tracking number', async () => {
     await expect(service.updateTracking(shipmentId, {
       carrier: '',
@@ -1428,6 +1453,38 @@ describe('shipment.service', () => {
     expect(repository.updateStatusIfCurrent).not.toHaveBeenCalled();
   });
 
+  test('submitted vendor tracking batch skips already shipped or tracked shipments', async () => {
+    const fetchTrackingByExternalOrderId = jest.fn();
+    vendorSubmissionPublic.listSubmittedForTracking.mockResolvedValue([{
+      id: vendorSubmissionId,
+      provider: 'PRINTWAY',
+      vendorExternalOrderId: '4095267035',
+      orderItemId,
+      shopId,
+    }]);
+    repository.findByOrderItem.mockResolvedValueOnce({
+      _id: shipmentId,
+      orderItemId,
+      status: 'SHIPPED',
+      carrier: 'USPS',
+      trackingNumber: '9400111899223850000001',
+      shippedAt: new Date(),
+    });
+    getTrackingAdapter.mockReturnValueOnce({ fetchTrackingByExternalOrderId });
+
+    const result = await service.recheckSubmittedVendorTracking({}, {
+      permissions: ['SHIPMENTS:WRITE'],
+    });
+
+    expect(result).toMatchObject({ checked: 1, applied: 0, skipped: 1, failed: 0 });
+    expect(result.items).toEqual([expect.objectContaining({
+      status: 'SKIPPED',
+      reason: 'SHIPMENT_ALREADY_TRACKED',
+    })]);
+    expect(fetchTrackingByExternalOrderId).not.toHaveBeenCalled();
+    expect(repository.updateTrackingIfNotDelivered).not.toHaveBeenCalled();
+  });
+
   test('keeps processing remaining submissions after one vendor adapter failure', async () => {
     const validOrderItemId = '660000000000000000130014';
     vendorSubmissionPublic.listSubmittedForTracking.mockResolvedValue([
@@ -1575,6 +1632,45 @@ describe('shipment.service', () => {
         idempotencyKey: `SHIPMENT_STATUS:${shipmentId}:CANCELLED`,
         eventType: 'SHIPMENT_CANCELLED',
       }),
+    );
+  });
+
+  test('submitted vendor tracking batch with perVendor: true queries each supported provider with limit', async () => {
+    vendorSubmissionPublic.listSubmittedForTracking.mockResolvedValue([]);
+
+    const result = await service.recheckSubmittedVendorTracking({ limit: 25, perVendor: true }, { system: true });
+
+    expect(result).toMatchObject({
+      checked: 0,
+      applied: 0,
+      skipped: 0,
+      failed: 0,
+      items: [],
+    });
+    expect(vendorSubmissionPublic.listSubmittedForTracking).toHaveBeenCalledTimes(6);
+    expect(vendorSubmissionPublic.listSubmittedForTracking).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'LNG_GROUP', limit: 25 }),
+      expect.anything(),
+    );
+    expect(vendorSubmissionPublic.listSubmittedForTracking).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'MERCHIZE', limit: 25 }),
+      expect.anything(),
+    );
+    expect(vendorSubmissionPublic.listSubmittedForTracking).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'PRINTWAY', limit: 25 }),
+      expect.anything(),
+    );
+    expect(vendorSubmissionPublic.listSubmittedForTracking).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'LENFUL', limit: 25 }),
+      expect.anything(),
+    );
+    expect(vendorSubmissionPublic.listSubmittedForTracking).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'MERCHFOX', limit: 25 }),
+      expect.anything(),
+    );
+    expect(vendorSubmissionPublic.listSubmittedForTracking).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'MANGOTEE', limit: 25 }),
+      expect.anything(),
     );
   });
 });

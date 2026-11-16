@@ -135,6 +135,10 @@ function getAdapter(adapterKey) {
     provider,
     fetchProductionLines: fetchMangoteeProductionLines,
     fetchVariations: fetchMangoteeVariations,
+    async testConnection({ credential } = {}) {
+      await fetchMangoteeProductionLines({ credential });
+      return { provider };
+    },
   });
   if (provider === 'LNG_GROUP') return Object.freeze({
     provider,
