@@ -780,7 +780,12 @@ async function buildFulfillmentOrder(order, items, tasks) {
     const parsedData = customization?.parsedData || {};
     const amazonCustomization = parsedData.amazonCustomization || {};
     const etsyCustomization = parsedData.etsyCustomization || {};
-    const customerInputs = amazonCustomization.customerInputs || etsyCustomization.customerInputs || null;
+    const customerInputs =
+      amazonCustomization.customerInputs ||
+      etsyCustomization.customerInputs ||
+      task?.customizationSnapshot?.customerInputs ||
+      item?.customization?.customerInputs ||
+      null;
     const customizationUrl =
       amazonCustomization.customizedUrl ||
       item.customizationRawSummary?.customizedUrl ||
@@ -788,12 +793,28 @@ async function buildFulfillmentOrder(order, items, tasks) {
       null;
     const snapshotImageUrl =
       customerInputs?.listingPreviewImageUrl ||
+      item?.customization?.previewImageUrl ||
       null;
+
+    const optionsArray = [
+      ...(customerInputs?.texts || []),
+      ...(customerInputs?.options || []),
+      ...(Array.isArray(item?.customization?.inputs) ? item.customization.inputs : []),
+    ].map((input) => ({
+      label: input.label || input.name || '',
+      value: input.value !== undefined && input.value !== null ? String(input.value) : '',
+    })).filter((opt) => opt.label && opt.value);
+
     const customizationData =
-      amazonCustomization.customerInputs ? amazonCustomization :
-      etsyCustomization.customerInputs ? etsyCustomization :
-      customerInputs ? { customerInputs } :
-      item.customization || null;
+      optionsArray.length > 0
+        ? optionsArray
+        : amazonCustomization.customerInputs
+          ? amazonCustomization
+          : etsyCustomization.customerInputs
+            ? etsyCustomization
+            : customerInputs
+              ? { customerInputs }
+              : item.customization || null;
 
     return {
       externalItemId: item.externalItemId,
