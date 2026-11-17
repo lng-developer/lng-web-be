@@ -115,7 +115,7 @@ async function downloadAsset(req, res) {
 
 async function downloadPublicAsset(req, res) {
   assertValidObjectId(req.params.assetId, 'assetId');
-  const disposition = req.query.disposition === 'inline' ? 'inline' : 'attachment';
+  const disposition = req.query.disposition === 'attachment' ? 'attachment' : 'inline';
   try {
     const redirectUrl = await service.getPublicDownloadUrl(req.params.assetId, { disposition });
     if (redirectUrl) {

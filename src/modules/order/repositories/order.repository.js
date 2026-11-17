@@ -1066,12 +1066,45 @@ async function findIdsByBuyerSearch(q) {
   return Order.distinct('_id', { $or: [{ 'buyer.name': search }, { 'buyer.emailMasked': search }] });
 }
 
+async function findTrackingDeadlineCandidates({ cutoffDate }) {
+  return Order.aggregate([
+    {
+      $match: {
+        status: { $nin: [orderStatuses.SHIPPED, orderStatuses.CANCELLED] },
+        shipByDate: { $lte: cutoffDate, $ne: null },
+      },
+    },
+    {
+      $lookup: {
+        from: 'orderitems',
+        localField: '_id',
+        foreignField: 'orderId',
+        as: 'orderItems',
+      },
+    },
+    {
+      $project: {
+        _id: 1,
+        shopId: 1,
+        externalOrderId: 1,
+        status: 1,
+        shipByDate: 1,
+        assignedStaffIds: 1,
+        'orderItems._id': 1,
+        'orderItems.status': 1,
+        'orderItems.fulfillmentStatus': 1,
+      },
+    },
+  ]);
+}
+
 module.exports = {
   create,
   findById,
   findByIds,
   findIdsByAssignedStaff,
   findIdsByBuyerSearch,
+  findTrackingDeadlineCandidates,
   findByExternalIdentity,
   findByFinanceIdentity,
   updateAddressValidation,

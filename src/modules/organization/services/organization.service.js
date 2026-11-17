@@ -630,6 +630,22 @@ async function listRoleAssignmentSource({ includeInactive = false } = {}) {
   };
 }
 
+async function listLeadersForAccountIds(accountIds = []) {
+  const uniqueAccountIds = [...new Set((accountIds || []).map(String))].filter(Boolean);
+  if (uniqueAccountIds.length === 0) return [];
+
+  const orgSummaries = await teamMembershipRepository.listActiveOrganizationByAccountIds(uniqueAccountIds);
+  const teamIds = [...new Set(
+    orgSummaries
+      .map((item) => item?.team?.id)
+      .filter(Boolean)
+      .map(String)
+  )];
+
+  if (teamIds.length === 0) return [];
+  return teamMembershipRepository.listActiveLeadersByTeamIds(teamIds);
+}
+
 async function migrateLegacyDepartments(items, options) {
   const result = await departmentRepository.migrateLegacyDepartments(items, options);
   if (options?.apply) await Promise.all(items.map(syncDepartmentScope));
@@ -675,6 +691,7 @@ module.exports = {
   listTeamsByDepartment,
   listDesignTeams,
   listRoleAssignmentSource,
+  listLeadersForAccountIds,
   migrateLegacyDepartments,
   resolveLegacyDepartments,
   migrateLegacyTeams,

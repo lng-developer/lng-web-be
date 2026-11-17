@@ -42,5 +42,6 @@ module.exports = {
   notify,
   notifyMany,
   migrateLegacyItems,
+  events: require('./events'),
   routeContracts: ['/api/notifications', '/api/notifications/unread-count', '/api/notifications/read-all', '/api/notifications/:id/read'],
 };
