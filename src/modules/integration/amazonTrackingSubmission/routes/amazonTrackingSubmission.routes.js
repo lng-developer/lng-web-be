@@ -7,6 +7,7 @@ const router = express.Router();
 const write = authPublic.authorizeAnyPermission('ORDERS:WRITE', 'SHIPMENTS:WRITE');
 const read = authPublic.authorizeAnyPermission('ORDERS:READ', 'ORDERS:WRITE', 'SHIPMENTS:READ', 'SHIPMENTS:WRITE');
 
+router.post('/preview', authPublic.authenticate, read, asyncHandler(controller.previewSubmission));
 router.post('/', authPublic.authenticate, write, asyncHandler(controller.createSubmission));
 router.get('/', authPublic.authenticate, read, asyncHandler(controller.listSubmissions));
 router.get('/:submissionId', authPublic.authenticate, read, asyncHandler(controller.getSubmission));

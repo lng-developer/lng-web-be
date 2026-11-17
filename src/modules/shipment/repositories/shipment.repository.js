@@ -77,6 +77,16 @@ async function findReadyForMarketplaceUpload(shopId, { limit = 100 } = {}) {
     .lean();
 }
 
+async function findShippedByShop(shopId, { limit = 200 } = {}) {
+  return Shipment.find({
+    shopId: toObjectId(shopId),
+    status: shipmentStatuses.SHIPPED,
+  })
+    .sort({ shippedAt: -1, _id: -1 })
+    .limit(limit)
+    .lean();
+}
+
 async function list(query = {}) {
   const { page, limit } = normalizePagination(query, { defaultLimit: 20, maxLimit: 100 });
   const filter = buildFilter(query);
@@ -214,6 +224,7 @@ module.exports = {
   findById,
   findByIds,
   findReadyForMarketplaceUpload,
+  findShippedByShop,
   updateMarketplaceConfirmation,
   findByOrderItem,
   list,
