@@ -1,6 +1,7 @@
 const { Server } = require('socket.io');
 const config = require('../config');
 const authPublic = require('../modules/auth/public');
+const notificationPublic = require('../modules/notification/public');
 const chatEvents = require('../modules/chat/events');
 const chatService = require('../modules/chat/services/chat.service');
 const schemas = require('../modules/chat/validators/chat.validator');
@@ -88,6 +89,11 @@ function attachChatSocket(server) {
     `account:${state.accountId}`, `conversation:${state.conversationId}`,
   ]).emit('message.read', state);
   chatEvents.on('message.read', broadcastRead);
+  const broadcastCreatedNotification = (notification) => {
+    if (!notification?.recipientAccountId) return;
+    io.to(`account:${notification.recipientAccountId}`).emit('notification.created', notification);
+  };
+  notificationPublic.events.on('notification.created', broadcastCreatedNotification);
   io.on('connection', (socket) => {
     const accountId = socket.authContext.accountId;
     socketMetrics.recordConnection(accountId);

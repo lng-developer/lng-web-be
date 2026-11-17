@@ -10,6 +10,7 @@ const orderWorkflowService = require('./services/orderWorkflow.service');
 const orderCaseService = require('./services/orderCase.service');
 const orderWorkbenchProjectionService = require('./services/orderWorkbenchProjection.service');
 const orderRecheckJobService = require('./services/orderRecheckJob.service');
+const orderTrackingDeadlineScannerService = require('./services/orderTrackingDeadlineScanner.service');
 const { addressValidationStatuses } = require('./constants/orderStatuses');
 
 const publicPort = {
@@ -68,6 +69,9 @@ const publicPort = {
   syncOrderWorkbenchListingVariantPsd: orderWorkbenchProjectionService.syncOrderWorkbenchListingVariantPsd,
   requestRecheckJob: orderRecheckJobService.requestRecheckJob,
   getRecheckJob: orderRecheckJobService.getRecheckJob,
+  scanOrderTrackingDeadlines: orderTrackingDeadlineScannerService.scanOrderTrackingDeadlines,
+  startOrderTrackingDeadlineScheduler: orderTrackingDeadlineScannerService.startOrderTrackingDeadlineScheduler,
+  stopOrderTrackingDeadlineScheduler: orderTrackingDeadlineScannerService.stopOrderTrackingDeadlineScheduler,
   addressValidationStatuses,
 };
 

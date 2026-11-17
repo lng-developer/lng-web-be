@@ -3,10 +3,14 @@ const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const repository = require('../repositories/notification.repository');
 const { toNotificationDto, toNotificationListDto } = require('../dtos/notification.dto');
+const notificationEvents = require('../events');
 
 async function notify(payload) {
   try {
-    return toNotificationDto(await repository.create(payload));
+    const created = await repository.create(payload);
+    const dto = toNotificationDto(created);
+    notificationEvents.emit('notification.created', dto);
+    return dto;
   } catch (error) {
     if (error.code !== 11000) throw error;
     const existing = await repository.findByDeduplicationKey(
