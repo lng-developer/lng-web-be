@@ -273,6 +273,123 @@ describe('AmazonTrackingSubmission Service', () => {
     });
   });
 
+  describe('previewSubmission', () => {
+    it('returns normalized preview rows with exact Amazon feed fields and generated TSV', async () => {
+      shipmentPublic.normalizeTrackingForAmazon.mockImplementation(async ({ carrier, trackingNumber }) => {
+        if (carrier === 'Other Courier') {
+          return {
+            carrier: 'Other Courier',
+            carrierCode: 'Other',
+            carrierName: 'Other Courier',
+            trackingNumber,
+            shipMethod: 'Standard',
+            shipDate: '2026-11-14',
+          };
+        }
+        return {
+          carrier: 'USPS',
+          carrierCode: 'USPS',
+          carrierName: 'USPS',
+          trackingNumber,
+          shipMethod: 'USPS First Class',
+          shipDate: '2026-11-14',
+        };
+      });
+
+      shipmentPublic.findByIds.mockResolvedValue([
+        {
+          _id: shipmentId1,
+          shopId,
+          status: 'SHIPPED',
+          externalOrderId: '111-2222222-3333331',
+          carrier: 'USPS Ground Advantage',
+          trackingNumber: '9400100000000000000001',
+          shippedAt: new Date('2026-11-14T08:00:00Z'),
+          marketplaceConfirmationStatus: 'PENDING',
+        },
+        {
+          _id: shipmentId2,
+          shopId,
+          status: 'SHIPPED',
+          externalOrderId: '111-2222222-3333332',
+          carrier: 'Other Courier',
+          trackingNumber: 'OTHER123456789',
+          shippedAt: new Date('2026-11-14T09:00:00Z'),
+          marketplaceConfirmationStatus: 'CONFIRMED',
+          marketplaceConfirmedAt: new Date('2026-11-14T10:00:00Z'),
+        },
+      ]);
+
+      const preview = await service.previewSubmission(
+        { shopId, shipmentIds: [shipmentId1, shipmentId2] },
+        authUser
+      );
+
+      expect(authPublic.canAccessScope).toHaveBeenCalledWith(authUser, 'ORDERS:READ', { scopeType: 'shop', scopeId: shopId });
+      expect(preview.items).toHaveLength(2);
+
+      const row1 = preview.items.find((i) => i.externalOrderId === '111-2222222-3333331');
+      expect(row1).toEqual(expect.objectContaining({
+        externalOrderId: '111-2222222-3333331',
+        shipDate: '2026-11-14',
+        carrierCode: 'USPS',
+        carrierName: '',
+        trackingNumber: '9400100000000000000001',
+        shipMethod: 'USPS First Class',
+        isReady: true,
+      }));
+
+      const row2 = preview.items.find((i) => i.externalOrderId === '111-2222222-3333332');
+      expect(row2).toEqual(expect.objectContaining({
+        externalOrderId: '111-2222222-3333332',
+        shipDate: '2026-11-14',
+        carrierCode: 'Other',
+        carrierName: 'Other Courier',
+        trackingNumber: 'OTHER123456789',
+        marketplaceConfirmationStatus: 'CONFIRMED',
+      }));
+
+      expect(preview.tsv).toContain('111-2222222-3333331\t\t\t2026-11-14\tUSPS\t\t9400100000000000000001\tUSPS First Class');
+      // Confirmed row should not be in ready TSV feed
+      expect(preview.tsv).not.toContain('111-2222222-3333332');
+      expect(preview.summary).toEqual({
+        totalOrders: 2,
+        totalShipments: 2,
+        readyOrders: 1,
+        readyShipments: 1,
+        confirmedOrders: 1,
+        pendingOrders: 1,
+      });
+    });
+
+    it('identifies incomplete shipments and flags issues without throwing in preview mode', async () => {
+      shipmentPublic.findByIds.mockResolvedValue([
+        {
+          _id: shipmentId1,
+          shopId,
+          status: 'TRACKING_PENDING',
+          externalOrderId: '111-0000000-0000001',
+          carrier: null,
+          trackingNumber: null,
+          shippedAt: null,
+        },
+      ]);
+
+      const preview = await service.previewSubmission(
+        { shopId, shipmentIds: [shipmentId1] },
+        authUser
+      );
+
+      expect(preview.items).toHaveLength(1);
+      expect(preview.items[0].isReady).toBe(false);
+      expect(preview.items[0].issues).toContain('not_shipped');
+      expect(preview.items[0].issues).toContain('missing_carrier');
+      expect(preview.items[0].issues).toContain('missing_tracking_number');
+      expect(preview.summary.readyOrders).toBe(0);
+      expect(preview.tsv).not.toContain('111-0000000-0000001');
+    });
+  });
+
   describe('Agent tracking lifecycle callbacks', () => {
     beforeEach(() => {
       extensionCommandRepository.findAgentForToken.mockResolvedValue({

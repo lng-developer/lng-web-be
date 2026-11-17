@@ -9,7 +9,7 @@ const repository = require('../repositories/amazonTrackingSubmission.repository'
 const extensionCommandRepository = require('../../extensionCommand/repositories/extensionCommand.repository');
 const { extensionCommandTypes, extensionCommandStatuses } = require('../../extensionCommand/constants/extensionCommand.constants');
 const { amazonTrackingSubmissionStatuses, normalizeCarrierCode } = require('../constants/amazonTrackingSubmission.constants');
-const { toSubmissionDto, toSubmissionDetailDto, toLeasedPayloadDto } = require('../dtos/amazonTrackingSubmission.dto');
+const { toSubmissionDto, toSubmissionDetailDto, toLeasedPayloadDto, toPreviewDto } = require('../dtos/amazonTrackingSubmission.dto');
 
 const forbidden = () => new AppError('Forbidden', httpStatus.FORBIDDEN, true, errorCodes.AUTHORIZATION_ERROR);
 const notFound = (message) => new AppError(message, httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
@@ -46,119 +46,22 @@ async function validateCommandLease(commandId, agentId, leaseToken) {
   return command;
 }
 
-function formatDate(date) {
-  // Amazon US operates on US Pacific Time (America/Los_Angeles).
-  // A ship-date cannot be in the future relative to Amazon marketplace time.
-  const d = new Date(date);
-  const pstFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' });
-  const formatted = pstFormatter.format(d);
-  const todayInPst = pstFormatter.format(new Date());
-  return formatted > todayInPst ? todayInPst : formatted;
+function formatDate(dateInput, now = new Date()) {
+  const nowDate = now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date();
+  const nowIsoDate = nowDate.toISOString().split('T')[0];
+
+  if (!dateInput) return nowIsoDate;
+  const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
+  if (Number.isNaN(d.getTime())) return nowIsoDate;
+
+  const targetIsoDate = d.toISOString().split('T')[0];
+  if (targetIsoDate > nowIsoDate) {
+    return nowIsoDate;
+  }
+  return targetIsoDate;
 }
 
-async function createSubmission(payload, authContext) {
-  assertUserShopAccess(authContext, payload.shopId, 'ORDERS:WRITE');
-
-  const agent = await extensionCommandRepository.findAgentById(payload.agentId);
-  if (!agent) throw notFound('Extension agent not found');
-  if (String(agent.shopId) !== String(payload.shopId)) throw badRequest('Agent does not belong to the selected shop');
-
-  const shipments = await shipmentPublic.findByIds(payload.shipmentIds);
-  if (!shipments.length) throw notFound('No shipments found');
-
-  const orderItemIds = [...new Set(shipments.map((s) => s.orderItemId).filter(Boolean).map(String))];
-  const orderItems = orderItemIds.length ? await orderPublic.findItemsByIds(orderItemIds) : [];
-  const orderItemById = new Map(orderItems.map((i) => [String(i._id || i.id), i]));
-
-  const validRows = [];
-  const validShipmentIds = [];
-
-  for (const shipment of shipments) {
-    if (String(shipment.shopId) !== String(payload.shopId)) {
-      throw badRequest(`Shipment ${shipment._id} does not belong to shop ${payload.shopId}`);
-    }
-    if (shipment.status !== 'SHIPPED') {
-      throw badRequest(`Shipment ${shipment._id} is not in SHIPPED status`);
-    }
-    if (!shipment.externalOrderId || !shipment.carrier || !shipment.trackingNumber || !shipment.shippedAt) {
-      throw badRequest(`Shipment ${shipment._id} is missing tracking details (carrier, trackingNumber, or shippedAt)`);
-    }
-
-    let normalized = null;
-    if (typeof shipmentPublic.normalizeTrackingForAmazon === 'function') {
-      try {
-        normalized = await shipmentPublic.normalizeTrackingForAmazon({
-          trackingNumber: shipment.trackingNumber,
-          carrier: shipment.carrier,
-          shippedAt: shipment.shippedAt,
-        });
-      } catch (_err) {
-        normalized = null;
-      }
-    }
-
-    const shipDate = normalized?.shipDate || formatDate(shipment.shippedAt);
-    const resolvedCarrier = normalized?.carrier || shipment.carrier;
-    const carrierCode = normalized?.carrierCode || normalizeCarrierCode(resolvedCarrier);
-    let shipMethod = normalized?.shipMethod || 'Standard';
-    if (carrierCode === 'USPS' && shipMethod === 'Standard') {
-      shipMethod = 'USPS First Class';
-    } else if (carrierCode === 'UPS' && shipMethod === 'Standard') {
-      shipMethod = 'UPS Ground';
-    } else if (carrierCode === 'FedEx' && shipMethod === 'Standard') {
-      shipMethod = 'FedEx Ground';
-    }
-
-    const item = shipment.orderItemId ? orderItemById.get(String(shipment.orderItemId)) : null;
-
-    validRows.push({
-      shipmentId: shipment._id,
-      orderId: shipment.orderId || null,
-      orderItemId: shipment.orderItemId || null,
-      externalOrderId: shipment.externalOrderId,
-      externalItemId: item?.externalItemId || null,
-      quantity: item?.quantity || null,
-      shipDate,
-      carrier: resolvedCarrier,
-      carrierCode,
-      trackingNumber: normalized?.trackingNumber || shipment.trackingNumber,
-      shipMethod,
-    });
-    validShipmentIds.push(shipment._id);
-  }
-
-  // Group validRows by externalOrderId
-  const rowsByOrder = new Map();
-  for (const row of validRows) {
-    const key = row.externalOrderId;
-    if (!rowsByOrder.has(key)) rowsByOrder.set(key, []);
-    rowsByOrder.get(key).push(row);
-  }
-
-  const feedRows = [];
-  for (const [, orderRows] of rowsByOrder) {
-    const trackingNumbers = new Set(orderRows.map((r) => r.trackingNumber));
-    if (trackingNumbers.size === 1) {
-      // All items in the order ship together in one package: output 1 single line with empty order-item-id
-      feedRows.push({
-        ...orderRows[0],
-        externalItemId: '',
-        quantity: '',
-      });
-    } else {
-      // Split shipment (different tracking numbers):
-      // Output each item line with order-item-id and quantity
-      for (const r of orderRows) {
-        feedRows.push({
-          ...r,
-          externalItemId: r.externalItemId || '',
-          quantity: r.quantity ? String(r.quantity) : '1',
-        });
-      }
-    }
-  }
-
-  // Build TSV feed strictly matching the official Amazon Shipping Confirmation Template
+function buildTsvFeed(feedRows) {
   const templateHeaders = [
     'order-id',
     'order-item-id',
@@ -182,13 +85,13 @@ async function createSubmission(payload, authContext) {
   ];
   const tsvHeader = templateHeaders.join('\t') + '\r\n';
   const tsvLines = feedRows.map((r) => [
-    r.externalOrderId,
+    r.externalOrderId || '',
     r.externalItemId || '',
     r.quantity || '',
-    r.shipDate,
-    r.carrierCode,
+    r.shipDate || '',
+    r.carrierCode || '',
     r.carrierCode === 'Other' ? (r.carrier || 'Other') : '',
-    r.trackingNumber,
+    r.trackingNumber || '',
     r.shipMethod || 'Standard',
     '', // transparency_code
     '', // ship_from_address_name
@@ -205,6 +108,171 @@ async function createSubmission(payload, authContext) {
   const tsv = tsvHeader + tsvLines.join('');
   const checksum = sha256Hex(tsv);
   const filename = `shipping-confirmation-${Date.now()}.txt`;
+  return { tsv, checksum, filename };
+}
+
+async function prepareFeedRows(shipments, { shopId, strict = false } = {}) {
+  const orderItemIds = [...new Set(shipments.map((s) => s.orderItemId).filter(Boolean).map(String))];
+  const orderItems = orderItemIds.length ? await orderPublic.findItemsByIds(orderItemIds) : [];
+  const orderItemById = new Map(orderItems.map((i) => [String(i._id || i.id), i]));
+
+  const normalizedList = await Promise.all(
+    shipments.map(async (shipment) => {
+      if (!shipment.trackingNumber || !shipment.carrier) return null;
+      if (typeof shipmentPublic.normalizeTrackingForAmazon !== 'function') return null;
+      try {
+        return await shipmentPublic.normalizeTrackingForAmazon({
+          trackingNumber: shipment.trackingNumber,
+          carrier: shipment.carrier,
+          shippedAt: shipment.shippedAt,
+        });
+      } catch (_err) {
+        return null;
+      }
+    })
+  );
+
+  const validRows = [];
+  const validShipmentIds = [];
+  const skippedRows = [];
+
+  for (let idx = 0; idx < shipments.length; idx++) {
+    const shipment = shipments[idx];
+    const normalized = normalizedList[idx];
+
+    const isWrongShop = Boolean(shopId && String(shipment.shopId) !== String(shopId));
+    const isNotShipped = shipment.status !== 'SHIPPED';
+    const isMissingDetails = !shipment.externalOrderId || !shipment.carrier || !shipment.trackingNumber || !shipment.shippedAt;
+
+    if (strict) {
+      if (isWrongShop) throw badRequest(`Shipment ${shipment._id} does not belong to shop ${shopId}`);
+      if (isNotShipped) throw badRequest(`Shipment ${shipment._id} is not in SHIPPED status`);
+      if (isMissingDetails) throw badRequest(`Shipment ${shipment._id} is missing tracking details (carrier, trackingNumber, or shippedAt)`);
+    }
+
+    const issues = [];
+    if (isWrongShop) issues.push('wrong_shop');
+    if (isNotShipped) issues.push('not_shipped');
+    if (!shipment.externalOrderId) issues.push('missing_order_id');
+    if (!shipment.carrier) issues.push('missing_carrier');
+    if (!shipment.trackingNumber) issues.push('missing_tracking_number');
+    if (!shipment.shippedAt) issues.push('missing_shipped_at');
+
+    const shipDate = normalized?.shipDate || formatDate(shipment.shippedAt);
+    const resolvedCarrier = normalized?.carrier || shipment.carrier || 'Other';
+    const carrierCode = normalized?.carrierCode || normalizeCarrierCode(resolvedCarrier);
+    let shipMethod = normalized?.shipMethod || 'Standard';
+    if (carrierCode === 'USPS' && shipMethod === 'Standard') {
+      shipMethod = 'USPS First Class';
+    } else if (carrierCode === 'UPS' && shipMethod === 'Standard') {
+      shipMethod = 'UPS Ground';
+    } else if (carrierCode === 'FedEx' && shipMethod === 'Standard') {
+      shipMethod = 'FedEx Ground';
+    }
+
+    const carrierName = carrierCode === 'Other' ? (resolvedCarrier || 'Other') : '';
+    const item = shipment.orderItemId ? orderItemById.get(String(shipment.orderItemId)) : null;
+
+    const row = {
+      shipmentId: shipment._id,
+      orderId: shipment.orderId || null,
+      orderItemId: shipment.orderItemId || null,
+      externalOrderId: shipment.externalOrderId || '',
+      externalItemId: item?.externalItemId || null,
+      quantity: item?.quantity || null,
+      shipDate,
+      carrier: resolvedCarrier,
+      carrierCode,
+      carrierName,
+      trackingNumber: normalized?.trackingNumber || shipment.trackingNumber || '',
+      shipMethod,
+      marketplaceConfirmationStatus: shipment.marketplaceConfirmationStatus || 'PENDING',
+      marketplaceConfirmedAt: shipment.marketplaceConfirmedAt || null,
+      isReady: issues.length === 0,
+      issues,
+    };
+
+    if (issues.length === 0) {
+      validRows.push(row);
+      validShipmentIds.push(shipment._id);
+    } else {
+      skippedRows.push(row);
+    }
+  }
+
+  // Group validRows by externalOrderId
+  const rowsByOrder = new Map();
+  for (const row of validRows) {
+    const key = row.externalOrderId || String(row.shipmentId);
+    if (!rowsByOrder.has(key)) rowsByOrder.set(key, []);
+    rowsByOrder.get(key).push(row);
+  }
+
+  const feedRows = [];
+  for (const [, orderRows] of rowsByOrder) {
+    const trackingNumbers = new Set(orderRows.map((r) => r.trackingNumber));
+    const allConfirmed = orderRows.every((r) => r.marketplaceConfirmationStatus === 'CONFIRMED');
+    const hasSubmitted = orderRows.some((r) => r.marketplaceConfirmationStatus === 'SUBMITTED');
+    const groupStatus = allConfirmed ? 'CONFIRMED' : hasSubmitted ? 'SUBMITTED' : (orderRows[0].marketplaceConfirmationStatus || 'PENDING');
+
+    if (trackingNumbers.size === 1) {
+      feedRows.push({
+        ...orderRows[0],
+        itemCount: orderRows.length,
+        shipmentIds: orderRows.map((r) => r.shipmentId),
+        externalItemId: '',
+        quantity: '',
+        marketplaceConfirmationStatus: groupStatus,
+        marketplaceConfirmedAt: orderRows[0].marketplaceConfirmedAt || null,
+      });
+    } else {
+      for (const r of orderRows) {
+        feedRows.push({
+          ...r,
+          itemCount: 1,
+          shipmentIds: [r.shipmentId],
+          externalItemId: r.externalItemId || '',
+          quantity: r.quantity ? String(r.quantity) : '1',
+        });
+      }
+    }
+  }
+
+  const allDisplayRows = [...feedRows];
+  for (const skipped of skippedRows) {
+    allDisplayRows.push({
+      ...skipped,
+      itemCount: 1,
+      shipmentIds: [skipped.shipmentId],
+      externalItemId: skipped.externalItemId || '',
+      quantity: skipped.quantity ? String(skipped.quantity) : '',
+    });
+  }
+
+  return {
+    validRows,
+    validShipmentIds,
+    feedRows,
+    allDisplayRows,
+  };
+}
+
+async function createSubmission(payload, authContext) {
+  assertUserShopAccess(authContext, payload.shopId, 'ORDERS:WRITE');
+
+  const agent = await extensionCommandRepository.findAgentById(payload.agentId);
+  if (!agent) throw notFound('Extension agent not found');
+  if (String(agent.shopId) !== String(payload.shopId)) throw badRequest('Agent does not belong to the selected shop');
+
+  const shipments = await shipmentPublic.findByIds(payload.shipmentIds);
+  if (!shipments.length) throw notFound('No shipments found');
+
+  const { validRows, validShipmentIds, feedRows } = await prepareFeedRows(shipments, {
+    shopId: payload.shopId,
+    strict: true,
+  });
+
+  const { tsv, checksum, filename } = buildTsvFeed(feedRows);
 
   // Create submission record
   const submission = await repository.create({
@@ -247,6 +315,67 @@ async function createSubmission(payload, authContext) {
   });
 
   return toSubmissionDto(updatedSubmission);
+}
+
+async function previewSubmission(payload, authContext) {
+  assertUserShopAccess(authContext, payload.shopId, 'ORDERS:READ');
+
+  let shipments = [];
+  if (Array.isArray(payload.shipmentIds) && payload.shipmentIds.length > 0) {
+    shipments = await shipmentPublic.findByIds(payload.shipmentIds);
+  } else if (typeof shipmentPublic.findShippedByShop === 'function') {
+    shipments = await shipmentPublic.findShippedByShop(payload.shopId, { limit: 200 });
+  } else if (typeof shipmentPublic.findReadyForMarketplaceUpload === 'function') {
+    shipments = await shipmentPublic.findReadyForMarketplaceUpload(payload.shopId, { limit: 200 });
+  }
+
+  if (!shipments.length) {
+    return toPreviewDto({
+      items: [],
+      tsv: '',
+      rowCount: 0,
+      summary: {
+        totalOrders: 0,
+        totalShipments: 0,
+        readyOrders: 0,
+        readyShipments: 0,
+        confirmedOrders: 0,
+        pendingOrders: 0,
+      },
+    });
+  }
+
+  const { feedRows, allDisplayRows } = await prepareFeedRows(shipments, {
+    shopId: payload.shopId,
+    strict: false,
+  });
+
+  const readyFeedRows = feedRows.filter(
+    (r) => r.isReady && r.marketplaceConfirmationStatus !== 'CONFIRMED' && r.marketplaceConfirmationStatus !== 'SUBMITTED'
+  );
+  const { tsv } = buildTsvFeed(readyFeedRows);
+
+  const totalOrders = new Set(allDisplayRows.map((r) => r.externalOrderId).filter(Boolean)).size;
+  const readyOrders = new Set(
+    readyFeedRows.map((r) => r.externalOrderId).filter(Boolean)
+  ).size;
+  const confirmedOrders = new Set(
+    allDisplayRows.filter((r) => r.marketplaceConfirmationStatus === 'CONFIRMED').map((r) => r.externalOrderId).filter(Boolean)
+  ).size;
+
+  return toPreviewDto({
+    items: allDisplayRows,
+    tsv,
+    rowCount: readyFeedRows.length,
+    summary: {
+      totalOrders,
+      totalShipments: shipments.length,
+      readyOrders,
+      readyShipments: readyFeedRows.length,
+      confirmedOrders,
+      pendingOrders: Math.max(0, totalOrders - confirmedOrders),
+    },
+  });
 }
 
 async function getLeasedPayload(commandId, body, authContext) {
@@ -376,6 +505,7 @@ async function failSubmissionByCommandId(commandId, errorMessage) {
 
 module.exports = {
   createSubmission,
+  previewSubmission,
   failSubmissionByCommandId,
   getLeasedPayload,
   markSubmitted,

@@ -31,6 +31,9 @@ const publicPort = {
   findReadyForMarketplaceUpload(...args) {
     return service().findReadyForMarketplaceUpload(...args);
   },
+  findShippedByShop(...args) {
+    return service().findShippedByShop(...args);
+  },
   updateMarketplaceConfirmation(...args) {
     return service().updateMarketplaceConfirmation(...args);
   },

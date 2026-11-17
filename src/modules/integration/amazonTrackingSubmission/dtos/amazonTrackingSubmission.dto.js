@@ -33,11 +33,52 @@ function toSubmissionDetailDto(sub) {
       shipmentId: toId(row.shipmentId),
       orderId: toId(row.orderId),
       externalOrderId: row.externalOrderId,
+      externalItemId: row.externalItemId || null,
+      quantity: row.quantity !== undefined && row.quantity !== null ? String(row.quantity) : null,
       shipDate: row.shipDate,
+      carrier: row.carrier || null,
       carrierCode: row.carrierCode,
+      carrierName: row.carrierName || null,
       trackingNumber: row.trackingNumber,
       shipMethod: row.shipMethod,
     })),
+  };
+}
+
+function toPreviewDto(data) {
+  if (!data) return null;
+  return {
+    items: (data.items || []).map((r) => ({
+      key: r.key || `${r.externalOrderId}__${r.trackingNumber || r.shipmentId}`,
+      shipmentId: toId(r.shipmentId),
+      orderId: toId(r.orderId),
+      orderItemId: toId(r.orderItemId),
+      shipmentIds: (r.shipmentIds || []).map(toId),
+      externalOrderId: r.externalOrderId || '',
+      externalItemId: r.externalItemId || '',
+      quantity: r.quantity !== undefined && r.quantity !== null && r.quantity !== '' ? String(r.quantity) : '',
+      shipDate: r.shipDate || '',
+      carrier: r.carrier || '',
+      carrierCode: r.carrierCode || '',
+      carrierName: r.carrierName || '',
+      trackingNumber: r.trackingNumber || '',
+      shipMethod: r.shipMethod || '',
+      itemCount: r.itemCount || 1,
+      marketplaceConfirmationStatus: r.marketplaceConfirmationStatus || 'PENDING',
+      marketplaceConfirmedAt: r.marketplaceConfirmedAt || null,
+      isReady: r.isReady !== false,
+      issues: r.issues || [],
+    })),
+    tsv: data.tsv || '',
+    rowCount: data.rowCount || 0,
+    summary: data.summary || {
+      totalOrders: 0,
+      totalShipments: 0,
+      readyOrders: 0,
+      readyShipments: 0,
+      confirmedOrders: 0,
+      pendingOrders: 0,
+    },
   };
 }
 
@@ -56,4 +97,5 @@ module.exports = {
   toSubmissionDto,
   toSubmissionDetailDto,
   toLeasedPayloadDto,
+  toPreviewDto,
 };
