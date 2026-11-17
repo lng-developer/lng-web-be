@@ -1343,10 +1343,14 @@ async function prepareForMappingOverride(orderItemId, authContext = {}) {
 }
 
 async function restartForVendorChange(orderItemId, authContext = {}) {
-  return createOrRecheckTaskForOrderItem(orderItemId, {
+  const result = await createOrRecheckTaskForOrderItem(orderItemId, {
     ...(authContext || {}),
     restartForVendorChange: true,
   });
+  if (result?.status === productionTaskStatuses.READY_TO_SEND_VENDOR) {
+    await triggerVendorSubmissionForReadyTask(toId(result), authContext);
+  }
+  return result;
 }
 
 async function cancelTaskByOrderItem(orderItemId, { reason } = {}, authContext = {}) {

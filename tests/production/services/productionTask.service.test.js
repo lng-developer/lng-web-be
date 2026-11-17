@@ -512,6 +512,34 @@ describe('productionTask.service', () => {
     }), expect.any(Object));
   });
 
+  test('triggers vendor submission when restartForVendorChange resolves to READY_TO_SEND_VENDOR', async () => {
+    const current = {
+      _id: taskId,
+      orderItemId,
+      shopId,
+      status: 'READY_TO_SEND_VENDOR',
+      scaleStatus: 'SCALED',
+      qcStatus: 'PASSED',
+      blockers: [],
+      fileChecks: [
+        { _id: fileCheckId, slotKey: 'FRONT', sourceType: 'CUSTOMER_IMAGE', inputAssetId: mediaAssetId, outputAssetId, scaleStatus: 'SCALED', qcStatus: 'PASSED' },
+      ],
+      assignedDesignUserId: '660000000000000000000201',
+      qcBy: '660000000000000000000202',
+      updatedAt: new Date('2026-11-12T00:00:00.000Z'),
+    };
+    repository.findByOrderItem.mockResolvedValueOnce(current);
+    repository.updateById.mockImplementation(async (id, patch) => ({ ...current, _id: id, ...patch }));
+
+    const result = await service.restartForVendorChange(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(result.status).toBe('READY_TO_SEND_VENDOR');
+    expect(vendorSubmissionPublic.createAndSubmitFromProductionTask).toHaveBeenCalledWith(taskId, expect.objectContaining({
+      system: true,
+      source: 'PRODUCTION',
+    }));
+  });
+
   test('revives a CANCELLED production task when item is active and ready fulfillment plan is present', async () => {
     const current = {
       _id: taskId,

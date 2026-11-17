@@ -64,7 +64,9 @@ module.exports = Object.freeze({
       throw error;
     }
 
-    const url = new URL(`${baseUrl.replace(/\/+$/, '')}/v3/order/list`);
+    const base = baseUrl.replace(/\/+$/, '');
+    const normalizedBase = base.endsWith('/v3') ? base : `${base}/v3`;
+    const url = new URL(`${normalizedBase}/order/list`);
     const result = await requestJson(url, {
       method: 'POST', token, body: buildPrintwayOrderListBody(externalOrderId, options),
     });

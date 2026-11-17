@@ -440,5 +440,69 @@ describe('Unified Vendor Product & Variant Import', () => {
         },
       }));
     });
+
+    test('imports Printway catalog products and normalizes variants and locations', async () => {
+      vendorRepository.findById.mockResolvedValue({ _id: vendorId, status: 'ACTIVE' });
+      productRepository.findByCode.mockResolvedValue(null);
+      const createdProductId = new ObjectId().toString();
+      productRepository.create.mockResolvedValue({
+        _id: createdProductId,
+        vendorId,
+        code: 'USJT',
+        name: 'DTG | Unisex Jersey Tee - Bella Canvas 3001',
+      });
+      costCenterRepository.findByProductAndCode.mockResolvedValue(null);
+      costCenterRepository.create.mockResolvedValue({});
+
+      const mockProducts = [
+        {
+          code: 'USJT',
+          product_name: 'DTG | Unisex Jersey Tee - Bella Canvas 3001',
+          categories: [{ name: 'T-Shirts' }],
+          variants: [
+            {
+              variant_id: 'USJT-236505',
+              variant_title: 'ORANGE/2XL/BACK',
+              item_sku: 'PW-USJT-ORANGE-2XL-BACK',
+              attributes: [
+                { name: 'Color', value: 'ORANGE' },
+                { name: 'Size', value: '2XL' },
+              ],
+              locations: [
+                {
+                  made_in_location: 'US',
+                  base_cost: 11.6,
+                  tier_cost: 11.4,
+                },
+              ],
+            },
+          ],
+        },
+      ];
+
+      const result = await vendorService.importPrintwayCatalogProducts(
+        {
+          vendorId,
+          products: mockProducts,
+          tierName: 'tier',
+          fetchShipping: false,
+        },
+        {},
+      );
+
+      expect(result.createdProducts).toBe(1);
+      expect(result.createdCostCenters).toBe(1);
+      expect(result.failed).toHaveLength(0);
+
+      expect(costCenterRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+        vendorProductId: createdProductId,
+        vendorId,
+        code: 'PW-USJT-ORANGE-2XL-BACK',
+        vendorSize: '2XL',
+        vendorColor: 'ORANGE',
+        baseCostAmount: 1140,
+        printMethod: 'DTG',
+      }));
+    });
   });
 });
