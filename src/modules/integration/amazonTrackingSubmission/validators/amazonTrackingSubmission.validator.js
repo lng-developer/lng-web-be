@@ -13,6 +13,11 @@ const createSubmissionSchema = Joi.object({
   shipmentIds: Joi.array().items(objectIdSchema).min(1).max(200).required(),
 });
 
+const previewSubmissionSchema = Joi.object({
+  shopId: objectIdSchema.required(),
+  shipmentIds: Joi.array().items(objectIdSchema).min(1).max(200).optional(),
+});
+
 const listSubmissionsQuerySchema = paginationSchema.keys({
   shopId: objectIdSchema.optional(),
 });
@@ -39,6 +44,7 @@ const terminalBodySchema = leasePayloadBodySchema.keys({
 
 module.exports = {
   createSubmissionSchema,
+  previewSubmissionSchema,
   listSubmissionsQuerySchema,
   leasePayloadBodySchema,
   recordBatchBodySchema,

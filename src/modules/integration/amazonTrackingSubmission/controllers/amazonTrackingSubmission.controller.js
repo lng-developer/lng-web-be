@@ -3,6 +3,7 @@ const httpStatus = require('../../../../shared/constants/httpStatus');
 const errorCodes = require('../../../../shared/constants/errorCodes');
 const {
   createSubmissionSchema,
+  previewSubmissionSchema,
   listSubmissionsQuerySchema,
   leasePayloadBodySchema,
   recordBatchBodySchema,
@@ -22,6 +23,12 @@ async function createSubmission(req, res) {
   const payload = assertValid(createSubmissionSchema, req.body);
   const data = await service.createSubmission(payload, req.auth);
   res.status(httpStatus.CREATED).json({ success: true, data });
+}
+
+async function previewSubmission(req, res) {
+  const payload = assertValid(previewSubmissionSchema, req.body);
+  const data = await service.previewSubmission(payload, req.auth);
+  res.status(httpStatus.OK).json({ success: true, data });
 }
 
 async function listSubmissions(req, res) {
@@ -68,6 +75,7 @@ async function markTerminal(req, res) {
 
 module.exports = {
   createSubmission,
+  previewSubmission,
   listSubmissions,
   getSubmission,
   getLeasedPayload,

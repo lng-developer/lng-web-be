@@ -994,6 +994,10 @@ async function findReadyForMarketplaceUpload(shopId, options = {}) {
   return repository.findReadyForMarketplaceUpload(shopId, options);
 }
 
+async function findShippedByShop(shopId, options = {}) {
+  return repository.findShippedByShop(shopId, options);
+}
+
 async function updateMarketplaceConfirmation(shipmentIds, data) {
   return repository.updateMarketplaceConfirmation(shipmentIds, data);
 }
@@ -1006,6 +1010,7 @@ module.exports = {
   getShipmentByOrderItem,
   findByIds,
   findReadyForMarketplaceUpload,
+  findShippedByShop,
   updateMarketplaceConfirmation,
   listShipments,
   listSummariesByOrderItemIds,
