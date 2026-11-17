@@ -18,6 +18,8 @@ function toMediaAssetDto(asset) {
     ownerType: asset.ownerType || null,
     status: asset.discardedAt ? 'DISCARDED' : 'ACTIVE',
     downloadUrl: id ? `/api/media/assets/${id}/download` : null,
+    publicUrl: id ? `/api/media/public/assets/${id}/download` : null,
+    secureUrl: asset.secureUrl || (id ? `/api/media/public/assets/${id}/download` : null),
     createdAt: asset.createdAt,
   };
 }

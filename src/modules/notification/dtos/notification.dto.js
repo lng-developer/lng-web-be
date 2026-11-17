@@ -6,6 +6,7 @@ function toNotificationDto(notification) {
   if (!notification) return null;
   return {
     id: toId(notification),
+    recipientAccountId: toId(notification.recipientAccountId),
     type: notification.type,
     title: notification.title,
     message: notification.message,

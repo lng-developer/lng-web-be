@@ -765,9 +765,36 @@ async function createAndSubmitFromProductionTask(productionTaskId, authContext) 
 async function buildFulfillmentOrder(order, items, tasks) {
   const taskByItemId = new Map(tasks.map((task) => [String(task.orderItemId), task]));
   const activeItems = items.filter(isActiveOrderItem);
+  const customizationPublic = require('../../customization/public');
   const snapshots = await Promise.all(activeItems.map(async (item) => {
     const task = taskByItemId.get(String(item._id || item.id));
     const snapshot = await snapshotFromTask(task);
+
+    let customization = null;
+    try {
+      customization = await customizationPublic.getByOrderItem(item._id || item.id, { system: true });
+    } catch (_) {
+      // ignore
+    }
+
+    const parsedData = customization?.parsedData || {};
+    const amazonCustomization = parsedData.amazonCustomization || {};
+    const etsyCustomization = parsedData.etsyCustomization || {};
+    const customerInputs = amazonCustomization.customerInputs || etsyCustomization.customerInputs || null;
+    const customizationUrl =
+      amazonCustomization.customizedUrl ||
+      item.customizationRawSummary?.customizedUrl ||
+      item.customization?.customizedUrl ||
+      null;
+    const snapshotImageUrl =
+      customerInputs?.listingPreviewImageUrl ||
+      null;
+    const customizationData =
+      amazonCustomization.customerInputs ? amazonCustomization :
+      etsyCustomization.customerInputs ? etsyCustomization :
+      customerInputs ? { customerInputs } :
+      item.customization || null;
+
     return {
       externalItemId: item.externalItemId,
       sku: item.sku || null,
@@ -778,6 +805,9 @@ async function buildFulfillmentOrder(order, items, tasks) {
       unitPrice: item.price?.itemPriceAmount || null,
       productionStatus: 'QC_PASSED',
       scaleStatus: task.scaleStatus || null,
+      customizationUrl,
+      customizationData,
+      snapshotImageUrl,
       fulfillmentFile: { assets: (snapshot.fileChecks || []).filter((file) => file.outputVendorUrl).map((file) => ({
         slotKey: file.slotKey,
         slotLabel: file.slotLabel || null,

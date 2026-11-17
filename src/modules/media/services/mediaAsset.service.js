@@ -592,6 +592,7 @@ async function getPublicAssetUrl(assetId, options = {}) {
       key: asset.providerAssetId,
       filename: asset.originalFilename || 'asset.bin',
       expiresIn,
+      disposition: options.disposition || 'inline',
     });
   }
   return null;

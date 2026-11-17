@@ -59,6 +59,8 @@ async function bootstrap() {
   startExtensionOrderScheduleScheduler();
   startMongoIndexUsageSnapshotScheduler();
   startAmazonAdsEmailImportScheduler();
+  const orderPublic = require('./modules/order/public');
+  orderPublic.startOrderTrackingDeadlineScheduler();
   const server = app.listen(config.port, config.host, () => {
     logger.info('server_started', { host: config.host, port: config.port });
   });
@@ -83,6 +85,7 @@ async function bootstrap() {
       stopExtensionOrderScheduleScheduler();
       stopMongoIndexUsageSnapshotScheduler();
       stopAmazonAdsEmailImportScheduler();
+      orderPublic.stopOrderTrackingDeadlineScheduler();
 
       if (config.redis.enabled) {
         shutdownTasks.push(stopExternalOrderImportWorkers(importWorkers));
