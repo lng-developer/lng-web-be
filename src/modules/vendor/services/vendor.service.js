@@ -720,13 +720,15 @@ async function importMerchizeCatalogProducts({ vendorId, products = [], tierName
       if (Array.isArray(variant.shipping_prices)) {
         for (const sp of variant.shipping_prices) {
           const zone = String(sp.to_zone || '').trim().toUpperCase();
+          const firstItem = Number(sp.first_item_price ?? sp.first_item ?? 0);
+          const additionalItem = Number(sp.additional_item_price ?? sp.additional_item ?? 0);
           if (zone === 'US') {
-            domesticEconomyAmount = Number(sp.first_item || 0);
-            domesticAdditionalAmount = Number(sp.additional_item || 0);
+            domesticEconomyAmount = firstItem;
+            domesticAdditionalAmount = additionalItem;
           } else if (zone === 'ROW' || zone === 'ALL' || zone === 'EU') {
             if (!internationalEconomyAmount) {
-              internationalEconomyAmount = Number(sp.first_item || 0);
-              internationalAdditionalAmount = Number(sp.additional_item || 0);
+              internationalEconomyAmount = firstItem;
+              internationalAdditionalAmount = additionalItem;
             }
           }
         }
@@ -767,6 +769,335 @@ async function importMerchizeCatalogProducts({ vendorId, products = [], tierName
       providerKey: 'MERCHIZE',
       productCount: products.length,
       importedRows: flatRows.length,
+      ...result,
+    },
+  });
+
+  return result;
+}
+
+async function getMangoteeReadCredential(vendorId) {
+  const credential = await getVendorIntegrationCredential(vendorId, 'MANGOTEE', { refreshIfExpiring: false });
+  if (!credential) throw validationError('Connected MangoTee credentials are required');
+  return credential;
+}
+
+async function getMangoteeCatalog(vendorId, query = {}) {
+  await assertVendorActive(vendorId);
+  const adapter = integrationAdapterRegistry.getAdapter('MANGOTEE');
+  if (!adapter?.fetchCatalog) throw validationError('MangoTee catalog adapter is not implemented');
+  return adapter.fetchCatalog({ credential: await getMangoteeReadCredential(vendorId), query });
+}
+
+async function importMangoteeCatalogProducts({ vendorId, products = [] } = {}, authContext) {
+  if (!vendorId) throw validationError('vendorId is required');
+  assertValidObjectId(vendorId, 'vendorId');
+  await assertVendorActive(vendorId);
+
+  const credential = await getMangoteeReadCredential(vendorId);
+  const adapter = integrationAdapterRegistry.getAdapter('MANGOTEE');
+  const flatRows = [];
+
+  for (const product of products) {
+    const productId = String(product.id || '').trim();
+    const productCode = String(product.sku || product.id || '').trim();
+    const productName = String(product.name || product.title || '').trim();
+    if (!productCode || !productName) continue;
+
+    let variations = Array.isArray(product.variations) && product.variations.length > 0
+      ? product.variations
+      : Array.isArray(product.variants) && product.variants.length > 0
+        ? product.variants
+        : null;
+
+    if (!variations && adapter?.fetchVariations && productId) {
+      try {
+        const varResponse = await adapter.fetchVariations({
+          credential,
+          productId,
+          productName,
+          page: 1,
+          limit: 200,
+        });
+        variations = Array.isArray(varResponse?.items) ? varResponse.items : [];
+      } catch (_) {
+        variations = [];
+      }
+    }
+
+    if (!variations || variations.length === 0) {
+      variations = [{
+        sku: `${productCode}-DEFAULT`,
+        size: '',
+        color: '',
+        price: product.base_price || 0,
+      }];
+    }
+
+    for (const variant of variations) {
+      const variantSku = String(variant.sku || '').trim() || `${productCode}-${variant.id || 'DEFAULT'}`;
+      const size = String(variant.size || '').trim();
+      const color = String(variant.color || '').trim();
+      const baseCostAmount = Number(variant.price || product.base_price || 0);
+
+      const printMethod = Array.isArray(variant.attributes?.print_areas)
+        ? variant.attributes.print_areas.join(', ')
+        : (typeof variant.attributes?.print_areas === 'string' ? variant.attributes.print_areas : '');
+
+      let domesticEconomyAmount = '4.75';
+      let domesticAdditionalAmount = '2.40';
+      let internationalEconomyAmount = '4.75';
+      let internationalAdditionalAmount = '2.40';
+
+      if (Array.isArray(variant.shipping_prices) && variant.shipping_prices.length > 0) {
+        for (const sp of variant.shipping_prices) {
+          const zone = String(sp.to_zone || sp.zone || '').trim().toUpperCase();
+          if (zone === 'US') {
+            domesticEconomyAmount = String(Number(sp.first_item || 4.75).toFixed(2));
+            domesticAdditionalAmount = String(Number(sp.additional_item || 2.40).toFixed(2));
+          } else if (zone === 'ROW' || zone === 'ALL' || zone === 'EU') {
+            internationalEconomyAmount = String(Number(sp.first_item || 4.75).toFixed(2));
+            internationalAdditionalAmount = String(Number(sp.additional_item || 2.40).toFixed(2));
+          }
+        }
+      }
+
+      flatRows.push({
+        code: productCode,
+        name: productName,
+        size,
+        color,
+        sku: variantSku,
+        costCenterCode: variantSku,
+        baseCostAmount: String(baseCostAmount.toFixed(2)),
+        domesticEconomyAmount,
+        domesticAdditionalAmount,
+        internationalEconomyAmount,
+        internationalAdditionalAmount,
+        printMethod,
+        currency: String(variant.currency || product.currency || 'USD').toUpperCase(),
+        status: variant.is_available === false ? 'INACTIVE' : 'ACTIVE',
+      });
+    }
+  }
+
+  const result = await importVendorProductsUnified({ vendorId, rows: flatRows }, authContext);
+
+  await recordVendorOperation({
+    action: 'VENDOR_CATALOG_SYNCED',
+    entityType: 'VENDOR_PRODUCT',
+    entity: `mangotee-catalog-import:${vendorId}`,
+    authContext,
+    metadata: {
+      vendorId: String(vendorId),
+      providerKey: 'MANGOTEE',
+      productCount: products.length,
+      importedRows: flatRows.length,
+      ...result,
+    },
+  });
+
+  return result;
+}
+
+async function getPrintwayReadCredential(vendorId) {
+  const credential = await getVendorIntegrationCredential(vendorId, 'PRINTWAY', { refreshIfExpiring: false });
+  if (!credential) throw validationError('Connected Printway credentials are required');
+  return credential;
+}
+
+async function getPrintwayCatalog(vendorId, query = {}) {
+  await assertVendorActive(vendorId);
+  const adapter = integrationAdapterRegistry.getAdapter('PRINTWAY');
+  if (!adapter?.fetchCatalog) throw validationError('Printway catalog adapter is not implemented');
+  return adapter.fetchCatalog({ credential: await getPrintwayReadCredential(vendorId), query });
+}
+
+function parsePrintwayAttributes(variant = {}) {
+  let size = '';
+  let color = '';
+  if (Array.isArray(variant.attributes)) {
+    for (const attr of variant.attributes) {
+      const attrName = String(attr.name || attr.title || '').trim().toLowerCase();
+      const val = String(attr.value || attr.text || '').trim();
+      if (attrName.includes('size')) {
+        size = val;
+      } else if (attrName.includes('color') || attrName.includes('colour')) {
+        color = val;
+      }
+    }
+  }
+  if ((!size || !color) && variant.variant_title) {
+    const parts = String(variant.variant_title).split('/').map((s) => s.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      if (!color) color = parts[0];
+      if (!size) size = parts[1];
+    } else if (parts.length === 1 && !size) {
+      size = parts[0];
+    }
+  }
+  return { size, color };
+}
+
+function normalizePrintwayPrintMethod(productName = '', categories = []) {
+  const catNames = Array.isArray(categories) ? categories.map((c) => c?.name || c?.slug || '').join(' ') : '';
+  const text = `${productName} ${catNames}`.toUpperCase();
+  if (text.includes('DTG')) return 'DTG';
+  if (text.includes('DTF')) return 'DTF';
+  if (text.includes('SUBLIMATION') || text.includes('ALL OVER PRINT') || text.includes('AOP')) return 'SUBLIMATION';
+  if (text.includes('EMBROIDERY')) return 'EMBROIDERY';
+  return 'OTHER';
+}
+
+async function importPrintwayCatalogProducts({
+  vendorId,
+  products = [],
+  tierName = 'tier',
+  preferredLocation = 'US',
+  fetchShipping = true,
+} = {}, authContext) {
+  if (!vendorId) throw validationError('vendorId is required');
+  assertValidObjectId(vendorId, 'vendorId');
+  await assertVendorActive(vendorId);
+
+  let credential = null;
+  if (fetchShipping) {
+    try {
+      credential = await getPrintwayReadCredential(vendorId);
+    } catch (_) {
+      credential = null;
+    }
+  }
+  const adapter = integrationAdapterRegistry.getAdapter('PRINTWAY');
+  const selectedTier = String(tierName || 'tier').trim().toLowerCase();
+  const targetLocation = String(preferredLocation || 'US').trim().toUpperCase();
+
+  const shippingMap = new Map();
+  if (credential && adapter?.fetchShippingMethods) {
+    const allVariantIds = [];
+    for (const product of products) {
+      for (const variant of product.variants || []) {
+        if (variant.variant_id) allVariantIds.push(String(variant.variant_id));
+      }
+    }
+    const chunkSize = 50;
+    for (let i = 0; i < allVariantIds.length; i += chunkSize) {
+      const chunk = allVariantIds.slice(i, i + chunkSize);
+      try {
+        const shippingData = await adapter.fetchShippingMethods({
+          credential,
+          variantIds: chunk,
+        });
+        for (const item of (Array.isArray(shippingData) ? shippingData : [])) {
+          const vId = String(item.variant_id || item.variantId || '');
+          if (!vId) continue;
+          let domesticEconomy = 0;
+          let domesticAdditional = 0;
+          let internationalEconomy = 0;
+          let internationalAdditional = 0;
+
+          const locations = Array.isArray(item.locations) ? item.locations : [];
+          for (const loc of locations) {
+            const prodLocations = Array.isArray(loc.product_location) ? loc.product_location : [];
+            for (const pl of prodLocations) {
+              const services = Array.isArray(pl.shipping_services) ? pl.shipping_services : [];
+              for (const svc of services) {
+                const code = String(svc.shipping_code || '').toUpperCase();
+                const name = String(svc.shipping_name || '').toUpperCase();
+                if (code === 'US' || name.includes('US STANDARD')) {
+                  domesticEconomy = Number(svc.shipping_fee || 0);
+                  domesticAdditional = Number(svc.shipping_extra_fee || 0);
+                } else if (code === 'ITN' || code === 'UKSTD' || name.includes('INTERNATIONAL') || name.includes('STANDARD')) {
+                  if (!internationalEconomy) {
+                    internationalEconomy = Number(svc.shipping_fee || 0);
+                    internationalAdditional = Number(svc.shipping_extra_fee || 0);
+                  }
+                }
+              }
+            }
+          }
+
+          shippingMap.set(vId, {
+            domesticEconomy,
+            domesticAdditional,
+            internationalEconomy,
+            internationalAdditional,
+          });
+        }
+      } catch (_) {
+        // Continue gracefully on shipping fetch error
+      }
+    }
+  }
+
+  const flatRows = [];
+
+  for (const product of products) {
+    const productCode = String(product.code || '').trim();
+    const productName = String(product.product_name || '').trim();
+    if (!productCode || !productName) continue;
+
+    const variants = Array.isArray(product.variants) && product.variants.length > 0
+      ? product.variants
+      : [{ item_sku: `${productCode}-DEFAULT` }];
+
+    const printMethod = normalizePrintwayPrintMethod(productName, product.categories || []);
+
+    for (const variant of variants) {
+      const variantSku = String(variant.item_sku || variant.sku || '').trim() || `${productCode}-DEFAULT`;
+      const { size, color } = parsePrintwayAttributes(variant);
+
+      let baseCostAmount = 0;
+      const locations = Array.isArray(variant.locations) ? variant.locations : [];
+      const matchedLoc = locations.find((l) => String(l.made_in_location || l.code || '').toUpperCase() === targetLocation)
+        || locations[0];
+
+      if (matchedLoc) {
+        if (selectedTier === 'base') {
+          baseCostAmount = Number(matchedLoc.base_cost ?? matchedLoc.tier_cost ?? 0);
+        } else {
+          baseCostAmount = Number(matchedLoc.tier_cost ?? matchedLoc.base_cost ?? 0);
+        }
+      }
+
+      const shipping = shippingMap.get(String(variant.variant_id)) || {
+        domesticEconomy: 0,
+        domesticAdditional: 0,
+        internationalEconomy: 0,
+        internationalAdditional: 0,
+      };
+
+      flatRows.push({
+        code: productCode,
+        name: productName,
+        size,
+        color,
+        sku: variantSku,
+        costCenterCode: variantSku,
+        baseCostAmount: String(baseCostAmount.toFixed(2)),
+        domesticEconomyAmount: String(shipping.domesticEconomy.toFixed(2)),
+        domesticAdditionalAmount: String(shipping.domesticAdditional.toFixed(2)),
+        internationalEconomyAmount: String(shipping.internationalEconomy.toFixed(2)),
+        internationalAdditionalAmount: String(shipping.internationalAdditional.toFixed(2)),
+        printMethod,
+        currency: 'USD',
+        status: variant.availability === 'out_of_stock' ? 'INACTIVE' : 'ACTIVE',
+      });
+    }
+  }
+
+  const result = await importVendorProductsUnified({ vendorId, rows: flatRows }, authContext);
+
+  await recordVendorOperation({
+    action: 'VENDOR_CATALOG_SYNCED',
+    entityType: 'VENDOR_PRODUCT',
+    entity: `printway-catalog-import:${vendorId}`,
+    authContext,
+    metadata: {
+      vendorId: String(vendorId),
+      providerKey: 'PRINTWAY',
+      productsCount: products.length,
+      rowsCount: flatRows.length,
       ...result,
     },
   });
@@ -1989,6 +2320,10 @@ module.exports = {
   getLenfulCatalog,
   getMerchizeCatalog,
   importMerchizeCatalogProducts,
+  getMangoteeCatalog,
+  importMangoteeCatalogProducts,
+  getPrintwayCatalog,
+  importPrintwayCatalogProducts,
   getLenfulTracking,
   getLenfulOrder,
   getVendorProductionLines,

@@ -126,6 +126,55 @@ const importMerchizeCatalogProductsSchema = Joi.object({
   })).min(1).max(100).required(),
 });
 
+const mangoteeCatalogQuerySchema = Joi.object({
+  q: Joi.string().trim().max(160).allow(''),
+  search: Joi.string().trim().max(160).allow(''),
+  name: Joi.string().trim().max(160).allow(''),
+  catalog_id: Joi.string().trim().max(100).allow(''),
+  page: Joi.number().integer().min(1),
+  limit: Joi.number().integer().min(1).max(100),
+});
+
+const importMangoteeCatalogProductsSchema = Joi.object({
+  products: Joi.array().items(Joi.object({
+    id: Joi.string().trim().required(),
+    sku: Joi.string().trim().allow(null, ''),
+    name: Joi.string().trim().allow(null, ''),
+    title: Joi.string().trim().allow(null, ''),
+    catalog_name: Joi.string().trim().allow(null, ''),
+    base_price: Joi.alternatives().try(Joi.string(), Joi.number()).allow(null, ''),
+    currency: Joi.string().trim().allow(null, ''),
+    is_active: Joi.boolean().allow(null),
+    images: Joi.array().items(Joi.string()).allow(null),
+    variants: Joi.array().items(Joi.object().unknown(true)).default([]),
+    variations: Joi.array().items(Joi.object().unknown(true)).default([]),
+  }).unknown(true)).min(1).max(100).required(),
+});
+
+const printwayCatalogQuerySchema = Joi.object({
+  q: Joi.string().trim().max(160).allow(''),
+  search: Joi.string().trim().max(160).allow(''),
+  code: Joi.string().trim().max(100).allow(''),
+  page: Joi.number().integer().min(1),
+  limit: Joi.number().integer().min(1).max(100),
+});
+
+const importPrintwayCatalogProductsSchema = Joi.object({
+  tierName: Joi.string().trim().max(50).default('tier'),
+  preferredLocation: Joi.string().trim().max(50).default('US'),
+  fetchShipping: Joi.boolean().default(true),
+  products: Joi.array().items(Joi.object({
+    _id: Joi.string().trim().allow(null, ''),
+    code: Joi.string().trim().required(),
+    product_name: Joi.string().trim().required(),
+    mockup_url: Joi.string().trim().uri().allow(null, ''),
+    template_mockup_url: Joi.string().trim().uri().allow(null, ''),
+    categories: Joi.array().items(Joi.object().unknown(true)).allow(null),
+    collections: Joi.array().items(Joi.object().unknown(true)).allow(null),
+    variants: Joi.array().items(Joi.object().unknown(true)).default([]),
+  }).unknown(true)).min(1).max(100).required(),
+});
+
 const lenfulTrackingQuerySchema = Joi.object({
   externalOrderId: Joi.string().trim().min(1).max(200).required(),
 });
@@ -319,6 +368,10 @@ module.exports = {
   lenfulCatalogQuerySchema,
   merchizeCatalogQuerySchema,
   importMerchizeCatalogProductsSchema,
+  mangoteeCatalogQuerySchema,
+  importMangoteeCatalogProductsSchema,
+  printwayCatalogQuerySchema,
+  importPrintwayCatalogProductsSchema,
   lenfulTrackingQuerySchema,
   lenfulOrderQuerySchema,
   listVendorProductsQuerySchema,
