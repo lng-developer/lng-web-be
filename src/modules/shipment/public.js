@@ -39,8 +39,8 @@ const publicPort = {
   },
   updateStatus(...args) { return service().updateStatus(...args); },
   normalizeTrackingForAmazon(input, options) {
-    const aftership = require('./services/aftershipTracking.service');
-    return aftership.normalizeForAmazon(input, options);
+    const amazonCarrierNormalization = require('./services/amazonCarrierNormalization.service');
+    return amazonCarrierNormalization.normalizeForAmazon(input, options);
   },
   getVendorTrackingAdapter(provider) {
     const adapter = getTrackingAdapter(provider);

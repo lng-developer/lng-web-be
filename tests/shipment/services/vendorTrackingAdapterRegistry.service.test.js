@@ -73,6 +73,7 @@ describe('vendorTrackingAdapterRegistry.service', () => {
     })).resolves.toEqual({
       provider: 'LNG_GROUP',
       externalOrderId: '113-6964403-3922666',
+      vendorExternalOrderId: '',
       carrier: 'VIETTEL_POST',
       trackingNumber: '9214490374008505030947',
       trackingUrl: '',

@@ -18,7 +18,6 @@ const {
 const repository = require('../repositories/shipment.repository');
 const { getTrackingAdapter } = require('./vendorTrackingAdapterRegistry.service');
 const { normalizeShipmentStatus } = require('./vendorTrackingNormalizer.service');
-const aftershipTrackingService = require('./aftershipTracking.service');
 const {
   assertMatchingTrackingIdentity,
   deriveTrackingIdentity,
@@ -674,19 +673,6 @@ async function applyTrackingUpdate(vendorSubmissionId, update = {}, authContext)
   const nextStatus = normalizeShipmentStatus(update.shipmentStatus);
   const trackingNumber = String(update.trackingNumber || '').trim();
   let carrier = String(update.carrier || update.provider || '').trim();
-
-  if (trackingNumber && (carrier === 'VIETTEL_POST' || carrier === 'LNG_GROUP' || !carrier)) {
-    try {
-      const normalized = await aftershipTrackingService.normalizeForAmazon({
-        trackingNumber,
-        carrier,
-        shippedAt: update.shippedAt || null,
-      });
-      if (normalized?.carrier) {
-        carrier = normalized.carrier;
-      }
-    } catch (_) {}
-  }
 
   const trackingUrl = update.trackingUrl ? String(update.trackingUrl).trim() : null;
   const trackingUnchanged = Boolean(existing && trackingNumber
