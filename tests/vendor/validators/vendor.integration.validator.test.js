@@ -1,6 +1,7 @@
 const {
   validate,
   updateVendorIntegrationConfigSchema,
+  importPrintwayCatalogProductsSchema,
 } = require('../../../src/modules/vendor/validators/vendor.validator');
 
 describe('vendor integration contract', () => {
@@ -72,5 +73,35 @@ describe('vendor integration contract', () => {
     });
 
     expect(result.details).toBeUndefined();
+  });
+
+  test('accepts printway catalog products with non-standard or unencoded mockup and template urls', () => {
+    const result = validate(importPrintwayCatalogProductsSchema, {
+      products: [
+        {
+          code: 'PW-PROD-1',
+          product_name: 'Custom Product 1',
+          mockup_url: 'https://cdn.printway.io/templates/My Mockup (1).png',
+          template_mockup_url: 'https://cdn.printway.io/templates/Custom Template (2).psd',
+        },
+        {
+          code: 'PW-PROD-2',
+          product_name: 'Custom Product 2',
+          mockup_url: '/relative/path/mockup.jpg',
+          template_mockup_url: 'N/A',
+        },
+        {
+          code: 'PW-PROD-3',
+          product_name: 'Custom Product 3',
+          mockup_url: null,
+          template_mockup_url: '',
+        },
+      ],
+    });
+
+    expect(result.details).toBeUndefined();
+    expect(result.value.products).toHaveLength(3);
+    expect(result.value.products[0].template_mockup_url).toBe('https://cdn.printway.io/templates/Custom Template (2).psd');
+    expect(result.value.products[1].template_mockup_url).toBe('N/A');
   });
 });
