@@ -13,6 +13,7 @@ const {
   carryOverBalancesSchema,
   decisionSchema,
   emptyActionSchema,
+  listBalancesQuerySchema,
   listMyRequestsSchema,
   listRequestsSchema,
   requestIdParamsSchema,
@@ -33,6 +34,11 @@ function assertValid(schema, payload) {
 async function getMyBalances(req, res) {
   const { year } = assertValid(balanceYearQuerySchema, req.query);
   res.status(httpStatus.OK).json({ success: true, data: await service.getMyBalances(year, req.auth) });
+}
+
+async function listBalances(req, res) {
+  const query = assertValid(listBalancesQuerySchema, req.query);
+  res.status(httpStatus.OK).json({ success: true, data: await service.listBalances(query, req.auth) });
 }
 
 async function getBalance(req, res) {
@@ -154,6 +160,7 @@ module.exports = {
   createRequest,
   getBalance,
   getMyBalances,
+  listBalances,
   listMyRequests,
   listRequests,
   previewRequest,
