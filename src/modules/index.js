@@ -63,6 +63,10 @@ router.use('/design', design.router);
 router.use('/media', media.router);
 router.use('/mapping', mapping.router);
 router.use('/shipments', shipment.router);
+router.use('/vendor-webhooks', (req, res, next) => {
+  req.url = `/vendor-webhooks${req.url}`;
+  shipment.router(req, res, next);
+});
 router.use('/vendors', vendor.router);
 router.use('/auth', auth.router);
 router.use('/shops', shop.router);

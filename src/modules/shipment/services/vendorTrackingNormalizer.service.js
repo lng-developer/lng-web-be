@@ -10,7 +10,7 @@ const PROVIDER_ALIASES = Object.freeze([
   ['ONOSPOD', ['onos', 'onospod']],
   ['LENFUL', ['lenful']],
   ['PGPRINT', ['pgprint']],
-  ['LNG_GROUP', ['lng']],
+  ['LNG_GROUP', ['lng', 'fulfillment-platform-v2', 'fulfillment_platform_v2']],
 ]);
 
 function cleanString(value) {
@@ -34,7 +34,7 @@ function lower(value) {
 function normalizeShipmentStatus(value) {
   const status = lower(value).replace(/[\s-]+/g, '_');
   if (['delivered'].includes(status)) return 'DELIVERED';
-  if (['shipped', 'fulfilled', 'completed', 'complete'].includes(status)) return 'SHIPPED';
+  if (['shipped', 'fulfilled', 'completed', 'complete', 'in_transit', 'carrier_handoff_confirmed'].includes(status)) return 'SHIPPED';
   if (['exception', 'failed', 'failure', 'delivery_exception'].includes(status)) return 'EXCEPTION';
   if (['returned', 'return_to_sender'].includes(status)) return 'RETURNED';
   if ([
@@ -122,6 +122,8 @@ function collectTrackingCandidates(root) {
     );
     const carrier = firstValue(
       obj.carrier,
+      obj.carrierCode,
+      obj.carrier_code,
       objectCarrierValue(obj.tracking),
       obj.carrier_name,
       obj.carrierName,
@@ -244,6 +246,10 @@ function normalizeVendorTrackingPayload(provider, payload = {}) {
     vendorSubmissionId: firstValue(root.vendorSubmissionId, payload.vendorSubmissionId, root.vendor_submission_id, payload.vendor_submission_id),
     orderItemId: firstValue(root.orderItemId, payload.orderItemId, root.order_item_id, payload.order_item_id),
     vendorExternalOrderId: firstValue(
+      root.fulfillmentOrderId,
+      payload.fulfillmentOrderId,
+      root.fulfillment_order_id,
+      payload.fulfillment_order_id,
       root.vendorExternalOrderId,
       payload.vendorExternalOrderId,
       root.vendor_external_order_id,
