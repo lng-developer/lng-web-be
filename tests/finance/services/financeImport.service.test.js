@@ -39,6 +39,7 @@ jest.mock('../../../src/modules/finance/repositories/financeImport.repository', 
   listUnallocatedOrderRefunds: jest.fn(),
   upsertSettlement: jest.fn(),
   listRefundReviewRecords: jest.fn(),
+  listUnassignedSellerAdsRows: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/finance/services/financeSnapshotQueue.service', () => ({
@@ -164,6 +165,41 @@ describe('financeImport.service', () => {
     await service.listImportedData('TRANSACTIONS', { page: 1, limit: 20 }, auth);
 
     expect(auditPublic.record).not.toHaveBeenCalled();
+  });
+
+  test('lists imported Ads rows whose seller could not be attributed with an explanation', async () => {
+    adsUnassignedRowRepository.list.mockResolvedValue({
+      items: [],
+      pagination: { total: 0, page: 1, limit: 100 },
+    });
+    repository.listUnassignedSellerAdsRows.mockResolvedValue({
+      items: [{
+        _id: '660000000000000000140012',
+        reportDate: new Date('2026-11-01T00:00:00.000Z'),
+        advertiserAccountId: null,
+        campaignId: null,
+        campaignName: 'Evermood campaign',
+        portfolioId: null,
+        portfolioName: null,
+        sellerEmployeeCode: 'J2605',
+        salesChannelCode: 'AMAZON',
+        marketplaceCode: 'US',
+      }],
+      pagination: { total: 1, page: 1, limit: 100 },
+    });
+
+    const result = await service.listAdsUnassignedRows(
+      { status: 'PENDING', page: 1, limit: 100 },
+      { permissions: ['FINANCE:READ'] },
+    );
+
+    expect(result.items).toEqual([expect.objectContaining({
+      _id: 'ads-spend:660000000000000000140012',
+      sourceType: 'SELLER_ATTRIBUTION',
+      canMap: false,
+      reason: 'Seller is assigned manually; campaign or portfolio name has no recognized employee code.',
+    })]);
+    expect(result.pagination.total).toBe(1);
   });
 
   test('checks completed Ads imports by their source reference', async () => {
