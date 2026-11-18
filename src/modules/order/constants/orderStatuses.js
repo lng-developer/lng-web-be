@@ -100,7 +100,12 @@ const orderCaseTypes = Object.freeze({
   OTHER: 'OTHER',
 });
 
+const activeOrderStatuses = Object.freeze(
+  Object.values(orderStatuses).filter((status) => status !== orderStatuses.CANCELLED),
+);
+
 module.exports = {
+  activeOrderStatuses,
   orderStatuses,
   orderItemStatuses,
   addressValidationStatuses,

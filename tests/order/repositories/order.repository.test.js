@@ -175,6 +175,7 @@ describe('order.repository list', () => {
     expect(pipeline[1]).toEqual({
       $match: {
         'items.status': 'SENT_TO_VENDOR',
+        status: { $in: expect.arrayContaining(['IMPORTED', 'PROCESSING']) },
       },
     });
 
@@ -183,6 +184,7 @@ describe('order.repository list', () => {
     expect(Order.aggregate.mock.calls.at(-1)[0][1]).toEqual({
       $match: {
         'items.status': 'TRACKING_PENDING',
+        status: { $in: expect.arrayContaining(['IMPORTED', 'PROCESSING']) },
       },
     });
   });
@@ -207,6 +209,28 @@ describe('order.repository list', () => {
       limit: 20,
     });
     expect(result).not.toHaveProperty('tabCounts');
+  });
+
+  test('excludes CANCELLED orders from operational filter tabs and tab counts', async () => {
+    Order.aggregate.mockReset().mockResolvedValue([{
+      items: [],
+      tabCounts: [{}],
+    }]);
+
+    await repository.listWorkbench({ tab: 'NO_PSD' });
+    const matchStage = Order.aggregate.mock.calls[0][0].find((stage) => stage.$match)?.$match;
+    expect(matchStage.hasCurrentPsd).toBe(false);
+    expect(matchStage.status.$in).toBeDefined();
+    expect(matchStage.status.$in).not.toContain('CANCELLED');
+
+    Order.aggregate.mockReset().mockResolvedValueOnce([{}]);
+    await repository.countByTabs();
+    const group = Order.aggregate.mock.calls[0][0].find((stage) => stage.$group).$group;
+    const activeTabs = ['NEW_ORDER', 'NO_COST_CENTER', 'NO_PSD', 'ADDRESS_ISSUE', 'PAYMENT_PENDING'];
+    for (const tab of activeTabs) {
+      const cond = group[tab].$sum.$cond[0];
+      expect(JSON.stringify(cond)).toContain('{"$ne":["$status","CANCELLED"]}');
+    }
   });
 
   test('lists workbench page and exact total with one root facet', async () => {
@@ -256,11 +280,25 @@ describe('order.repository list', () => {
     await repository.countByTabs();
 
     expect(Order.aggregate.mock.calls[0][0][0]).toEqual({
-      $match: { orderedAt: { $gte: new Date('2026-09-04T12:00:00.000Z') } },
+      $match: {
+        orderedAt: { $gte: new Date('2026-09-04T12:00:00.000Z') },
+        status: { $in: expect.arrayContaining(['IMPORTED', 'PROCESSING']) },
+      },
     });
     const group = Order.aggregate.mock.calls[1][0].find((stage) => stage.$group).$group;
     expect(group.NEW_ORDER).toEqual({
-      $sum: { $cond: [{ $gte: ['$orderedAt', new Date('2026-09-04T12:00:00.000Z')] }, 1, 0] },
+      $sum: {
+        $cond: [
+          {
+            $and: [
+              { $gte: ['$orderedAt', new Date('2026-09-04T12:00:00.000Z')] },
+              { $ne: ['$status', 'CANCELLED'] },
+            ],
+          },
+          1,
+          0,
+        ],
+      },
     });
     jest.useRealTimers();
   });

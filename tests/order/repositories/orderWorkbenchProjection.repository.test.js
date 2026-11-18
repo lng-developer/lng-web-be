@@ -126,10 +126,22 @@ describe('orderWorkbenchProjection.repository', () => {
 
     expect(OrderWorkbenchProjection.find).toHaveBeenCalledWith({
       orderedAt: { $gte: new Date('2026-09-04T12:00:00.000Z') },
+      status: { $in: expect.arrayContaining(['IMPORTED', 'PROCESSING']) },
     });
     const group = OrderWorkbenchProjection.aggregate.mock.calls[0][0].find((stage) => stage.$group).$group;
     expect(group.NEW_ORDER).toEqual({
-      $sum: { $cond: [{ $gte: ['$orderedAt', new Date('2026-09-04T12:00:00.000Z')] }, 1, 0] },
+      $sum: {
+        $cond: [
+          {
+            $and: [
+              { $gte: ['$orderedAt', new Date('2026-09-04T12:00:00.000Z')] },
+              { $ne: ['$status', 'CANCELLED'] },
+            ],
+          },
+          1,
+          0,
+        ],
+      },
     });
     jest.useRealTimers();
   });
@@ -175,7 +187,10 @@ describe('orderWorkbenchProjection.repository', () => {
 
     await repository.findPage({ tab: 'NO_PSD' });
 
-    expect(OrderWorkbenchProjection.find).toHaveBeenCalledWith({ hasCurrentPsd: false });
+    expect(OrderWorkbenchProjection.find).toHaveBeenCalledWith({
+      hasCurrentPsd: false,
+      status: { $in: expect.arrayContaining(['IMPORTED', 'PROCESSING']) },
+    });
   });
 
   test('counts all workbench tabs from projection rows without lookups', async () => {
@@ -229,5 +244,33 @@ describe('orderWorkbenchProjection.repository', () => {
         },
       ]),
     }));
+  });
+
+  test('excludes CANCELLED orders from operational tabs (NO_PSD, ADDRESS_ISSUE, PAYMENT_PENDING, item tabs)', async () => {
+    OrderWorkbenchProjection.find.mockReturnValue({
+      sort: jest.fn().mockReturnThis(), skip: jest.fn().mockReturnThis(), limit: jest.fn().mockReturnThis(), lean: jest.fn().mockResolvedValue([]),
+    });
+    OrderWorkbenchProjection.countDocuments.mockResolvedValue(0);
+
+    const operationalTabs = ['NO_PSD', 'ADDRESS_ISSUE', 'PAYMENT_PENDING', 'NEEDS_CUSTOMIZATION', 'NEEDS_MAPPING'];
+    for (const tab of operationalTabs) {
+      await repository.findPage({ tab });
+      const lastCall = OrderWorkbenchProjection.find.mock.calls.at(-1)[0];
+      expect(lastCall.status).toBeDefined();
+      expect(lastCall.status.$in).toBeDefined();
+      expect(lastCall.status.$in).not.toContain('CANCELLED');
+    }
+  });
+
+  test('tabCountGroupStage excludes CANCELLED orders from count expressions of active tabs', async () => {
+    OrderWorkbenchProjection.aggregate.mockResolvedValueOnce([{}]);
+    await repository.countByTabs();
+
+    const group = OrderWorkbenchProjection.aggregate.mock.calls.at(-1)[0].find((stage) => stage.$group).$group;
+    const activeTabs = ['NEW_ORDER', 'NO_COST_CENTER', 'NO_PSD', 'ADDRESS_ISSUE', 'PAYMENT_PENDING', 'NEEDS_CUSTOMIZATION', 'NEEDS_MAPPING', 'READY_FOR_PRODUCTION', 'SENT_TO_VENDOR', 'TRACKING_PENDING'];
+    for (const tab of activeTabs) {
+      const cond = group[tab].$sum.$cond[0];
+      expect(JSON.stringify(cond)).toContain('{"$ne":["$status","CANCELLED"]}');
+    }
   });
 });
