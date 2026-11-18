@@ -7,8 +7,8 @@ function requests(collection) {
 describe('HR Postman collection', () => {
   test('covers every registered HR route with usable mutation examples', () => {
     const items = requests(buildCollection());
-    expect(items).toHaveLength(99);
-    expect(new Set(items.map(({ name }) => name)).size).toBe(99);
+    expect(items).toHaveLength(100);
+    expect(new Set(items.map(({ name }) => name)).size).toBe(100);
 
     const checkIn = items.find(({ name }) => name === 'POST /api/hr/attendance/check-in');
     expect(JSON.parse(checkIn.request.body.raw)).toEqual({ occurredAt: '2026-08-06T01:00:00.000Z' });

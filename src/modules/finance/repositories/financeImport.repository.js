@@ -617,6 +617,18 @@ async function upsertAdsSpend(payload) {
   }, payload, true);
 }
 
+async function listUnassignedSellerAdsRows(query = {}) {
+  const { page, limit } = normalizePagination(query, { defaultLimit: 50, maxLimit: 100 });
+  const filter = { sellerAttributionSource: 'UNASSIGNED' };
+  if (query.advertiserAccountId) filter.advertiserAccountId = query.advertiserAccountId;
+  const [items, total] = await Promise.all([
+    AdsSpendDaily.find(filter).sort({ reportDate: -1, _id: -1 })
+      .skip(getPaginationOffset({ page, limit })).limit(limit).lean(),
+    AdsSpendDaily.countDocuments(filter),
+  ]);
+  return toPaginatedResult({ items, total, page, limit });
+}
+
 async function sumFeesByOrderItem(orderItemId) {
   const _id = new mongoose.Types.ObjectId(String(orderItemId));
   const result = await MarketplaceFeeLine.aggregate([
@@ -678,6 +690,7 @@ module.exports = {
   updateSettlementReconciliation,
   listSettlementLedgerLines,
   listImportedData,
+  listUnassignedSellerAdsRows,
   markImportBatchRecalculationCompleted,
   markImportBatchRecalculationFailed,
   sumFeesByOrderItem,

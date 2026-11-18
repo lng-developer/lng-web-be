@@ -492,6 +492,20 @@ async function getMyBalances(year, authContext = {}) {
   return balances.map(toLeaveBalanceDto);
 }
 
+async function listBalances(query = {}, authContext = {}) {
+  const permissions = [hrTimePermissions.LEAVE_READ, hrTimePermissions.LEAVE_APPROVE];
+  if (!hasGlobalPermission(authContext, permissions)) {
+    const scopeFilters = buildProfileScopeFilters(authContext, permissions);
+    if (!scopeFilters.length) throw forbidden();
+  }
+  const year = Number(query.year || new Date().getFullYear());
+  const filter = { year };
+  if (query.profileId) filter.profileId = toId(query.profileId);
+  if (query.leaveType) filter.leaveType = query.leaveType;
+  const balances = await repository.listBalances(filter);
+  return balances.map(toLeaveBalanceDto);
+}
+
 function canReadProfile(authContext, profile) {
   const permissions = [hrTimePermissions.LEAVE_READ, hrTimePermissions.LEAVE_APPROVE];
   if (hasGlobalPermission(authContext, permissions)) return true;
@@ -1012,6 +1026,7 @@ module.exports = {
   createRequest,
   getBalance,
   getMyBalances,
+  listBalances,
   listRequests,
   previewRequest,
   refundRequest,

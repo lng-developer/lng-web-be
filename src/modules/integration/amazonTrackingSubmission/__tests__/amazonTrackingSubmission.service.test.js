@@ -214,7 +214,7 @@ describe('AmazonTrackingSubmission Service', () => {
       );
     });
 
-    it('enriches TSV feed with normalized AfterShip tracking details when available', async () => {
+    it('enriches TSV feed with normalized carrier details when available', async () => {
       extensionCommandRepository.findAgentById.mockResolvedValue({
         _id: agentId,
         shopId,
@@ -226,6 +226,7 @@ describe('AmazonTrackingSubmission Service', () => {
           shopId,
           status: 'SHIPPED',
           externalOrderId: '111-9999999-8888888',
+          provider: 'LNG_GROUP',
           carrier: 'VIETTEL_POST',
           trackingNumber: ' 9400 1000 0000 0000 0000 00 ',
           shippedAt: new Date('2026-11-14T08:00:00Z'),
@@ -270,6 +271,9 @@ describe('AmazonTrackingSubmission Service', () => {
           tsv: expect.stringMatching(/111-9999999-8888888\t\t\t2026-11-14\tUSPS\t\t9400100000000000000000\tUSPS First Class/),
         }),
       );
+      expect(shipmentPublic.normalizeTrackingForAmazon).toHaveBeenCalledWith(expect.objectContaining({
+        provider: 'LNG_GROUP',
+      }));
     });
   });
 

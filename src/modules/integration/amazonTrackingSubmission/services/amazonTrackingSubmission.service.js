@@ -124,6 +124,7 @@ async function prepareFeedRows(shipments, { shopId, strict = false } = {}) {
         return await shipmentPublic.normalizeTrackingForAmazon({
           trackingNumber: shipment.trackingNumber,
           carrier: shipment.carrier,
+          provider: shipment.provider,
           shippedAt: shipment.shippedAt,
         });
       } catch (_err) {

@@ -1022,7 +1022,29 @@ async function hasCompletedSettlementImport(referenceId, authContext = {}) {
 
 async function listAdsUnassignedRows(query = {}, authContext = {}) {
   assertGlobalAccess(financePermissions.READ, authContext);
-  return adsUnassignedRowRepository.list(query);
+  const [shopMappingRows, sellerAttributionRows] = await Promise.all([
+    adsUnassignedRowRepository.list(query),
+    query.status === 'RESOLVED'
+      ? Promise.resolve({ items: [], pagination: { total: 0, page: query.page || 1, limit: query.limit || 50 } })
+      : repository.listUnassignedSellerAdsRows(query),
+  ]);
+  const sellerItems = sellerAttributionRows.items.map((row) => ({
+    ...row,
+    _id: `ads-spend:${row._id}`,
+    sourceType: 'SELLER_ATTRIBUTION',
+    status: 'PENDING',
+    canMap: false,
+    reason: row.sellerEmployeeCode
+      ? 'Seller is assigned manually; campaign or portfolio name has no recognized employee code.'
+      : 'Campaign or portfolio name has no recognized employee code.',
+  }));
+  return {
+    items: [...shopMappingRows.items, ...sellerItems].slice(0, query.limit || 50),
+    pagination: {
+      ...shopMappingRows.pagination,
+      total: shopMappingRows.pagination.total + sellerAttributionRows.pagination.total,
+    },
+  };
 }
 
 async function listImportBatches(query = {}, authContext) {

@@ -233,6 +233,7 @@ router.post('/attendance/check-in', authPublic.authenticate, requireAttendanceWr
 router.post('/attendance/check-out', authPublic.authenticate, requireAttendanceWrite, asyncHandler(attendanceController.checkOut));
 router.patch('/attendance/:attendanceId', authPublic.authenticate, requireAttendanceManage, asyncHandler(attendanceController.adjustAttendance));
 
+router.get('/leave-balances', authPublic.authenticate, requireLeaveRead, asyncHandler(leaveController.listBalances));
 router.get('/leave-balances/me', authPublic.authenticate, asyncHandler(leaveController.getMyBalances));
 router.get('/leave-balances/:profileId/:year/:leaveType', authPublic.authenticate, requireLeaveRead, asyncHandler(leaveController.getBalance));
 router.put('/leave-balances/:profileId/:year/:leaveType', authPublic.authenticate, requireLeaveApprove, asyncHandler(leaveController.upsertBalance));
