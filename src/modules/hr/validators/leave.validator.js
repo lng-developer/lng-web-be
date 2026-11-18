@@ -67,6 +67,11 @@ const listRequestsSchema = Joi.object({
 
 const listMyRequestsSchema = listRequestsSchema.fork(['profileId'], (schema) => schema.forbidden());
 const balanceYearQuerySchema = Joi.object({ year: year.required() });
+const listBalancesQuerySchema = Joi.object({
+  year: year.default(() => new Date().getFullYear()),
+  profileId: objectId,
+  leaveType,
+});
 const balanceParamsSchema = Joi.object({
   profileId: objectId.required(),
   year: year.required(),
@@ -124,6 +129,7 @@ module.exports = {
   cancelSchema,
   decisionSchema,
   emptyActionSchema,
+  listBalancesQuerySchema,
   listMyRequestsSchema,
   listRequestsSchema,
   requestIdParamsSchema,

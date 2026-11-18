@@ -7,8 +7,12 @@ async function findBalance(profileId, year, leaveType, { session } = {}) {
   return LeaveBalance.findOne({ profileId, year, leaveType }).session(session || null).lean();
 }
 
-async function listBalances({ profileId, year }) {
-  return LeaveBalance.find({ profileId, year }).sort({ leaveType: 1 }).lean();
+async function listBalances(filter = {}) {
+  const query = {};
+  if (filter.profileId) query.profileId = filter.profileId;
+  if (filter.year) query.year = filter.year;
+  if (filter.leaveType) query.leaveType = filter.leaveType;
+  return LeaveBalance.find(query).sort({ profileId: 1, leaveType: 1 }).lean();
 }
 
 async function upsertBalance(profileId, year, leaveType, values, history, { session } = {}) {
