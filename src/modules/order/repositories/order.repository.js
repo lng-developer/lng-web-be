@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
 const Order = require('../models/order.model');
 const {
+  activeOrderStatuses,
   addressValidationStatuses,
   caseStatuses,
   costCenterStatuses,
@@ -168,18 +169,26 @@ function buildSearchFilter(search) {
 function applyTabFilter(filter, tab = orderListTabs.ALL) {
   const next = { ...filter };
 
-  if (tab === orderListTabs.NEW_ORDER) applyNewOrderWindow(next);
+  if (tab === orderListTabs.NEW_ORDER) {
+    applyNewOrderWindow(next);
+    mergeStatusFilter(next, activeOrderStatuses);
+  }
   if (tab === orderListTabs.NO_COST_CENTER) {
     next.costCenterStatus = { $in: [costCenterStatuses.MISSING, null] };
-    mergeStatusFilter(
-      next,
-      Object.values(orderStatuses).filter((status) => status !== orderStatuses.CANCELLED),
-    );
+    mergeStatusFilter(next, activeOrderStatuses);
+  }
+  if (tab === orderListTabs.NO_PSD) {
+    next.hasCurrentPsd = false;
+    mergeStatusFilter(next, activeOrderStatuses);
   }
   if (tab === orderListTabs.ADDRESS_ISSUE) {
     next.addressValidationStatus = { $nin: [addressValidationStatuses.VALID, addressValidationStatuses.OVERRIDDEN] };
+    mergeStatusFilter(next, activeOrderStatuses);
   }
-  if (tab === orderListTabs.PAYMENT_PENDING) next.paymentStatus = paymentStatuses.PENDING;
+  if (tab === orderListTabs.PAYMENT_PENDING) {
+    next.paymentStatus = paymentStatuses.PENDING;
+    mergeStatusFilter(next, activeOrderStatuses);
+  }
   if (tab === orderListTabs.IN_PROGRESS) {
     mergeStatusFilter(next, [orderStatuses.PROCESSING, orderStatuses.ON_HOLD, orderStatuses.PARTIALLY_SHIPPED]);
   }
@@ -190,6 +199,11 @@ function applyTabFilter(filter, tab = orderListTabs.ALL) {
   if (tab === orderListTabs.DELIVERED) next.deliveredAt = { $exists: true, $ne: null };
   if (tab === orderListTabs.CANCELLED) mergeStatusFilter(next, orderStatuses.CANCELLED);
   if (tab === orderListTabs.OPEN_CASE) next.caseStatus = caseStatuses.OPEN;
+
+  const itemStatus = ITEM_STATUS_BY_TAB[tab];
+  if (itemStatus) {
+    mergeStatusFilter(next, activeOrderStatuses);
+  }
 
   return next;
 }
@@ -651,11 +665,12 @@ function emptyTabCounts() {
 
 function tabCountGroupStage({ includeItemStatus = false, currentPsd = false } = {}) {
   const cutoff = newOrderCutoff();
+  const notCancelled = { $ne: ['$status', orderStatuses.CANCELLED] };
   return {
     _id: null,
     [orderListTabs.ALL]: { $sum: 1 },
     [orderListTabs.NEW_ORDER]: {
-      $sum: { $cond: [{ $gte: ['$orderedAt', cutoff] }, 1, 0] },
+      $sum: { $cond: [{ $and: [{ $gte: ['$orderedAt', cutoff] }, notCancelled] }, 1, 0] },
     },
     [orderListTabs.NO_COST_CENTER]: {
       $sum: {
@@ -663,7 +678,7 @@ function tabCountGroupStage({ includeItemStatus = false, currentPsd = false } = 
           {
             $and: [
               { $in: ['$costCenterStatus', [costCenterStatuses.MISSING, null]] },
-              { $ne: ['$status', orderStatuses.CANCELLED] },
+              notCancelled,
             ],
           },
           1,
@@ -672,44 +687,58 @@ function tabCountGroupStage({ includeItemStatus = false, currentPsd = false } = 
       },
     },
     [orderListTabs.NO_PSD]: {
-      $sum: { $cond: [currentPsd ? { $eq: ['$hasCurrentPsd', false] } : { $in: ['$psdStatus', [psdStatuses.MISSING, null]] }, 1, 0] },
+      $sum: {
+        $cond: [
+          {
+            $and: [
+              currentPsd ? { $eq: ['$hasCurrentPsd', false] } : { $in: ['$psdStatus', [psdStatuses.MISSING, null]] },
+              notCancelled,
+            ],
+          },
+          1,
+          0,
+        ],
+      },
     },
     [orderListTabs.ADDRESS_ISSUE]: {
       $sum: {
         $cond: [{
-          $not: [{ $in: ['$addressValidationStatus', [addressValidationStatuses.VALID, addressValidationStatuses.OVERRIDDEN]] }],
+          $and: [
+            { $not: [{ $in: ['$addressValidationStatus', [addressValidationStatuses.VALID, addressValidationStatuses.OVERRIDDEN]] }] },
+            notCancelled,
+          ],
         }, 1, 0],
       },
     },
     ...(includeItemStatus ? {
       [orderListTabs.NEEDS_CUSTOMIZATION]: {
         $sum: {
-          $cond: [{ $in: [orderItemStatuses.CUSTOMIZATION_PENDING, '$items.status'] }, 1, 0],
+          $cond: [{ $and: [{ $in: [orderItemStatuses.CUSTOMIZATION_PENDING, '$items.status'] }, notCancelled] }, 1, 0],
         },
       },
       [orderListTabs.NEEDS_MAPPING]: {
         $sum: {
-          $cond: [{ $in: [orderItemStatuses.MAPPING_PENDING, '$items.status'] }, 1, 0],
+          $cond: [{ $and: [{ $in: [orderItemStatuses.MAPPING_PENDING, '$items.status'] }, notCancelled] }, 1, 0],
         },
       },
       [orderListTabs.READY_FOR_PRODUCTION]: {
         $sum: {
-          $cond: [{ $in: [orderItemStatuses.NEED_PRODUCTION, '$items.status'] }, 1, 0],
+          $cond: [{ $and: [{ $in: [orderItemStatuses.NEED_PRODUCTION, '$items.status'] }, notCancelled] }, 1, 0],
         },
       },
       [orderListTabs.SENT_TO_VENDOR]: {
         $sum: {
-          $cond: [{ $in: [orderItemStatuses.SENT_TO_VENDOR, '$items.status'] }, 1, 0],
+          $cond: [{ $and: [{ $in: [orderItemStatuses.SENT_TO_VENDOR, '$items.status'] }, notCancelled] }, 1, 0],
         },
       },
       [orderListTabs.TRACKING_PENDING]: {
         $sum: {
-          $cond: [{ $in: [orderItemStatuses.TRACKING_PENDING, '$items.status'] }, 1, 0],
+          $cond: [{ $and: [{ $in: [orderItemStatuses.TRACKING_PENDING, '$items.status'] }, notCancelled] }, 1, 0],
         },
       },
     } : {}),
     [orderListTabs.PAYMENT_PENDING]: {
-      $sum: { $cond: [{ $eq: ['$paymentStatus', paymentStatuses.PENDING] }, 1, 0] },
+      $sum: { $cond: [{ $and: [{ $eq: ['$paymentStatus', paymentStatuses.PENDING] }, notCancelled] }, 1, 0] },
     },
     [orderListTabs.IN_PROGRESS]: {
       $sum: {
