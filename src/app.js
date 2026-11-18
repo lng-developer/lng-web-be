@@ -21,7 +21,12 @@ function createApp() {
     origin: createCorsOrigin({ env: config.env, allowedOrigins: config.http.corsOrigins }),
     credentials: true,
   }));
-  app.use(express.json({ limit: '10mb' }));
+  app.use(express.json({
+    limit: '10mb',
+    verify: (req, _res, buf) => {
+      req.rawBody = buf;
+    },
+  }));
   app.use(express.urlencoded({ extended: true }));
 
   app.get('/health', (req, res) => {

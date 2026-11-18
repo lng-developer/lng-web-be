@@ -5,19 +5,22 @@ const {
 
 function normalizeLngGroupTracking(externalOrderId, payload = {}) {
   const order = payload.data || payload;
+  const shipment = order.shipment || {};
   const packageInfo = (order.packages || []).find((entry) => cleanString(entry?.trackingNumber))
     || order.packages?.[0]
     || {};
   return {
     provider: 'LNG_GROUP',
-    externalOrderId,
-    carrier: cleanString(packageInfo.carrier),
-    trackingNumber: cleanString(packageInfo.trackingNumber),
-    trackingUrl: cleanString(packageInfo.trackingUrl),
-    vendorStatus: cleanString(packageInfo.status).toUpperCase(),
-    rawStatus: cleanString(packageInfo.status),
+    externalOrderId: cleanString(order.externalOrderId || externalOrderId),
+    vendorExternalOrderId: cleanString(order.fulfillmentOrderId || order.vendorExternalOrderId),
+    carrier: cleanString(shipment.carrierCode || order.carrierCode || order.carrier || packageInfo.carrier),
+    trackingNumber: cleanString(shipment.trackingNumber || order.trackingNumber || packageInfo.trackingNumber),
+    trackingUrl: cleanString(shipment.labelUrl || packageInfo.trackingUrl || order.trackingUrl),
+    vendorStatus: cleanString(shipment.status || packageInfo.status || order.orderStatus || order.eventType).toUpperCase(),
+    rawStatus: cleanString(shipment.status || packageInfo.status || order.orderStatus || order.eventType),
     shippedAt: cleanString(
-      packageInfo.shippedAt
+      shipment.actualShipAt
+      || packageInfo.shippedAt
       || packageInfo.shipDate
       || packageInfo.shipdate
       || order.shippedAt
