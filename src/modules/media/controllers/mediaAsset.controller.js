@@ -102,6 +102,7 @@ async function downloadAsset(req, res) {
       await pipeline(fs.createReadStream(localPath), res);
     });
   } catch (error) {
+    if (res.destroyed && error?.code === 'ERR_STREAM_PREMATURE_CLOSE') return;
     if ([
       'MEDIA_ASSET_NOT_FOUND',
       'MEDIA_ASSET_FILE_NOT_FOUND',
@@ -135,6 +136,7 @@ async function downloadPublicAsset(req, res) {
       await pipeline(fs.createReadStream(localPath), res);
     });
   } catch (error) {
+    if (res.destroyed && error?.code === 'ERR_STREAM_PREMATURE_CLOSE') return;
     if ([
       'MEDIA_ASSET_NOT_FOUND',
       'MEDIA_ASSET_FILE_NOT_FOUND',

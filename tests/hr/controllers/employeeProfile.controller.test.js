@@ -65,3 +65,15 @@ test('streams the authenticated employee own avatar', async () => {
   expect(service.withMyProfileAvatar).toHaveBeenCalledWith(req.auth, expect.any(Function));
   expect(fs.createReadStream).toHaveBeenCalledWith('private/avatar.png');
 });
+
+test('does not fail when the client closes an avatar stream', async () => {
+  const req = { auth: { permissions: ['HR_EMPLOYEES:READ'] }, params: { profileId: 'profile-1' } };
+  const res = { ...response(), destroyed: true };
+  service.withProfileAvatar.mockImplementation((_profileId, _auth, reader) => reader({
+    mediaAsset: { mimeType: 'image/png', size: 5 },
+    localPath: 'private/avatar.png',
+  }));
+  pipeline.mockRejectedValueOnce(Object.assign(new Error('Premature close'), { code: 'ERR_STREAM_PREMATURE_CLOSE' }));
+
+  await expect(controller.getProfileAvatar(req, res)).resolves.toBeUndefined();
+});

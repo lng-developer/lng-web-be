@@ -73,7 +73,12 @@ async function streamProfileAvatar(res, readAvatar) {
     res.setHeader('Content-Type', mediaAsset.mimeType || 'application/octet-stream');
     if (Number.isInteger(mediaAsset.size)) res.setHeader('Content-Length', mediaAsset.size);
     res.status(httpStatus.OK);
-    await pipeline(fs.createReadStream(localPath), res);
+    try {
+      await pipeline(fs.createReadStream(localPath), res);
+    } catch (error) {
+      if (res.destroyed && error?.code === 'ERR_STREAM_PREMATURE_CLOSE') return;
+      throw error;
+    }
   });
 }
 
