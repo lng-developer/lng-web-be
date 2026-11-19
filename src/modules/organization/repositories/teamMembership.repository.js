@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { organizationStatuses } = require('../constants');
+const { organizationStatuses, teamMemberTypes } = require('../constants');
 const TeamMembership = require('../models/teamMembership.model');
 
 function toObjectId(value) {
