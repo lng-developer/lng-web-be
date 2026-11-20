@@ -86,7 +86,7 @@ describe('addressValidationCache repository', () => {
           }),
           $setOnInsert: { hitCount: 0, lastHitAt: null },
         }),
-        { new: true, upsert: true, setDefaultsOnInsert: true },
+        { returnDocument: 'after', upsert: true, setDefaultsOnInsert: true },
       );
       expect(result).toEqual({ addressKey: 'k1', status: 'VALID' });
     });

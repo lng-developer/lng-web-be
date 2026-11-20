@@ -117,7 +117,7 @@ async function upsertCache(addressKey, data = {}) {
     },
   };
   return AddressValidationCache.findOneAndUpdate({ addressKey }, update, {
-    new: true,
+    returnDocument: 'after',
     upsert: true,
     setDefaultsOnInsert: true,
   }).lean();
