@@ -3,6 +3,7 @@ const { pipeline } = require('stream/promises');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
+const isClientAbortedStreamError = require('../../../shared/utils/isClientAbortedStreamError');
 const service = require('../services/employeeProfile.service');
 const {
   completeMyPersonalProfileSchema,
@@ -76,7 +77,7 @@ async function streamProfileAvatar(res, readAvatar) {
     try {
       await pipeline(fs.createReadStream(localPath), res);
     } catch (error) {
-      if (res.destroyed && error?.code === 'ERR_STREAM_PREMATURE_CLOSE') return;
+      if (isClientAbortedStreamError(error, res)) return;
       throw error;
     }
   });

@@ -77,3 +77,15 @@ test('does not fail when the client closes an avatar stream', async () => {
 
   await expect(controller.getProfileAvatar(req, res)).resolves.toBeUndefined();
 });
+
+test('does not fail when piping starts after the client closes the avatar response', async () => {
+  const req = { auth: { permissions: ['HR_EMPLOYEES:READ'] }, params: { profileId: 'profile-1' } };
+  const res = { ...response(), destroyed: true };
+  service.withProfileAvatar.mockImplementation((_profileId, _auth, reader) => reader({
+    mediaAsset: { mimeType: 'image/png', size: 5 },
+    localPath: 'private/avatar.png',
+  }));
+  pipeline.mockRejectedValueOnce(new Error('Cannot pipe to a closed or destroyed stream'));
+
+  await expect(controller.getProfileAvatar(req, res)).resolves.toBeUndefined();
+});

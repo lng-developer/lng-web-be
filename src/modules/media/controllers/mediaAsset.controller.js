@@ -4,6 +4,7 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const { assertValidObjectId } = require('../../../shared/utils/objectId');
+const isClientAbortedStreamError = require('../../../shared/utils/isClientAbortedStreamError');
 const service = require('../services/mediaAsset.service');
 const multipartUploadService = require('../services/multipartUpload.service');
 const { toMediaAssetDto, toMediaAssetListDto } = require('../dtos/mediaAsset.dto');
@@ -102,7 +103,7 @@ async function downloadAsset(req, res) {
       await pipeline(fs.createReadStream(localPath), res);
     });
   } catch (error) {
-    if (res.destroyed && error?.code === 'ERR_STREAM_PREMATURE_CLOSE') return;
+    if (isClientAbortedStreamError(error, res)) return;
     if ([
       'MEDIA_ASSET_NOT_FOUND',
       'MEDIA_ASSET_FILE_NOT_FOUND',
@@ -136,7 +137,7 @@ async function downloadPublicAsset(req, res) {
       await pipeline(fs.createReadStream(localPath), res);
     });
   } catch (error) {
-    if (res.destroyed && error?.code === 'ERR_STREAM_PREMATURE_CLOSE') return;
+    if (isClientAbortedStreamError(error, res)) return;
     if ([
       'MEDIA_ASSET_NOT_FOUND',
       'MEDIA_ASSET_FILE_NOT_FOUND',

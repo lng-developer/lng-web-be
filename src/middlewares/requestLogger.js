@@ -40,6 +40,19 @@ function requestLogger(req, res, next) {
     }
   });
 
+  res.on('close', () => {
+    if (res.writableEnded || req.method === 'OPTIONS' || res.locals.errorLogged) return;
+
+    const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+    logger.http('warn', {
+      rid: req.id,
+      m: req.method,
+      path: req.originalUrl,
+      st: 499,
+      ms: Number(durationMs.toFixed(2)),
+    });
+  });
+
   next();
 }
 
