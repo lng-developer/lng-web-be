@@ -504,5 +504,68 @@ describe('Unified Vendor Product & Variant Import', () => {
         printMethod: 'DTG',
       }));
     });
+
+    test('imports Merchize catalog products with label/type attributes when color is absent', async () => {
+      vendorRepository.findById.mockResolvedValue({ _id: vendorId, status: 'ACTIVE' });
+      productRepository.findByCode.mockResolvedValue(null);
+      const createdProductId = new ObjectId().toString();
+      productRepository.create.mockResolvedValue({
+        _id: createdProductId,
+        vendorId,
+        code: 'GLSOVN',
+        name: 'Glass Ornament',
+      });
+      costCenterRepository.findByProductAndCode.mockResolvedValue(null);
+      costCenterRepository.create.mockResolvedValue({});
+
+      const mockProducts = [
+        {
+          sku: 'GLSOVN',
+          title: 'Glass Ornament',
+          variants: [
+            {
+              sku: 'GLSOVN1SP000JA07',
+              attributes: [
+                { name: 'label', type: 'label', value_text: '1-side Printed' },
+                { name: 'size', type: 'size', value_text: 'Circle' },
+              ],
+              tiers: [{ name: 'tier1', price: 4.05 }],
+              shipping_prices: [
+                { to_zone: 'US', first_item_price: 5.49, additional_item_price: 1.50 },
+              ],
+            },
+          ],
+        },
+      ];
+
+      const result = await vendorService.importMerchizeCatalogProducts(
+        {
+          vendorId,
+          products: mockProducts,
+          tierName: 'tier1',
+        },
+        {},
+      );
+
+      expect(result.createdProducts).toBe(1);
+      expect(result.createdCostCenters).toBe(1);
+      expect(result.failed).toHaveLength(0);
+
+      expect(costCenterRepository.create).toHaveBeenCalledWith(expect.objectContaining({
+        vendorProductId: createdProductId,
+        vendorId,
+        code: 'GLSOVN1SP000JA07',
+        name: 'Glass Ornament - Circle / 1-side Printed',
+        vendorSize: 'Circle',
+        vendorColor: '1-side Printed',
+        standardSize: 'Circle',
+        standardColor: '1-side Printed',
+        attributes: expect.objectContaining({
+          label: '1-side Printed',
+          size: 'Circle',
+        }),
+        baseCostAmount: 405,
+      }));
+    });
   });
 });

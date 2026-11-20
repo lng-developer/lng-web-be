@@ -26,11 +26,22 @@ jest.mock("../../../../src/modules/integration/listingImageSync/public", () => (
   enqueueImportedOrderImages: jest.fn(),
 }));
 
+jest.mock("../../../../src/modules/design/public", () => ({
+  createPsdTemplateTask: jest.fn().mockResolvedValue({ created: true }),
+}));
+
+jest.mock("../../../../src/modules/catalog/public", () => ({
+  getListingById: jest.fn().mockResolvedValue(null),
+  getListingVariantById: jest.fn().mockResolvedValue(null),
+}));
+
 const rawRecordRepository = require("../../../../src/modules/integration/externalOrderImport/repositories/externalOrderRawRecord.repository");
 const issueRepository = require("../../../../src/modules/integration/externalOrderImport/repositories/externalOrderImportIssue.repository");
 const mappingPublic = require("../../../../src/modules/mapping/public");
 const productionPublic = require("../../../../src/modules/production/public");
 const listingImageSync = require("../../../../src/modules/integration/listingImageSync/public");
+const designPublic = require("../../../../src/modules/design/public");
+const catalogPublic = require("../../../../src/modules/catalog/public");
 const {
   processPostImportMappingJob,
 } = require("../../../../src/modules/integration/externalOrderImport/workers/postImportMapping.worker");
@@ -91,6 +102,31 @@ describe("postImportMapping.worker", () => {
       }),
     );
     expect(issueRepository.create).not.toHaveBeenCalled();
+  });
+
+  test("auto-requests PSD when an Amazon mapping plan has no PSD", async () => {
+    mappingPublic.recheckFulfillmentPlan.mockResolvedValue({
+      status: "BLOCKED",
+      salesChannelCode: "AMAZON",
+      listingId: "660000000000000000000801",
+    });
+    catalogPublic.getListingById.mockResolvedValue({
+      _id: "660000000000000000000801",
+      defaultPsdTemplateAssetId: null,
+    });
+    designPublic.createPsdTemplateTask.mockResolvedValue({ created: true });
+
+    await processPostImportMappingJob({ data: payload });
+
+    expect(designPublic.createPsdTemplateTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        listingId: "660000000000000000000801",
+        orderId: payload.orderId,
+        orderItemId: payload.orderItemId,
+        priority: "NORMAL",
+      }),
+      { system: true, source: "AMAZON_ORDER_IMPORT" },
+    );
   });
 
   test("marks failed and creates import issue when mapping throws", async () => {

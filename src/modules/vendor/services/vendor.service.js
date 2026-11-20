@@ -669,6 +669,53 @@ async function getMerchizeCatalog(vendorId, query = {}) {
   return adapter.fetchCatalog({ credential: await getMerchizeReadCredential(vendorId), query });
 }
 
+function parseMerchizeAttributes(attributes = []) {
+  let size = '';
+  let color = '';
+  const rawAttributes = {};
+  const otherAttributes = [];
+
+  for (const attr of (Array.isArray(attributes) ? attributes : [])) {
+    const attrType = String(attr.type || attr.name || '').trim().toLowerCase();
+    const val = String(attr.value_text || attr.value || attr.text || '').trim();
+    if (!val) continue;
+
+    rawAttributes[attr.name || attr.type || 'attribute'] = val;
+
+    if (attrType.includes('size') || attrType.includes('dimension')) {
+      if (!size) size = val;
+    } else if (attrType.includes('color') || attrType.includes('colour')) {
+      if (!color) color = val;
+    } else {
+      otherAttributes.push({ type: attrType, value: val });
+    }
+  }
+
+  if (!size) {
+    const shapeAttr = otherAttributes.find((a) => a.type.includes('shape'));
+    if (shapeAttr) {
+      size = shapeAttr.value;
+      const idx = otherAttributes.indexOf(shapeAttr);
+      otherAttributes.splice(idx, 1);
+    }
+  }
+
+  if (!color && otherAttributes.length > 0) {
+    color = otherAttributes.map((a) => a.value).join(' / ');
+  }
+
+  if (!size && otherAttributes.length > 1) {
+    size = otherAttributes[0].value;
+    if (!color) {
+      color = otherAttributes.slice(1).map((a) => a.value).join(' / ');
+    }
+  } else if (!size && otherAttributes.length === 1 && !color) {
+    size = otherAttributes[0].value;
+  }
+
+  return { size, color, attributes: rawAttributes };
+}
+
 async function importMerchizeCatalogProducts({ vendorId, products = [], tierName = 'tier1' } = {}, authContext) {
   if (!vendorId) throw validationError('vendorId is required');
   assertValidObjectId(vendorId, 'vendorId');
@@ -689,18 +736,7 @@ async function importMerchizeCatalogProducts({ vendorId, products = [], tierName
     for (const variant of variants) {
       const variantSku = String(variant.sku || '').trim() || `${productCode}-DEFAULT`;
 
-      let size = '';
-      let color = '';
-      const attributes = Array.isArray(variant.attributes) ? variant.attributes : [];
-      for (const attr of attributes) {
-        const attrType = String(attr.type || attr.name || '').toLowerCase();
-        const val = String(attr.value_text || attr.value || attr.text || '').trim();
-        if (attrType.includes('size')) {
-          size = val;
-        } else if (attrType.includes('color')) {
-          color = val;
-        }
-      }
+      const { size, color, attributes: variantAttrs } = parseMerchizeAttributes(variant.attributes);
 
       let baseCostAmount = 0;
       if (Array.isArray(variant.tiers) && variant.tiers.length > 0) {
@@ -745,6 +781,7 @@ async function importMerchizeCatalogProducts({ vendorId, products = [], tierName
         color,
         sku: variantSku,
         costCenterCode: variantSku,
+        attributes: variantAttrs,
         baseCostAmount: String(baseCostAmount.toFixed(2)),
         domesticEconomyAmount: String(domesticEconomyAmount.toFixed(2)),
         domesticAdditionalAmount: String(domesticAdditionalAmount.toFixed(2)),
@@ -836,8 +873,19 @@ async function importMangoteeCatalogProducts({ vendorId, products = [] } = {}, a
 
     for (const variant of variations) {
       const variantSku = String(variant.sku || '').trim() || `${productCode}-${variant.id || 'DEFAULT'}`;
-      const size = String(variant.size || '').trim();
-      const color = String(variant.color || '').trim();
+      let size = String(variant.size || '').trim();
+      let color = String(variant.color || '').trim();
+      const variantAttrs = {};
+
+      if (variant.attributes && typeof variant.attributes === 'object' && !Array.isArray(variant.attributes)) {
+        Object.assign(variantAttrs, variant.attributes);
+      }
+
+      if (!color) {
+        const fallback = String(variant.type || variant.style || variant.label || variant.material || '').trim();
+        if (fallback) color = fallback;
+      }
+
       const baseCostAmount = Number(variant.price || product.base_price || 0);
 
       const printMethod = Array.isArray(variant.attributes?.print_areas)
@@ -869,6 +917,7 @@ async function importMangoteeCatalogProducts({ vendorId, products = [] } = {}, a
         color,
         sku: variantSku,
         costCenterCode: variantSku,
+        attributes: variantAttrs,
         baseCostAmount: String(baseCostAmount.toFixed(2)),
         domesticEconomyAmount,
         domesticAdditionalAmount,
@@ -916,17 +965,40 @@ async function getPrintwayCatalog(vendorId, query = {}) {
 function parsePrintwayAttributes(variant = {}) {
   let size = '';
   let color = '';
+  const rawAttributes = {};
+  const otherAttributes = [];
+
   if (Array.isArray(variant.attributes)) {
     for (const attr of variant.attributes) {
       const attrName = String(attr.name || attr.title || '').trim().toLowerCase();
       const val = String(attr.value || attr.text || '').trim();
-      if (attrName.includes('size')) {
-        size = val;
+      if (!val) continue;
+
+      rawAttributes[attr.name || attr.title || 'attribute'] = val;
+
+      if (attrName.includes('size') || attrName.includes('dimension')) {
+        if (!size) size = val;
       } else if (attrName.includes('color') || attrName.includes('colour')) {
-        color = val;
+        if (!color) color = val;
+      } else {
+        otherAttributes.push({ type: attrName, value: val });
       }
     }
   }
+
+  if (!size) {
+    const shapeAttr = otherAttributes.find((a) => a.type.includes('shape'));
+    if (shapeAttr) {
+      size = shapeAttr.value;
+      const idx = otherAttributes.indexOf(shapeAttr);
+      otherAttributes.splice(idx, 1);
+    }
+  }
+
+  if (!color && otherAttributes.length > 0) {
+    color = otherAttributes.map((a) => a.value).join(' / ');
+  }
+
   if ((!size || !color) && variant.variant_title) {
     const parts = String(variant.variant_title).split('/').map((s) => s.trim()).filter(Boolean);
     if (parts.length >= 2) {
@@ -936,7 +1008,7 @@ function parsePrintwayAttributes(variant = {}) {
       size = parts[0];
     }
   }
-  return { size, color };
+  return { size, color, attributes: rawAttributes };
 }
 
 function normalizePrintwayPrintMethod(productName = '', categories = []) {
@@ -1045,7 +1117,7 @@ async function importPrintwayCatalogProducts({
 
     for (const variant of variants) {
       const variantSku = String(variant.item_sku || variant.sku || '').trim() || `${productCode}-DEFAULT`;
-      const { size, color } = parsePrintwayAttributes(variant);
+      const { size, color, attributes: variantAttrs } = parsePrintwayAttributes(variant);
 
       let baseCostAmount = 0;
       const locations = Array.isArray(variant.locations) ? variant.locations : [];
@@ -1074,6 +1146,7 @@ async function importPrintwayCatalogProducts({
         color,
         sku: variantSku,
         costCenterCode: variantSku,
+        attributes: variantAttrs,
         baseCostAmount: String(baseCostAmount.toFixed(2)),
         domesticEconomyAmount: String(shipping.domesticEconomy.toFixed(2)),
         domesticAdditionalAmount: String(shipping.domesticAdditional.toFixed(2)),
@@ -1612,6 +1685,7 @@ async function importVendorProductsUnified({ vendorId, rows = [] } = {}, authCon
         const vendorColor = getRowValue(row, 'vendorColor', 'color');
         const standardSize = getRowValue(row, 'standardSize', 'standardsize') || vendorSize;
         const standardColor = getRowValue(row, 'standardColor', 'standardcolor') || vendorColor;
+        const rowAttributes = row.attributes && typeof row.attributes === 'object' ? row.attributes : {};
 
         const rawCcCode = getRowValue(row, 'costCenterCode', 'costcentercode', 'code_cc', 'ccCode');
         let costCenterCode;
@@ -1678,6 +1752,7 @@ async function importVendorProductsUnified({ vendorId, rows = [] } = {}, authCon
             vendorColor: vendorColor || null,
             standardSize: standardSize || null,
             standardColor: standardColor || null,
+            attributes: rowAttributes,
             printMethod: printMethod || null,
             weight: weight ?? null,
             weightUnit: weightUnit || null,
@@ -1717,6 +1792,7 @@ async function importVendorProductsUnified({ vendorId, rows = [] } = {}, authCon
             vendorColor: vendorColor || undefined,
             standardSize: standardSize || undefined,
             standardColor: standardColor || undefined,
+            attributes: Object.keys(rowAttributes).length ? rowAttributes : undefined,
             printMethod,
             weight,
             weightUnit,
@@ -1747,6 +1823,7 @@ async function importVendorProductsUnified({ vendorId, rows = [] } = {}, authCon
             } : undefined,
           }, [
             'name', 'sku', 'lngCode', 'vendorSize', 'vendorColor', 'standardSize', 'standardColor',
+            'attributes',
             'printMethod', 'weight', 'weightUnit', 'width', 'length', 'height', 'dimensionUnit',
             'baseCostAmount', 'currency', 'domesticShipping', 'internationalShipping', 'priorityShipping',
             'importTaxAmount', 'additionalCosts', 'status',

@@ -411,6 +411,18 @@ describe('production routes', () => {
     }, expect.any(Object));
   });
 
+  test('DELETE file check validates params and calls service', async () => {
+    service.removeFileCheck.mockResolvedValue({ id: taskId, status: 'NEED_SCALE' });
+
+    const response = await request(createTestServer(), {
+      method: 'DELETE',
+      path: `/tasks/${taskId}/file-checks/${fileCheckId}`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.removeFileCheck).toHaveBeenCalledWith(taskId, fileCheckId, expect.any(Object));
+  });
+
   test('POST manual file check rejects invalid slot key', async () => {
     const response = await request(createTestServer(), {
       method: 'POST',

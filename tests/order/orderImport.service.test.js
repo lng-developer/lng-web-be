@@ -51,9 +51,14 @@ jest.mock('../../src/modules/finance/public', () => ({
   requestSnapshotRecalculation: jest.fn().mockResolvedValue({ queued: true }),
 }));
 
+jest.mock('../../src/modules/design/public', () => ({
+  createPsdTemplateTask: jest.fn().mockResolvedValue({ created: true }),
+}));
+
 const shopPublic = require('../../src/modules/shop/public');
 const hrPublic = require('../../src/modules/hr/public');
 const catalogPublic = require('../../src/modules/catalog/public');
+const designPublic = require('../../src/modules/design/public');
 const orderRepository = require('../../src/modules/order/repositories/order.repository');
 const orderItemRepository = require('../../src/modules/order/repositories/orderItem.repository');
 const orderReadinessService = require('../../src/modules/order/services/orderCostCenterStatus.service');
@@ -236,11 +241,42 @@ describe('orderImportService', () => {
       asin: 'B0H7QZQX6H', sku: 'SKU-1', title: 'Imported Amazon shirt', currency: null,
     }, { system: true, source: 'ORDER_IMPORT' });
     expect(orderItemRepository.updateListingId).toHaveBeenCalledWith('item-1', 'listing-1');
+    expect(designPublic.createPsdTemplateTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        listingId: 'listing-1',
+        orderId: 'order-1',
+        orderItemId: 'item-1',
+        priority: 'NORMAL',
+      }),
+      { system: true, source: 'AMAZON_ORDER_IMPORT' },
+    );
     expect(orderWorkbenchProjectionService.rebuildOrderWorkbenchProjection).toHaveBeenCalledWith(
       'order-1',
       { permissions: ['ORDERS:READ'], system: true },
       { source: 'ORDER_IMPORT' },
     );
+  });
+
+  test('skips auto PSD request when imported Amazon listing already has PSD', async () => {
+    designPublic.createPsdTemplateTask.mockClear();
+    orderRepository.findByExternalIdentity.mockResolvedValue(null);
+    orderRepository.create.mockResolvedValue({ _id: 'order-2', shopId: 'shop-1' });
+    orderItemRepository.findByExternalIdentity.mockResolvedValue(null);
+    orderItemRepository.create.mockResolvedValue({ _id: 'item-2', orderId: 'order-2', sku: 'SKU-2', listingId: null });
+    catalogPublic.findOrCreateDraftListingForOrderItem.mockResolvedValue({
+      _id: 'listing-2',
+      defaultPsdTemplateAssetId: 'psd-asset-1',
+    });
+    orderItemRepository.updateListingId.mockResolvedValue({ _id: 'item-2', orderId: 'order-2', sku: 'SKU-2', listingId: 'listing-2' });
+
+    await orderImportService.importExternalOrder({
+      ...oneItemDto,
+      items: [{
+        externalItemId: 'line-2', quantity: 1, sku: 'SKU-2', asin: 'B0H7QZQX6H', title: 'Amazon shirt with PSD',
+      }],
+    });
+
+    expect(designPublic.createPsdTemplateTask).not.toHaveBeenCalled();
   });
 
   test('writes the resolved seller to each imported workbench item', async () => {
