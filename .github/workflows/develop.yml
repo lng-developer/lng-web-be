@@ -16,8 +16,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  release-source:
+    name: release-source
+    if: ${{ github.event_name == 'pull_request' && github.base_ref == 'main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require develop as the release source
+        env:
+          RELEASE_SOURCE: ${{ github.head_ref }}
+        run: test "$RELEASE_SOURCE" = 'develop'
+
   core-test:
     name: Core test ${{ matrix.shard }}/2
+    if: ${{ github.ref == 'refs/heads/develop' || github.base_ref == 'develop' }}
     runs-on: ubuntu-latest
     env:
       NODE_OPTIONS: --experimental-vm-modules
@@ -52,6 +63,7 @@ jobs:
 
   windows-powershell-test:
     name: Windows PowerShell test
+    if: ${{ github.ref == 'refs/heads/develop' || github.base_ref == 'develop' }}
     runs-on: windows-latest
     env:
       NODE_OPTIONS: --experimental-vm-modules
@@ -67,6 +79,7 @@ jobs:
 
   startup-smoke:
     name: Startup smoke
+    if: ${{ github.ref == 'refs/heads/develop' || github.base_ref == 'develop' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -80,7 +93,6 @@ jobs:
   deploy:
     name: Deploy to VPS
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    needs: [core-test, windows-powershell-test, startup-smoke]
     runs-on: ubuntu-latest
 
     steps:
