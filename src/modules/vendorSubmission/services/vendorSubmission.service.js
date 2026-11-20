@@ -68,6 +68,15 @@ function extractVendorCost(provider, response) {
   };
 }
 
+function merchizeExternalOrderId(submission = {}) {
+  const snapshot = submission.payloadSnapshot || {};
+  const base = snapshot.orderItem?.externalOrderId
+    || snapshot.orderItemSnapshot?.externalOrderId
+    || snapshot.externalOrderId;
+  const attempt = Number(submission.submitAttemptCount) || 1;
+  return attempt > 1 ? `${base}-R${attempt}` : base;
+}
+
 function forbidden() {
   return appError('Forbidden', httpStatus.FORBIDDEN, errorCodes.AUTHORIZATION_ERROR);
 }
@@ -1211,10 +1220,19 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
     };
   }
 
-  const claimed = await repository.claimReadyForSubmit(submissionId, {
+  let claimed = await repository.claimReadyForSubmit(submissionId, {
     provider, operationKey, claimedAt: new Date(),
   });
   if (!claimed) throw conflict('Vendor submission is already being processed');
+
+  if (adapter.provider === 'MERCHIZE') {
+    claimed = await repository.updateById(submissionId, {
+      payloadSnapshot: {
+        ...(claimed.payloadSnapshot || {}),
+        merchizeExternalOrderId: merchizeExternalOrderId(claimed),
+      },
+    });
+  }
 
   let submitResult;
   try {

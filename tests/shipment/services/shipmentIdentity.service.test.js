@@ -47,6 +47,16 @@ describe('shipmentIdentity.service', () => {
     });
   });
 
+  test('uses the persisted Merchize retry reference for tracking', () => {
+    expect(deriveTrackingIdentity({
+      ...identity,
+      payloadSnapshot: {
+        ...identity.payloadSnapshot,
+        merchizeExternalOrderId: '111-1735702-9483436-R2',
+      },
+    }).orderExternalOrderId).toBe('111-1735702-9483436-R2');
+  });
+
   test('rejects compatibility fields that do not match persisted identity', () => {
     const derived = deriveTrackingIdentity(identity);
     expect(() => assertMatchingTrackingIdentity(derived, { provider: 'PRINTWAY' }))

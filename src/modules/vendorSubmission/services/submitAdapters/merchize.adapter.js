@@ -90,7 +90,7 @@ function buildPayload(submission = {}, { idempotencyKey } = {}) {
     : [buildMerchizeItem(snapshot)];
 
   return {
-    order_id: String(firstValue(item.externalOrderId, snapshot.externalOrderId, idempotencyKey, submission.orderItemId, submission.id) || ''),
+    order_id: String(firstValue(snapshot.merchizeExternalOrderId, item.externalOrderId, snapshot.externalOrderId, idempotencyKey, submission.orderItemId, submission.id) || ''),
     identifier: firstValue(snapshot.identifier, process.env.MERCHIZE_IDENTIFIER, 'lng-web-be'),
     shipping_info: shippingInfo(snapshot),
     tags: Array.isArray(snapshot.tags) ? snapshot.tags : [],

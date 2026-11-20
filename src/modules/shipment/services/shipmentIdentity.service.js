@@ -20,7 +20,8 @@ function deriveTrackingIdentity(submission = {}) {
       || submission.payloadSnapshot?.externalOrderId
     : null;
   const orderExternalOrderId = String(
-    submission.payloadSnapshot?.orderSnapshot?.externalOrderId
+    submission.payloadSnapshot?.merchizeExternalOrderId
+    || submission.payloadSnapshot?.orderSnapshot?.externalOrderId
     || submission.payloadSnapshot?.orderItemSnapshot?.externalOrderId
     || submission.payloadSnapshot?.orderItem?.externalOrderId
     || submission.payloadSnapshot?.externalOrderId
