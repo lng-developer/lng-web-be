@@ -147,16 +147,22 @@ npm test -- --runInBand
 - Seed scripts must be idempotent and use stable identifiers where practical.
 - Never commit `.env`, secrets, credentials, API keys, tokens, or private connection strings.
 
-## Git Rules
+## Git & PR Lifecycle Rules
 
 - Follow `CONTRIBUTING.md` when present.
 - Do not commit directly to `main` or `develop` unless the user explicitly asks for that exact action.
+- **NEVER automatically merge a Pull Request into `develop` or `main`** without explicit user confirmation/testing. Always create a branch, push, open the PR, provide the PR link, and wait for the user to review and test.
 - Inspect `git diff` before committing or summarizing large changes.
 - Do not revert user changes or unrelated dirty worktree files.
 - Commit messages should follow `<type>(<scope>): <description>` when commits are requested.
+- **Hotfix & Release Flow**:
+  - All feature work, bug fixes, and hotfixes must target `develop` via PR (`feature/*`, `fix/*`, `hotfix/*` ➔ `develop`).
+  - Releases to `main` only promote from `develop` (`develop` ➔ `main`).
+  - CI test suites gate PRs; deploy to VPS deploys the verified commit SHA without duplicate test runs.
 
 ## What Not To Do
 
+- Do not merge PRs into develop or main autonomously without user confirmation/testing.
 - Do not add SP-API integration.
 - Do not bypass public ports between modules.
 - Do not query Mongoose directly from controllers or services.
