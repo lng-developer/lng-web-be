@@ -20,6 +20,16 @@ jest.mock('../../../src/modules/order/repositories/order.repository', () => ({
   updateShippingAddress: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/order/repositories/addressValidationCache.repository', () => {
+  const actual = jest.requireActual('../../../src/modules/order/repositories/addressValidationCache.repository');
+  return {
+    ...actual,
+    findByKey: jest.fn(async () => null),
+    upsertCache: jest.fn(async () => null),
+    recordHit: jest.fn(async () => null),
+  };
+});
+
 jest.mock('../../../src/modules/order/services/orderTimeline.service', () => ({
   appendTimeline: jest.fn(),
 }));
@@ -49,6 +59,7 @@ const orderProductionRecheckService = require('../../../src/modules/order/servic
 const productionPublic = require('../../../src/modules/production/public');
 const orderWorkbenchProjectionService = require('../../../src/modules/order/services/orderWorkbenchProjection.service');
 const auditPublic = require('../../../src/modules/audit/public');
+const addressValidationCacheRepository = require('../../../src/modules/order/repositories/addressValidationCache.repository');
 const service = require('../../../src/modules/order/services/orderAddressValidation.service');
 
 describe('orderAddressValidation.service', () => {
@@ -60,6 +71,9 @@ describe('orderAddressValidation.service', () => {
     delete process.env.ADDRESS_VALIDATION_PROVIDER;
     orderRepository.findById.mockReset();
     orderCaseService.resolveOpenOrderCaseByType.mockReset();
+    addressValidationCacheRepository.findByKey.mockResolvedValue(null);
+    addressValidationCacheRepository.upsertCache.mockResolvedValue({});
+    addressValidationCacheRepository.recordHit.mockResolvedValue({});
     orderRepository.findById.mockResolvedValue({
       _id: orderId,
       shopId: '660000000000000000000201',
@@ -479,5 +493,90 @@ describe('orderAddressValidation.service', () => {
     });
     expect(orderTimelineService.appendTimeline).toHaveBeenCalledWith(expect.any(Object), { session: mockSession });
     expect(auditPublic.record).toHaveBeenCalledWith(expect.any(Object), { session: mockSession });
+  });
+
+  test('cache hit skips Smarty API, uses cached validation, and records hit', async () => {
+    const cachedAddress = {
+      addressKey: 'test-key',
+      status: 'VALID',
+      reason: 'Cached postal match',
+      provider: 'smarty',
+      normalizedAddress: {
+        addressLine1: '102 Bluebonnet Cir',
+        addressLine2: null,
+        city: 'Sunnyvale',
+        stateOrProvince: 'TX',
+        stateOrProvinceCode: 'TX',
+        postalCode: '75182-5007',
+        countryCode: 'US',
+      },
+      analysis: { enhanced_match: 'postal-match' },
+    };
+    addressValidationCacheRepository.findByKey.mockResolvedValueOnce(cachedAddress);
+
+    const result = await service.validateAddress(orderId);
+
+    expect(smartyClient.validateUsStreetAddress).not.toHaveBeenCalled();
+    expect(addressValidationCacheRepository.recordHit).toHaveBeenCalledWith(expect.any(String));
+    expect(result.addressValidationStatus).toBe('VALID');
+    expect(result.shippingAddress.addressLine1).toBe('102 Bluebonnet Cir');
+    expect(result['externalData.addressValidation'].cached).toBe(true);
+  });
+
+  test('cache miss calls Smarty API and saves result into cache', async () => {
+    addressValidationCacheRepository.findByKey.mockResolvedValueOnce(null);
+    smartyClient.validateUsStreetAddress.mockResolvedValueOnce([
+      {
+        delivery_line_1: '102 Bluebonnet Cir',
+        components: {
+          city_name: 'Sunnyvale',
+          state_abbreviation: 'TX',
+          zipcode: '75182',
+          plus4_code: '5007',
+        },
+        analysis: { enhanced_match: 'postal-match' },
+      },
+    ]);
+
+    const result = await service.validateAddress(orderId);
+
+    expect(smartyClient.validateUsStreetAddress).toHaveBeenCalledTimes(1);
+    expect(addressValidationCacheRepository.upsertCache).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        provider: 'smarty',
+        status: 'VALID',
+        normalizedAddress: expect.objectContaining({
+          addressLine1: '102 Bluebonnet Cir',
+          city: 'Sunnyvale',
+          stateOrProvince: 'TX',
+          postalCode: '75182-5007',
+        }),
+      }),
+    );
+    expect(result.addressValidationStatus).toBe('VALID');
+  });
+
+  test('different casing and formatting of same address produces identical cache key', () => {
+    const addr1 = {
+      addressLine1: '102 BLUEBONNET CIR.',
+      city: 'SUNNYVALE',
+      stateOrProvince: 'TEXAS',
+      postalCode: '75182-5007',
+      countryCode: 'US',
+    };
+    const addr2 = {
+      addressLine1: '102  Bluebonnet  Cir',
+      city: 'Sunnyvale',
+      stateOrProvinceCode: 'tx',
+      postalCode: '75182',
+      countryCode: 'us',
+    };
+
+    const key1 = addressValidationCacheRepository.computeAddressKey(addr1);
+    const key2 = addressValidationCacheRepository.computeAddressKey(addr2);
+
+    expect(key1).toBe(key2);
+    expect(key1).toHaveLength(64);
   });
 });
