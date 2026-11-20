@@ -7,6 +7,7 @@ const {
 
 const objectId = Joi.string().hex().length(24);
 const dateOnly = Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/);
+const dateParam = Joi.alternatives().try(dateOnly, Joi.date().iso());
 
 function validate(schema, payload) {
   const result = schema.validate(payload, {
@@ -40,8 +41,8 @@ const listShipmentsQuerySchema = Joi.object({
   vendorExternalOrderId: Joi.string().trim().max(160),
   trackingNumber: Joi.string().trim().max(160),
   carrier: Joi.string().trim().max(80),
-  dateFrom: dateOnly,
-  dateTo: dateOnly,
+  dateFrom: dateParam,
+  dateTo: dateParam,
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
 });
@@ -60,8 +61,8 @@ const summaryQuerySchema = Joi.object({
   vendorExternalOrderId: Joi.string().trim().max(160),
   trackingNumber: Joi.string().trim().max(160),
   carrier: Joi.string().trim().max(80),
-  dateFrom: dateOnly,
-  dateTo: dateOnly,
+  dateFrom: dateParam,
+  dateTo: dateParam,
 });
 
 const updateTrackingSchema = Joi.object({
