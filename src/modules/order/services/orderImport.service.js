@@ -245,7 +245,31 @@ async function upsertItem({ item, dto, identity, orderId, importSources, now }) 
   return { orderItem, created: false, updated: true };
 }
 
-async function ensureImportedAmazonListing({ item, orderItem, dto, identity }) {
+async function autoRequestPsdForImportedAmazonListing({ listing, orderId, orderItemId, asin, sku }) {
+  const listingId = getEntityId(listing);
+  if (!listingId || listing?.defaultPsdTemplateAssetId) return;
+
+  try {
+    const designPublic = require('../../design/public');
+    if (typeof designPublic.createPsdTemplateTask === 'function') {
+      await designPublic.createPsdTemplateTask({
+        listingId,
+        orderId: orderId ? String(orderId) : null,
+        orderItemId: orderItemId ? String(orderItemId) : null,
+        note: `Auto-requested from Amazon order import (${asin || sku || ''})`.trim(),
+        priority: 'NORMAL',
+      }, { system: true, source: 'AMAZON_ORDER_IMPORT' });
+    }
+  } catch (error) {
+    logger.info('Auto PSD request skipped or already exists for Amazon listing', {
+      listingId,
+      orderItemId,
+      error: error.message,
+    });
+  }
+}
+
+async function ensureImportedAmazonListing({ item, orderItem, dto, identity, orderId }) {
   if (identity.salesChannelCode !== 'AMAZON') return orderItem;
   const asin = (normalizeTrimmed(item.asin) || '').toUpperCase();
   const sku = (normalizeTrimmed(item.sku || orderItem.sku) || '').toUpperCase();
@@ -262,6 +286,17 @@ async function ensureImportedAmazonListing({ item, orderItem, dto, identity }) {
     currency: item.price?.currency || dto.currency || null,
   }, { system: true, source: 'ORDER_IMPORT' });
   const listingId = getEntityId(listing);
+
+  if (listingId && !listing?.defaultPsdTemplateAssetId) {
+    await autoRequestPsdForImportedAmazonListing({
+      listing,
+      orderId,
+      orderItemId: getEntityId(orderItem),
+      asin,
+      sku,
+    });
+  }
+
   if (!listingId || String(orderItem.listingId || '') === String(listingId)) return orderItem;
   return orderItemRepository.updateListingId(getEntityId(orderItem), listingId);
 }
@@ -313,6 +348,7 @@ async function importExternalOrder(externalOrderDto = {}) {
       orderItem: result.orderItem,
       dto: externalOrderDto,
       identity,
+      orderId,
     });
 
     await appendImportTimeline({

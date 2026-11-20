@@ -1,4 +1,7 @@
 jest.mock('../../../../src/modules/integration/externalOrderImport/services/etsyListingImageQueue.service', () => ({ enqueueListingImages: jest.fn() }));
+jest.mock('../../../../src/modules/integration/listingImageSync/public', () => ({
+  enqueueImportedOrderImages: jest.fn().mockResolvedValue(null),
+}));
 jest.mock('../../../../src/modules/integration/externalOrderImport/repositories/externalOrderImportJob.repository', () => ({
   create: jest.fn(),
   updateStatus: jest.fn(),
@@ -73,6 +76,7 @@ const customizationAssetQueue = require('../../../../src/modules/integration/ext
 const orderPublic = require('../../../../src/modules/order/public');
 const mappingPublic = require('../../../../src/modules/mapping/public');
 const customizationPublic = require('../../../../src/modules/customization/public');
+const listingImageSync = require('../../../../src/modules/integration/listingImageSync/public');
 const service = require('../../../../src/modules/integration/externalOrderImport/sources/manualExcel/manualExcelImport.service');
 const fs = require('fs');
 const path = require('path');
@@ -333,6 +337,38 @@ describe('manualExcelImport.service', () => {
       failedCount: 0,
       postImportQueuedCount: 0,
     });
+  });
+
+  test('automatically batches imported Amazon ASINs into 25-item groups for listing image sync', async () => {
+    listingImageSync.enqueueImportedOrderImages.mockClear();
+    const rows = ['order-id\torder-item-id\tsku\tasin\tquantity-purchased\titem-price'];
+    for (let i = 1; i <= 30; i += 1) {
+      const asin = `B${String(i).padStart(9, '0')}`;
+      rows.push(`113-${i}\tITEM-${i}\tSKU-${i}\t${asin}\t1\t10.00`);
+    }
+    const buffer = Buffer.from(rows.join('\n'));
+
+    await service.importManualExcelOrderReport({
+      buffer,
+      originalFilename: 'amazon_orders.txt',
+      mimeType: 'text/plain',
+      shopId,
+      marketplaceCode: 'AMAZON_US',
+      externalAccountId: 'SELLER-1',
+      triggeredBy: '660000000000000000000801',
+    });
+
+    expect(listingImageSync.enqueueImportedOrderImages).toHaveBeenCalledTimes(2);
+    expect(listingImageSync.enqueueImportedOrderImages).toHaveBeenNthCalledWith(1, {
+      shopId,
+      asins: expect.arrayContaining(['B000000001', 'B000000025']),
+    });
+    expect(listingImageSync.enqueueImportedOrderImages.mock.calls[0][0].asins).toHaveLength(25);
+    expect(listingImageSync.enqueueImportedOrderImages).toHaveBeenNthCalledWith(2, {
+      shopId,
+      asins: expect.arrayContaining(['B000000026', 'B000000030']),
+    });
+    expect(listingImageSync.enqueueImportedOrderImages.mock.calls[1][0].asins).toHaveLength(5);
   });
 
   test('normalizes SKU before importing order while keeping raw record SKU unchanged', async () => {

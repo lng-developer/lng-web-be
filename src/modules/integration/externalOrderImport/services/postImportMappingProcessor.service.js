@@ -73,9 +73,66 @@ async function enqueueImagesWhenImportJobIsReady(importJobId, shopId) {
     const asins = [...new Set(rawRecords
       .map((record) => String(record.asin || "").trim().toUpperCase())
       .filter(Boolean))];
-    if (asins.length) await listingImageSync.enqueueImportedOrderImages({ shopId, asins });
+    if (asins.length) {
+      const BATCH_SIZE = 25;
+      for (let i = 0; i < asins.length; i += BATCH_SIZE) {
+        await listingImageSync.enqueueImportedOrderImages({
+          shopId,
+          asins: asins.slice(i, i + BATCH_SIZE),
+        });
+      }
+    }
   } catch (error) {
     logger.warn("listing_image_sync_enqueue_failed", { importJobId, shopId, error });
+  }
+}
+
+async function autoRequestPsdForFulfillmentPlan(result, payload) {
+  if (result?.salesChannelCode !== "AMAZON") return;
+  const listingId = result.listingId
+    ? String(result.listingId)
+    : (result.listing ? String(result.listing._id || result.listing.id || "") : null);
+  const listingVariantId = result.listingVariantId ? String(result.listingVariantId) : null;
+  if (!listingId) return;
+
+  try {
+    const designPublic = require("../../../design/public");
+    if (typeof designPublic.createPsdTemplateTask !== "function") return;
+
+    if (listingVariantId) {
+      const catalogPublic = require("../../../catalog/public");
+      const variant = await catalogPublic.getListingVariantById(listingVariantId);
+      if (variant?.psdReadiness?.status === "MISSING") {
+        await designPublic.createPsdTemplateTask({
+          listingId,
+          listingVariantId,
+          orderId: payload.orderId ? String(payload.orderId) : null,
+          orderItemId: payload.orderItemId ? String(payload.orderItemId) : null,
+          note: "Auto-requested from Amazon post-import mapping",
+          priority: "NORMAL",
+        }, { system: true, source: "AMAZON_ORDER_IMPORT" });
+        return;
+      }
+    }
+
+    const catalogPublic = require("../../../catalog/public");
+    const listing = await catalogPublic.getListingById(listingId);
+    if (listing && !listing.defaultPsdTemplateAssetId) {
+      await designPublic.createPsdTemplateTask({
+        listingId,
+        orderId: payload.orderId ? String(payload.orderId) : null,
+        orderItemId: payload.orderItemId ? String(payload.orderItemId) : null,
+        note: "Auto-requested from Amazon post-import mapping",
+        priority: "NORMAL",
+      }, { system: true, source: "AMAZON_ORDER_IMPORT" });
+    }
+  } catch (error) {
+    logger.info("Auto PSD request skipped or already exists for Amazon fulfillment plan", {
+      orderItemId: payload.orderItemId,
+      listingId,
+      listingVariantId,
+      error: error.message,
+    });
   }
 }
 
@@ -100,6 +157,7 @@ async function processPostImportMapping(
         source: "EXTERNAL_ORDER_IMPORT",
       },
     );
+    await autoRequestPsdForFulfillmentPlan(result, payload);
     if (result?.status === "READY") {
       await productionPublic.createOrRecheckTaskForOrderItem(
         payload.orderItemId,

@@ -183,6 +183,13 @@ router.post(
   asyncHandler(controller.addManualFileCheck),
 );
 
+router.delete(
+  '/tasks/:taskId/file-checks/:fileCheckId',
+  authPublic.authenticate,
+  requireScaleWork,
+  asyncHandler(controller.removeFileCheck),
+);
+
 router.post(
   '/tasks/:taskId/file-checks/manual/scaled-output-file',
   authPublic.authenticate,

@@ -203,6 +203,7 @@ const cancelOrderItemSchema = Joi.object({
 const vendorRematchRecoverySchema = Joi.object({
   externalCancellationConfirmed: Joi.boolean().default(false),
   reason: Joi.string().trim().max(1000).required(),
+  requireRework: Joi.boolean().default(false),
 });
 
 const addOrderCaseCommentSchema = Joi.object({
