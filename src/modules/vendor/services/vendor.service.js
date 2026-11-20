@@ -2055,7 +2055,7 @@ async function cloneVendorProduct(productId, payload, authContext) {
       ...costCenter,
       vendorProductId: createdProduct._id || createdProduct.id,
       vendorId: targetVendorId,
-      ...(vendorChanged ? { status: recordStatuses.INACTIVE } : {}),
+      ...(vendorChanged ? { status: recordStatuses.ACTIVE } : {}),
       metadata: cloneMetadata(metadata),
     })));
   } catch (error) {

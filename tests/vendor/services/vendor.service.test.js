@@ -136,7 +136,7 @@ describe('vendor.service', () => {
       vendorId: '660000000000000000000502',
       vendorProductId: '660000000000000000000602',
       code: 'BLACK_L',
-      status: 'INACTIVE',
+      status: 'ACTIVE',
       metadata: {},
     })]);
     expect(result).toEqual(expect.objectContaining({ code: 'SHIRT-COPY' }));
