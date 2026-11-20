@@ -89,6 +89,16 @@ describe('merchize submit adapter', () => {
     }).order_id).toBe('113-TEST-ORDER');
   });
 
+  test('uses the persisted retry order id for Merchize', () => {
+    expect(adapter.buildPayload({
+      ...submission,
+      payloadSnapshot: {
+        ...submission.payloadSnapshot,
+        merchizeExternalOrderId: '113-TEST-ORDER-R2',
+      },
+    }).order_id).toBe('113-TEST-ORDER-R2');
+  });
+
   test('validates missing required Merchize payload fields before POST', () => {
     const payload = adapter.buildPayload({
       ...submission,
