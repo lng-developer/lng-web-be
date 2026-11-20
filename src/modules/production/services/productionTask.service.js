@@ -1410,13 +1410,67 @@ async function cancelTaskByOrderItem(orderItemId, { reason } = {}, authContext =
   return toProductionTaskDto(updated);
 }
 
-async function cancelTaskAfterExternalVendorCancellation(orderItemId, { reason } = {}, authContext = {}) {
+function buildReworkPatch(task) {
+  const fileChecks = (task.fileChecks || []).map((check) => ({
+    ...check,
+    outputAssetId: null,
+    outputWorkerId: null,
+    scaleStatus: check.inputAssetId && check.sourceType !== productionSourceTypes.PSD_TEMPLATE
+      ? productionScaleStatuses.NEED_SCALE
+      : productionScaleStatuses.NOT_REQUIRED,
+    qcStatus: productionQcStatuses.NOT_READY,
+    blockers: unique([
+      ...(check.blockers || []).filter((blocker) => blocker !== productionBlockers.QC_REJECTED),
+      ...(check.inputAssetId && check.sourceType !== productionSourceTypes.PSD_TEMPLATE
+        ? [productionBlockers.SCALED_OUTPUT_MISSING]
+        : []),
+    ]),
+    note: null,
+  }));
+
+  return {
+    fileChecks,
+    scaleStatus: productionScaleStatuses.NEED_SCALE,
+    qcStatus: productionQcStatuses.NOT_READY,
+    blockers: unique([
+      ...(task.blockers || []).filter((blocker) => blocker !== productionBlockers.QC_REJECTED),
+      productionBlockers.SCALED_OUTPUT_MISSING,
+    ]),
+    assignedDesignUserId: null,
+    assignedAt: null,
+    designNote: null,
+    qcBy: null,
+    qcAt: null,
+    readyAt: null,
+    sentToVendorAt: null,
+    vendorSubmissionId: null,
+  };
+}
+
+async function cancelTaskAfterExternalVendorCancellation(orderItemId, { reason, requireRework = false } = {}, authContext = {}) {
   const task = await repository.findByOrderItem(orderItemId);
-  if (!task || task.status === productionTaskStatuses.CANCELLED) return task ? toProductionTaskDto(task) : null;
+  if (!task) return null;
   assertCanAccessShop(task.shopId, productionPermissions.WRITE, authContext);
-  const cancelled = await repository.cancelTask(toId(task), { allowSentToVendor: true });
+  if (task.status === productionTaskStatuses.CANCELLED) {
+    if (requireRework) {
+      const updated = await repository.updateById(toId(task), buildReworkPatch(task));
+      return updated ? toProductionTaskDto(updated) : toProductionTaskDto(task);
+    }
+    return toProductionTaskDto(task);
+  }
+  const patch = requireRework ? buildReworkPatch(task) : null;
+  const cancelled = await repository.cancelTask(toId(task), {
+    allowSentToVendor: true,
+    ...(patch ? { patch } : {}),
+  });
   if (!cancelled) throw conflict('Production task changed concurrently');
-  await recordProductionOperation({ action: 'PRODUCTION_TASK_CANCELLED', task: cancelled, authContext, changes: { status: { from: task.status, to: productionTaskStatuses.CANCELLED } }, metadata: { reason: reason || null, externalVendorCancellation: true } });
+  await recordProductionOperation({
+    action: 'PRODUCTION_TASK_CANCELLED',
+    task: cancelled,
+    authContext,
+    changes: { status: { from: task.status, to: productionTaskStatuses.CANCELLED } },
+    metadata: { reason: reason || null, externalVendorCancellation: true, requireRework: Boolean(requireRework) },
+  });
   return toProductionTaskDto(cancelled);
 }
 
@@ -2143,6 +2197,46 @@ async function addManualFileCheck(taskId, payload = {}, authContext) {
     return result;
   });
   return toProductionTaskDto(updated);
+}
+
+async function removeFileCheck(taskId, fileCheckId, authContext) {
+  assertValidObjectId(taskId, 'taskId');
+  assertValidObjectId(fileCheckId, 'fileCheckId');
+  const task = await loadTask(taskId);
+  assertCanScaleTask(task, authContext);
+  assertScaleMutationAllowed(task);
+
+  const check = (task.fileChecks || []).find((c) => toId(c._id || c.id) === toId(fileCheckId));
+  if (!check) {
+    throw notFound('Production file check not found');
+  }
+
+  if (check.sourceType === productionSourceTypes.PSD_TEMPLATE || normalizeSlotKey(check.slotKey) === 'PSD_TEMPLATE') {
+    throw conflict('Cannot delete PSD template file check');
+  }
+
+  const updated = await withProductionOperation(async (session) => {
+    const pulled = await repository.removeFileCheckIfMutable(taskId, fileCheckId, { session });
+    if (!pulled) throw conflict('Production file check changed concurrently or task is locked');
+    const aggregate = aggregateStatus(pulled.fileChecks || []);
+    await repository.updateById(taskId, aggregate, { session });
+    const result = { ...pulled, ...aggregate };
+    await transitionOrderItemStatus(task.orderItemId, orderItemStatusForProductionAggregate(aggregate, 'manual'), session);
+    await appendTaskTimeline(result, 'PRODUCTION_FILE_CHECK_REMOVED', authContext, session);
+    await recordProductionOperation({
+      action: 'PRODUCTION_FILE_CHECK_REMOVED',
+      task: result,
+      authContext,
+      session,
+      metadata: { slotKey: check.slotKey, fileCheckId: toId(fileCheckId) },
+    });
+    return result;
+  });
+
+  const [enrichedTask] = await attachVendorSubmissions(await attachProductionUsers(await attachShops([
+    await attachCustomizationSnapshot(updated, authContext),
+  ])));
+  return toProductionTaskDto(enrichedTask);
 }
 
 async function uploadScaledFileForTask(task, fileCheckId, mediaAssetId, authContext) {
@@ -3057,6 +3151,7 @@ async function getCsAssignees(query = {}, authContext) {
 
 const productionTaskService = {
   addManualFileCheck,
+  removeFileCheck,
   addManualScaledOutputFile,
   assignCsTask,
   assignDesignTask,

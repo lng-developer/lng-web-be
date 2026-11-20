@@ -253,6 +253,14 @@ async function addManualFileCheck(req, res) {
   });
 }
 
+async function removeFileCheck(req, res) {
+  const { taskId, fileCheckId } = assertValid(fileCheckParamSchema, req.params);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.removeFileCheck(taskId, fileCheckId, auditAuth(req)),
+  });
+}
+
 async function uploadScaledOutputFile(req, res) {
   const { taskId, fileCheckId } = assertValid(fileCheckParamSchema, req.params);
   if (!req.file) {
@@ -322,6 +330,7 @@ async function markSentToVendor(req, res) {
 
 module.exports = {
   addManualFileCheck,
+  removeFileCheck,
   addManualScaledOutputFile,
   assignCsTask,
   assignDesignTask,

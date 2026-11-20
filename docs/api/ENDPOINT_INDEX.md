@@ -1,6 +1,6 @@
 # Backend endpoint index
 
-Total: **498 endpoints** across **23 modules**.
+Total: **512 endpoints** across **23 modules**.
 
 | Module | Endpoints | Postman collection |
 | --- | ---: | --- |
@@ -11,20 +11,20 @@ Total: **498 endpoints** across **23 modules**.
 | customer | 8 | `postman/customer.postman_collection.json` |
 | customization | 13 | `postman/customization.postman_collection.json` |
 | design | 27 | `postman/design.postman_collection.json` |
-| finance | 27 | `postman/finance.postman_collection.json` |
-| hr | 99 | `postman/hr.postman_collection.json` |
+| finance | 28 | `postman/finance.postman_collection.json` |
+| hr | 100 | `postman/hr.postman_collection.json` |
 | integration | 16 | `postman/integration.postman_collection.json` |
 | mapping | 43 | `postman/mapping.postman_collection.json` |
 | media | 10 | `postman/media.postman_collection.json` |
 | notification | 4 | `postman/notification.postman_collection.json` |
-| order | 34 | `postman/order.postman_collection.json` |
+| order | 35 | `postman/order.postman_collection.json` |
 | organization | 13 | `postman/organization.postman_collection.json` |
-| production | 27 | `postman/production.postman_collection.json` |
+| production | 28 | `postman/production.postman_collection.json` |
 | report | 17 | `postman/report.postman_collection.json` |
 | shipment | 18 | `postman/shipment.postman_collection.json` |
 | shop | 5 | `postman/shop.postman_collection.json` |
 | system | 3 | `postman/system.postman_collection.json` |
-| vendor | 27 | `postman/vendor.postman_collection.json` |
+| vendor | 37 | `postman/vendor.postman_collection.json` |
 | vendorSubmission | 15 | `postman/vendorSubmission.postman_collection.json` |
 | workScore | 7 | `postman/workScore.postman_collection.json` |
 

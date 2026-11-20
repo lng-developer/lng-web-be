@@ -68,7 +68,11 @@ describe('vendorRematchRecovery.service', () => {
     expect(result.status).toBe('MAPPING_PENDING');
     expect(vendorSubmission.cancelAfterExternalCancellation).not.toHaveBeenCalled();
     expect(shipment.updateStatus).not.toHaveBeenCalled();
-    expect(production.cancelTaskAfterExternalVendorCancellation).toHaveBeenCalledWith(orderItemId, { reason: payload.reason }, authContext);
+    expect(production.cancelTaskAfterExternalVendorCancellation).toHaveBeenCalledWith(
+      orderItemId,
+      { reason: payload.reason, requireRework: false },
+      authContext,
+    );
     expect(mapping.resetFulfillmentPlanForVendorRematch).toHaveBeenCalledWith(orderItemId, authContext);
     expect(orderCostCenterStatus.refreshFulfillmentStatusesForOrder).toHaveBeenCalledWith(orderId);
     expect(workbench.rebuildOrderWorkbenchProjection).toHaveBeenCalledWith(orderId, authContext, { source: 'VENDOR_REMATCH_RECOVERY' });
@@ -82,10 +86,30 @@ describe('vendorRematchRecovery.service', () => {
     expect(result.status).toBe('MAPPING_PENDING');
     expect(vendorSubmission.cancel).toHaveBeenCalledWith('660000000000000000000501', { cancelReason: 'Change vendor before submit' }, authContext);
     expect(vendorSubmission.cancelAfterExternalCancellation).not.toHaveBeenCalled();
-    expect(production.cancelTaskAfterExternalVendorCancellation).toHaveBeenCalledWith(orderItemId, { reason: 'Change vendor before submit' }, authContext);
+    expect(production.cancelTaskAfterExternalVendorCancellation).toHaveBeenCalledWith(
+      orderItemId,
+      { reason: 'Change vendor before submit', requireRework: false },
+      authContext,
+    );
     expect(mapping.resetFulfillmentPlanForVendorRematch).toHaveBeenCalledWith(orderItemId, authContext);
     expect(orderCostCenterStatus.refreshFulfillmentStatusesForOrder).toHaveBeenCalledWith(orderId);
     expect(workbench.rebuildOrderWorkbenchProjection).toHaveBeenCalledWith(orderId, authContext, { source: 'VENDOR_REMATCH_RECOVERY' });
+  });
+
+  test('passes requireRework flag to production task cancellation', async () => {
+    vendorSubmission.getByOrderItemId.mockResolvedValue({ id: '660000000000000000000501', status: 'READY' });
+
+    await service.recoverForVendorRematch(
+      orderItemId,
+      { reason: 'Designer needs to redo file', requireRework: true },
+      authContext,
+    );
+
+    expect(production.cancelTaskAfterExternalVendorCancellation).toHaveBeenCalledWith(
+      orderItemId,
+      { reason: 'Designer needs to redo file', requireRework: true },
+      authContext,
+    );
   });
 
   test('requires externalCancellationConfirmed when submission is SUBMITTED', async () => {

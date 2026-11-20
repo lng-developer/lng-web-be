@@ -112,6 +112,8 @@ jest.mock('../../../src/modules/production/repositories/productionTask.repositor
   summarize: jest.fn(),
   summarizeQueueCounts: jest.fn(),
   appendFileCheckIfMutable: jest.fn(),
+  removeFileCheck: jest.fn(),
+  removeFileCheckIfMutable: jest.fn(),
   updateFileCheckOutputIfMutable: jest.fn(),
   cancelTask: jest.fn(),
   updateById: jest.fn(),
@@ -1472,6 +1474,68 @@ describe('productionTask.service', () => {
       'NEED_PRODUCTION',
       expect.anything(),
     );
+  });
+
+  test('removeFileCheck removes slot, calls repository and records operation', async () => {
+    const existingCheck = {
+      _id: fileCheckId,
+      slotKey: 'BACK',
+      slotLabel: 'Back',
+      required: false,
+      sourceType: 'CUSTOMER_IMAGE',
+      outputAssetId: null,
+      scaleStatus: 'NEED_SCALE',
+      qcStatus: 'NOT_READY',
+      blockers: ['SCALED_OUTPUT_MISSING'],
+    };
+    repository.findById.mockResolvedValue({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      scaleStatus: 'NEED_SCALE',
+      qcStatus: 'NOT_READY',
+      fileChecks: [existingCheck],
+    });
+    repository.removeFileCheckIfMutable.mockResolvedValue({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      scaleStatus: 'NOT_REQUIRED',
+      qcStatus: 'NOT_READY',
+      fileChecks: [],
+    });
+
+    const result = await service.removeFileCheck(taskId, fileCheckId, { permissions: ['PRODUCTION:WRITE'] });
+
+    expect(repository.removeFileCheckIfMutable).toHaveBeenCalledWith(taskId, fileCheckId, { session: mockSession });
+    expect(repository.updateById).toHaveBeenCalled();
+    expect(orderPublic.appendTimeline).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'PRODUCTION_FILE_CHECK_REMOVED',
+    }), { session: mockSession });
+    expect(result.fileChecks).toEqual([]);
+  });
+
+  test('removeFileCheck rejects deleting PSD template file check', async () => {
+    const psdCheck = {
+      _id: fileCheckId,
+      slotKey: 'PSD_TEMPLATE',
+      slotLabel: 'PSD template',
+      required: true,
+      sourceType: 'PSD_TEMPLATE',
+      outputAssetId: null,
+    };
+    repository.findById.mockResolvedValue({
+      _id: taskId,
+      shopId,
+      orderItemId,
+      status: 'NEED_SCALE',
+      fileChecks: [psdCheck],
+    });
+
+    await expect(service.removeFileCheck(taskId, fileCheckId, { permissions: ['PRODUCTION:WRITE'] }))
+      .rejects.toThrow('Cannot delete PSD template file check');
   });
 
   test('adding manual file check on QC rejected task preserves QC_REJECTED status instead of BLOCKED', async () => {

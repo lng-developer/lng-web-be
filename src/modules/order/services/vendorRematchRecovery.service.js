@@ -35,13 +35,14 @@ async function recoverForVendorRematch(orderItemId, payload = {}, authContext = 
     throw conflict('Cannot reset an order with tracking or marketplace confirmation');
   }
   const reason = payload.reason || 'Reset for vendor rematch';
+  const requireRework = Boolean(payload.requireRework);
   if (isSubmitted) {
     await vendorSubmission.cancelAfterExternalCancellation(submission.id, { cancelReason: reason }, authContext);
     if (currentShipment) await shipment.updateStatus(currentShipment.id, { status: 'CANCELLED', note: reason }, authContext);
   } else if (submission && submission.status !== 'CANCELLED') {
     await vendorSubmission.cancel(submission.id, { cancelReason: reason }, authContext);
   }
-  await production.cancelTaskAfterExternalVendorCancellation(orderItemId, { reason }, authContext);
+  await production.cancelTaskAfterExternalVendorCancellation(orderItemId, { reason, requireRework }, authContext);
   await mapping.resetFulfillmentPlanForVendorRematch(orderItemId, authContext);
   const updated = await status.transitionItemStatus(orderItemId, orderItemStatuses.MAPPING_PENDING, { ...authContext, source: 'MAPPING', allowVendorRematchRecovery: true });
   await orderCostCenterStatus.refreshFulfillmentStatusesForOrder(updated.orderId);

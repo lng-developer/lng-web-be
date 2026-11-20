@@ -3500,7 +3500,7 @@
             {
               "name": "GET /api/design/psd-files",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+                "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW, DESIGN:PSD_REQUEST.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -3681,7 +3681,7 @@
             {
               "name": "GET /api/design/tasks",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+                "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW, DESIGN:PSD_REQUEST.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -3769,9 +3769,45 @@
               }
             },
             {
+              "name": "DELETE /api/design/tasks/:taskId",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE.",
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/design/tasks/{{taskId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "design",
+                    "tasks",
+                    "{{taskId}}"
+                  ],
+                  "variable": [
+                    {
+                      "key": "taskId",
+                      "value": "{{taskId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
               "name": "GET /api/design/tasks/:taskId",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+                "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW, DESIGN:PSD_REQUEST.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -3807,7 +3843,7 @@
             {
               "name": "PATCH /api/design/tasks/:taskId/approve",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE, DESIGN:REVIEW.",
+                "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE, DESIGN:REVIEW, DESIGN:PSD_REQUEST.",
                 "method": "PATCH",
                 "header": [
                   {
@@ -3958,45 +3994,9 @@
               }
             },
             {
-              "name": "DELETE /api/design/tasks/:taskId",
-              "request": {
-                "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE. Deletes only tasks without an approved PSD submission.",
-                "method": "DELETE",
-                "header": [],
-                "url": {
-                  "raw": "{{baseUrl}}/api/design/tasks/{{taskId}}",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "design",
-                    "tasks",
-                    "{{taskId}}"
-                  ],
-                  "variable": [
-                    {
-                      "key": "taskId",
-                      "value": "{{taskId}}"
-                    }
-                  ]
-                },
-                "auth": {
-                  "type": "bearer",
-                  "bearer": [
-                    {
-                      "key": "token",
-                      "value": "{{accessToken}}",
-                      "type": "string"
-                    }
-                  ]
-                }
-              }
-            },
-            {
               "name": "PATCH /api/design/tasks/:taskId/priority",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE, DESIGN:REVIEW, DESIGN:PSD_REQUEST.",
                 "method": "PATCH",
                 "header": [],
                 "url": {
@@ -4033,7 +4033,7 @@
             {
               "name": "PATCH /api/design/tasks/:taskId/reject",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE, DESIGN:REVIEW.",
+                "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE, DESIGN:REVIEW, DESIGN:PSD_REQUEST.",
                 "method": "PATCH",
                 "header": [
                   {
@@ -4086,12 +4086,7 @@
               "request": {
                 "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE, DESIGN:REVIEW.",
                 "method": "PATCH",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
+                "header": [],
                 "url": {
                   "raw": "{{baseUrl}}/api/design/tasks/{{taskId}}/reopen",
                   "host": [
@@ -4120,15 +4115,6 @@
                       "type": "string"
                     }
                   ]
-                },
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"reason\": \"Customer changed the personalization text.\"\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
                 }
               }
             },
@@ -4186,7 +4172,7 @@
             {
               "name": "GET /api/design/tasks/:taskId/submissions",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+                "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW, DESIGN:PSD_REQUEST.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -4512,7 +4498,7 @@
             {
               "name": "GET /api/design/tasks/summary",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW.",
+                "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW, DESIGN:PSD_REQUEST.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -15315,9 +15301,51 @@
               }
             },
             {
+              "name": "DELETE /api/production/tasks/:taskId/file-checks/:fileCheckId",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, DESIGN:WORK.",
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/production/tasks/{{taskId}}/file-checks/{{fileCheckId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "production",
+                    "tasks",
+                    "{{taskId}}",
+                    "file-checks",
+                    "{{fileCheckId}}"
+                  ],
+                  "variable": [
+                    {
+                      "key": "taskId",
+                      "value": "{{taskId}}"
+                    },
+                    {
+                      "key": "fileCheckId",
+                      "value": "{{fileCheckId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
               "name": "PATCH /api/production/tasks/:taskId/file-checks/:fileCheckId/scaled-output",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_WORK.",
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, DESIGN:WORK.",
                 "method": "PATCH",
                 "header": [
                   {
@@ -15374,7 +15402,7 @@
             {
               "name": "POST /api/production/tasks/:taskId/file-checks/:fileCheckId/scaled-output-file",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_WORK.",
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, DESIGN:WORK.",
                 "method": "POST",
                 "header": [],
                 "url": {
@@ -15427,7 +15455,7 @@
             {
               "name": "POST /api/production/tasks/:taskId/file-checks/manual",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_WORK.",
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, DESIGN:WORK.",
                 "method": "POST",
                 "header": [
                   {
@@ -15479,7 +15507,7 @@
             {
               "name": "POST /api/production/tasks/:taskId/file-checks/manual/scaled-output-file",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_WORK.",
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, DESIGN:WORK.",
                 "method": "POST",
                 "header": [],
                 "url": {
@@ -15630,7 +15658,7 @@
             {
               "name": "PATCH /api/production/tasks/:taskId/submit-scale-qc",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_WORK.",
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, DESIGN:WORK.",
                 "method": "PATCH",
                 "header": [],
                 "url": {

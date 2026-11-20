@@ -1776,12 +1776,26 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
   const customizationBlocked = preview.blockingReasons.includes(
     fulfillmentBlockingReasons.CUSTOMIZATION_NOT_READY,
   );
+  const markReady = preview.ready || (manualOverride && !customizationBlocked);
+
   if (!options.deferSideEffects) {
+    if (typeof orderPublic.refreshFulfillmentStatusesForOrder === 'function') {
+      await orderPublic.refreshFulfillmentStatusesForOrder(preview.item.orderId);
+    }
+    if (typeof orderPublic.updateCostCenterStatusForOrder === 'function') {
+      await Promise.all([
+        orderPublic.updateCostCenterStatusForOrder(preview.item.orderId),
+        orderPublic.updatePsdStatusForOrder(preview.item.orderId),
+      ]);
+    }
+    if (selectionMode === fulfillmentPlanSelectionModes.MANUAL && markReady) {
+      await markFulfillmentReadyAfterPlan(orderItemId);
+    }
     await scheduleFulfillmentSideEffects(
       orderItemId,
       preview.item.orderId,
       {
-        markReady: preview.ready || (manualOverride && !customizationBlocked),
+        markReady: selectionMode !== fulfillmentPlanSelectionModes.MANUAL && markReady,
         triggerProduction: true,
       },
       authContext,
@@ -1846,6 +1860,15 @@ async function resolveFulfillmentPlan(orderItemId, options = {}, authContext) {
     });
     await syncWorkbenchFulfillmentPlan(plan);
     if (!options.deferSideEffects) {
+      if (typeof orderPublic.refreshFulfillmentStatusesForOrder === 'function') {
+        await orderPublic.refreshFulfillmentStatusesForOrder(preview.item.orderId);
+      }
+      if (typeof orderPublic.updateCostCenterStatusForOrder === 'function') {
+        await Promise.all([
+          orderPublic.updateCostCenterStatusForOrder(preview.item.orderId),
+          orderPublic.updatePsdStatusForOrder(preview.item.orderId),
+        ]);
+      }
       await scheduleFulfillmentSideEffects(orderItemId, preview.item.orderId, {}, authContext);
     }
     if (

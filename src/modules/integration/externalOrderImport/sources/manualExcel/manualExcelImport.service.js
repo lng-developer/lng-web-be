@@ -11,6 +11,8 @@ const issueRepository = require('../../repositories/externalOrderImportIssue.rep
 const postImportMappingQueue = require('../../services/postImportMappingQueue.service');
 const customizationAssetQueue = require('../../services/customizationAssetQueue.service');
 const listingImageQueue = require('../../services/etsyListingImageQueue.service');
+const listingImageSync = require('../../../listingImageSync/public');
+const logger = require('../../../../../shared/utils/logger');
 const {
   externalOrderImportSources,
   externalOrderImportSourceTypes,
@@ -466,6 +468,31 @@ async function normalizeDtoSkus(dto) {
   return { ...dto, items };
 }
 
+async function autoEnqueueAmazonListingImages({ dtos, shopId }) {
+  const asins = [...new Set(
+    (dtos || [])
+      .flatMap((dto) => (dto.items || []).map((item) => String(item.asin || '').trim().toUpperCase()))
+      .filter((asin) => /^[A-Z0-9]{10}$/.test(asin))
+  )];
+  if (!asins.length || !shopId) return;
+
+  const BATCH_SIZE = 25;
+  for (let i = 0; i < asins.length; i += BATCH_SIZE) {
+    const batch = asins.slice(i, i + BATCH_SIZE);
+    try {
+      if (typeof listingImageSync.enqueueImportedOrderImages === 'function') {
+        await listingImageSync.enqueueImportedOrderImages({ shopId, asins: batch });
+      }
+    } catch (error) {
+      logger.warn('amazon_listing_image_batch_enqueue_failed', {
+        shopId,
+        batchCount: batch.length,
+        error: error.message,
+      });
+    }
+  }
+}
+
 async function processImportDtos({ dtos, validRows, config, shopId, jobId }) {
   let importedCount = 0;
   let skippedCount = 0;
@@ -527,6 +554,10 @@ async function processImportDtos({ dtos, validRows, config, shopId, jobId }) {
         details: { rawRecordIds: rowsForOrder.map(({ rawRecord }) => toId(rawRecord)) },
       });
     }
+  }
+
+  if (config.salesChannelCode === 'AMAZON') {
+    await autoEnqueueAmazonListingImages({ dtos, shopId });
   }
 
   return {
