@@ -888,6 +888,33 @@ describe('vendorSubmission.service', () => {
     expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toContain('MZ-ORDER-1');
   });
 
+  test('persists an R2 reference before retrying a Merchize submission', async () => {
+    const retrySubmission = {
+      ...submission,
+      submitAttemptCount: 1,
+      payloadSnapshot: {
+        ...submission.payloadSnapshot,
+        orderItem: { ...submission.payloadSnapshot.orderItem, externalOrderId: '113-TEST-ORDER' },
+      },
+    };
+    repository.findById.mockResolvedValueOnce(retrySubmission);
+    repository.claimReadyForSubmit.mockResolvedValueOnce({
+      ...retrySubmission,
+      status: 'SUBMITTING',
+      provider: 'MERCHIZE',
+      submitAttemptCount: 2,
+    });
+    repository.updateById.mockImplementation(async (_id, patch) => ({ ...retrySubmission, ...patch }));
+
+    await service.submitToVendor(submissionId, { provider: 'MERCHIZE', dryRun: false }, {
+      permissions: ['VENDOR_SUBMISSIONS:WRITE'], accountId: actorId,
+    });
+
+    expect(repository.updateById).toHaveBeenCalledWith(submissionId, expect.objectContaining({
+      payloadSnapshot: expect.objectContaining({ merchizeExternalOrderId: '113-TEST-ORDER-R2' }),
+    }));
+  });
+
   test('submit to vendor stores failed status when vendor rejects after POST', async () => {
     submitRegistry.getAdapter.mockReturnValueOnce({
       provider: 'MERCHIZE',
