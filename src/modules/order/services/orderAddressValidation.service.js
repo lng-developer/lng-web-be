@@ -4,6 +4,7 @@ const httpStatus = require('../../../shared/constants/httpStatus');
 const smartyClient = require('../../../shared/clients/smartyClient');
 const uspsAddressClient = require('../../../shared/clients/uspsAddressClient');
 const orderRepository = require('../repositories/order.repository');
+const addressValidationCacheRepository = require('../repositories/addressValidationCache.repository');
 const { addressValidationStatuses, orderCaseTypes } = require('../constants/orderStatuses');
 const { orderTimelineEventTypes } = require('../constants/orderTimelineEventTypes');
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
@@ -217,6 +218,43 @@ function buildUspsPatch(order, result) {
   };
 }
 
+function extractRawAddress(shippingAddress = {}) {
+  return {
+    street: [shippingAddress.addressLine1, shippingAddress.addressLine2, shippingAddress.addressLine3]
+      .filter(Boolean)
+      .join(' '),
+    city: shippingAddress.city || '',
+    state: shippingAddress.stateOrProvinceCode || shippingAddress.stateOrProvince || '',
+    postalCode: shippingAddress.postalCode || '',
+    countryCode: shippingAddress.countryCode || 'US',
+  };
+}
+
+function buildCachedPatch(order, cached = {}) {
+  const patch = {
+    addressValidationStatus: cached.status,
+    'externalData.addressValidation': {
+      provider: cached.provider || 'smarty',
+      checkedAt: new Date(),
+      status: cached.status,
+      reason: cached.reason || (cached.status === addressValidationStatuses.VALID ? 'Cached postal match' : 'Cached validation result'),
+      candidateCount: Array.isArray(cached.candidates) ? cached.candidates.length : (cached.normalizedAddress ? 1 : 0),
+      normalizedAddress: cached.normalizedAddress || null,
+      analysis: cached.analysis || null,
+      cached: true,
+    },
+  };
+
+  if (cached.status === addressValidationStatuses.VALID && cached.normalizedAddress) {
+    patch.shippingAddress = {
+      ...(order.shippingAddress || {}),
+      ...cached.normalizedAddress,
+    };
+  }
+
+  return patch;
+}
+
 async function validateAddress(orderId) {
   return validateAddressForOrder(orderId);
 }
@@ -236,12 +274,38 @@ async function validateAddressForOrder(orderId, authContext = null) {
     }, authContext, true);
   }
 
+  const addressKey = addressValidationCacheRepository.computeAddressKey(order.shippingAddress);
+  const cached = await addressValidationCacheRepository.findByKey(addressKey);
+  if (cached) {
+    addressValidationCacheRepository.recordHit(addressKey).catch(() => {});
+    return persistAddressValidation(order, buildCachedPatch(order, cached), authContext, false);
+  }
+
   if (activeProvider() === 'usps') {
     const result = await validateUsAddress(order.shippingAddress);
-    return persistAddressValidation(order, buildUspsPatch(order, result), authContext, false);
+    const patch = buildUspsPatch(order, result);
+    await addressValidationCacheRepository.upsertCache(addressKey, {
+      rawAddress: extractRawAddress(order.shippingAddress),
+      provider: 'usps',
+      status: patch.addressValidationStatus,
+      reason: patch['externalData.addressValidation']?.reason,
+      normalizedAddress: patch.shippingAddress || null,
+      analysis: patch['externalData.addressValidation']?.raw,
+    }).catch(() => {});
+    return persistAddressValidation(order, patch, authContext, false);
   }
   const candidates = await validateUsAddress(order.shippingAddress);
-  return persistAddressValidation(order, buildPatch(order, candidates), authContext, false);
+  const patch = buildPatch(order, candidates);
+  await addressValidationCacheRepository.upsertCache(addressKey, {
+    rawAddress: extractRawAddress(order.shippingAddress),
+    provider: 'smarty',
+    status: patch.addressValidationStatus,
+    reason: patch['externalData.addressValidation']?.reason,
+    normalizedAddress: patch['externalData.addressValidation']?.normalizedAddress,
+    analysis: patch['externalData.addressValidation']?.analysis,
+    candidates,
+  }).catch(() => {});
+  return persistAddressValidation(order, patch, authContext, false);
 }
 
 async function overrideAddressValidation(orderId, payload = {}, authContext = null) {
@@ -327,4 +391,6 @@ module.exports = {
   updateShippingAddress,
   interpretCandidate,
   buildPatch,
+  buildCachedPatch,
+  extractRawAddress,
 };
