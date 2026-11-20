@@ -1,6 +1,10 @@
 const http = require('http');
 const express = require('express');
 const errorHandler = require('../../../src/middlewares/errorHandler');
+const { pipeline } = require('stream/promises');
+
+jest.mock('fs', () => ({ createReadStream: jest.fn(() => 'avatar-stream') }));
+jest.mock('stream/promises', () => ({ pipeline: jest.fn().mockResolvedValue(undefined) }));
 
 jest.mock('../../../src/modules/auth/public', () => {
   const AppError = require('../../../src/shared/errors/appError');
@@ -112,6 +116,27 @@ describe('employee profile routes', () => {
     expect(service.listProfiles).toHaveBeenCalledWith(
       { page: 1, limit: 20 },
       { permissions: ['HR_EMPLOYEES:READ'] },
+    );
+  });
+
+  test('GET /employee-profiles/:profileId/avatar permits a Design reader', async () => {
+    pipeline.mockImplementationOnce(async (_stream, response) => response.end('image'));
+    service.withProfileAvatar.mockImplementation((_profileId, _auth, reader) => reader({
+      mediaAsset: { mimeType: 'image/png', size: 5 },
+      localPath: 'private/avatar.png',
+    }));
+
+    const response = await request(createServer(), {
+      method: 'GET',
+      path: '/employee-profiles/660000000000000000000004/avatar',
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:READ'] }) },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.withProfileAvatar).toHaveBeenCalledWith(
+      '660000000000000000000004',
+      { permissions: ['DESIGN:READ'] },
+      expect.any(Function),
     );
   });
 

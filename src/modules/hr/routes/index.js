@@ -31,6 +31,14 @@ const requireEmployeeRead = authPublic.authorizeAnyGlobalPermission(
   hrPermissions.EMPLOYEE_READ,
   hrPermissions.EMPLOYEE_WRITE,
 );
+const requireEmployeeAvatarRead = authPublic.authorizeAnyGlobalPermission(
+  hrPermissions.EMPLOYEE_READ,
+  hrPermissions.EMPLOYEE_WRITE,
+  'DESIGN:READ',
+  'DESIGN:WRITE',
+  'DESIGN:WORK',
+  'DESIGN:REVIEW',
+);
 const requireEmployeeDirectoryRead = authPublic.authorizeAnyGlobalPermission(
   hrPermissions.EMPLOYEE_READ,
   hrPermissions.EMPLOYEE_WRITE,
@@ -156,7 +164,7 @@ router.get(
 router.get(
   '/employee-profiles/:profileId/avatar',
   authPublic.authenticate,
-  requireEmployeeRead,
+  requireEmployeeAvatarRead,
   asyncHandler(employeeProfileController.getProfileAvatar),
 );
 router.post(
