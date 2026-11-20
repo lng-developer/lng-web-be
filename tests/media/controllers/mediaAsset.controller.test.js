@@ -26,3 +26,20 @@ test('does not fail when the client closes an asset download stream', async () =
 
   await expect(controller.downloadAsset(req, res)).resolves.toBeUndefined();
 });
+
+test('does not fail when piping starts after the client closes the asset download response', async () => {
+  const req = { auth: { accountId: 'account-1' }, params: { assetId: 'asset-1' }, query: {} };
+  const res = {
+    destroyed: true,
+    setHeader: jest.fn(),
+    status: jest.fn().mockReturnThis(),
+  };
+  service.getAuthorizedDownloadUrl.mockResolvedValue(null);
+  service.withAuthorizedAssetLocalReadFile.mockImplementation((_assetId, _auth, reader) => reader({
+    mediaAsset: { originalFilename: 'file.png', mimeType: 'image/png', size: 5 },
+    localPath: 'private/file.png',
+  }));
+  pipeline.mockRejectedValueOnce(new Error('Cannot pipe to a closed or destroyed stream'));
+
+  await expect(controller.downloadAsset(req, res)).resolves.toBeUndefined();
+});
