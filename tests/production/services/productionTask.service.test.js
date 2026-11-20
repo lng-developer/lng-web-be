@@ -2364,6 +2364,28 @@ describe('productionTask.service', () => {
     expect(result).toEqual({ blocked: 3, scaleQueue: 5, qcQueue: 2 });
   });
 
+  test('summarizes queue counts with dateFrom and dateTo filters forwarded', async () => {
+    repository.summarizeQueueCounts.mockResolvedValueOnce({
+      blocked: 1,
+      scaleQueue: 2,
+      qcQueue: 1,
+    });
+
+    const dateFrom = new Date('2026-11-14T00:00:00.000Z');
+    const dateTo = new Date('2026-11-20T23:59:59.999Z');
+
+    const result = await service.summarizeQueueCounts({
+      dateFrom,
+      dateTo,
+    }, { permissions: ['PRODUCTION:READ', 'PRODUCTION:WRITE'] });
+
+    expect(repository.summarizeQueueCounts).toHaveBeenCalledWith(expect.objectContaining({
+      dateFrom,
+      dateTo,
+    }));
+    expect(result).toEqual({ blocked: 1, scaleQueue: 2, qcQueue: 1 });
+  });
+
   test('preserves the PSD-ready filter from the validated list query', async () => {
     await service.listTasks({ psdReadyOnly: true, view: 'SCALE' }, {
       permissions: ['PRODUCTION:READ'],

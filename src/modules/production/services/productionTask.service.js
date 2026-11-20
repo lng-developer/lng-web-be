@@ -2104,23 +2104,29 @@ async function summarizeTasks(query = {}, authContext) {
 }
 
 async function summarizeQueueCounts(query = {}, authContext) {
-  const normalizedQuery = normalizeListQuery(query);
-  const scopedQuery = await applyReadScope({
+  const normalizedQuery = await withVariantScaleDifficultyFilter(normalizeListQuery(query));
+  const baseQuery = {
     ...(normalizedQuery.search ? { search: normalizedQuery.search } : {}),
     ...(normalizedQuery.salesChannelCode ? { salesChannelCode: normalizedQuery.salesChannelCode } : {}),
     ...(normalizedQuery.shopId ? { shopId: normalizedQuery.shopId } : {}),
     ...(normalizedQuery.designType ? { designType: normalizedQuery.designType } : {}),
-  }, authContext);
+    ...(normalizedQuery.listingVariantIds ? { listingVariantIds: normalizedQuery.listingVariantIds } : {}),
+    ...(normalizedQuery.dateFrom ? { dateFrom: normalizedQuery.dateFrom } : {}),
+    ...(normalizedQuery.dateTo ? { dateTo: normalizedQuery.dateTo } : {}),
+    ...(normalizedQuery.assignedAtFrom ? { assignedAtFrom: normalizedQuery.assignedAtFrom } : {}),
+    ...(normalizedQuery.assignedAtTo ? { assignedAtTo: normalizedQuery.assignedAtTo } : {}),
+    ...(normalizedQuery.readyAtFrom ? { readyAtFrom: normalizedQuery.readyAtFrom } : {}),
+    ...(normalizedQuery.readyAtTo ? { readyAtTo: normalizedQuery.readyAtTo } : {}),
+    ...(normalizedQuery.sellerCode ? { sellerCode: normalizedQuery.sellerCode } : {}),
+  };
+  const scopedQuery = await applyReadScope(baseQuery, authContext);
   const counts = scopedQuery ? await repository.summarizeQueueCounts(scopedQuery) : emptyQueueCounts();
   if (hasAnyTeamScopedPermission(authContext, [DESIGN_REVIEW_PERMISSION])
     || (hasAnyPermission(authContext, [productionPermissions.SCALE_ASSIGN])
       && hasAnyPermission(authContext, [productionPermissions.QC_REVIEW]))) {
     const qcQuery = await applyReadScope({
+      ...baseQuery,
       view: 'QC',
-      ...(normalizedQuery.search ? { search: normalizedQuery.search } : {}),
-      ...(normalizedQuery.salesChannelCode ? { salesChannelCode: normalizedQuery.salesChannelCode } : {}),
-      ...(normalizedQuery.shopId ? { shopId: normalizedQuery.shopId } : {}),
-      ...(normalizedQuery.designType ? { designType: normalizedQuery.designType } : {}),
     }, authContext);
     const qcCounts = qcQuery ? await repository.summarizeQueueCounts(qcQuery) : emptyQueueCounts();
     return { ...counts, qcQueue: qcCounts.qcQueue };
