@@ -78,6 +78,7 @@ async function heartbeat(input, auth) {
   const offlineForMs = previous?.lastSeenAt ? Date.now() - new Date(previous.lastSeenAt).getTime() : 0;
   const reconnected = offlineForMs > ONLINE_MS;
   const agent = await repository.upsertAgent({ extensionTokenId: auth.extensionTokenId, shopId, clientId: input.clientId, label: input.label, version: input.version || null, apiBaseUrl: input.apiBaseUrl || null, listingImageSync: input.listingImageSync === true, lastSeenAt: now, ...(input.provider === 'ETSY' && input.protocolVersion === 1 ? { provider: 'ETSY', protocolVersion: 1 } : {}), ...(reconnected ? { lastReconnectedAt: now } : {}) });
+  await repository.releaseExpired(agent._id, now, agent.provider);
   if (reconnected) {
     logger.info('extension_agent_reconnected', { agentId: String(agent._id || agent.id), clientId: input.clientId, shopId: String(shopId), offlineForSeconds: Math.floor(offlineForMs / 1000) });
   }

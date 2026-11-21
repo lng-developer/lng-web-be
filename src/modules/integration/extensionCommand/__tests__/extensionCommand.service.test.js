@@ -74,6 +74,18 @@ describe('extension command management', () => {
     expect(logger.info).toHaveBeenCalledWith('extension_agent_reconnected', expect.objectContaining({ agentId: 'agent-1', clientId: 'rdc-1', shopId: 'shop-1' }));
   });
 
+  test('expires the agent’s stale Etsy lease during heartbeat', async () => {
+    repository.findAgentForToken.mockResolvedValue({ _id: 'agent-1' });
+    repository.upsertAgent.mockResolvedValue({ _id: 'agent-1', provider: 'ETSY' });
+
+    await service.heartbeat(
+      { clientId: 'etsy-1', label: 'Etsy worker', provider: 'ETSY', protocolVersion: 1 },
+      { tokenType: 'EXTENSION', extensionTokenId: 'token-1', scopes: [{ scopeType: 'shop', scopeId: 'shop-1' }] },
+    );
+
+    expect(repository.releaseExpired).toHaveBeenCalledWith('agent-1', expect.any(Date), 'ETSY');
+  });
+
   test('queues a manual import with the agent-scoped active key', async () => {
     repository.findAgentForToken.mockResolvedValue({ _id: 'agent-1', shopId: 'shop-1' });
     repository.createCommand.mockResolvedValue({ _id: 'command-1' });
