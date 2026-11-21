@@ -1287,6 +1287,16 @@ async function syncOrderAddressSnapshot(order) {
   await repository.updateOrderAddressSnapshot(toId(order._id || order.id), order);
 }
 
+async function syncCustomizationSnapshot(orderItemId, customization) {
+  if (!orderItemId) return null;
+  const task = await repository.findByOrderItem(orderItemId);
+  if (!task) return null;
+  const updated = await repository.updateById(task._id || task.id, {
+    customizationSnapshot: toCustomizationSnapshot(customization),
+  });
+  return toProductionTaskDto(updated);
+}
+
 function getVendorSubmissionPublic() {
   return require('../../vendorSubmission/public');
 }
@@ -3195,6 +3205,7 @@ const productionTaskService = {
   updateCsStatus,
   updateDesignNote,
   syncCsNoteFromOrderItem,
+  syncCustomizationSnapshot,
   uploadScaledFile,
   uploadScaledOutputFile,
   syncOrderAddressSnapshot,
