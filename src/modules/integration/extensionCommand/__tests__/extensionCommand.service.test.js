@@ -44,6 +44,33 @@ describe('extension command management', () => {
       { tokenType: 'EXTENSION', extensionTokenId: 'token-1' })).rejects.toMatchObject({ statusCode: 409 });
     await expect(service.renewCommand('command-1', {}, {})).rejects.toMatchObject({ statusCode: 403 });
   });
+
+  test('marks a mixed Etsy tracking batch as partially failed and stores its item results', async () => {
+    repository.findAgentForToken.mockResolvedValue({ _id: 'agent-1', provider: 'ETSY' });
+    repository.updateClaimed.mockImplementation(async ({ patch }) => patch);
+
+    const results = [
+      { orderId: '4231418315', trackingNumber: '9214490374008505076402', carrier: 'USPS', etsyStatus: 'VERIFIED' },
+      { orderId: '4231418316', trackingNumber: '9214490374008505076403', carrier: 'USPS', etsyStatus: 'FAILED', errorMessage: 'not visible' },
+    ];
+    const result = await service.completeCommand('command-1', {
+      clientId: 'etsy-1', label: 'Etsy worker', leaseToken: 'x'.repeat(20), success: false, trackingResults: results,
+    }, { tokenType: 'EXTENSION', extensionTokenId: 'token-1' });
+
+    expect(result.status).toBe('PARTIAL_FAILED');
+    expect(result.trackingResults).toEqual(results);
+  });
+
+  test('keeps non-tracking Etsy command completion compatible without tracking results', async () => {
+    repository.findAgentForToken.mockResolvedValue({ _id: 'agent-1', provider: 'ETSY' });
+    repository.updateClaimed.mockImplementation(async ({ patch }) => patch);
+
+    const result = await service.completeCommand('command-1', {
+      clientId: 'etsy-1', label: 'Etsy worker', leaseToken: 'x'.repeat(20), success: true,
+    }, { tokenType: 'EXTENSION', extensionTokenId: 'token-1' });
+
+    expect(result.status).toBe('SUCCEEDED');
+  });
   test('lists offline agents with redacted token metadata', async () => {
     repository.listAgents.mockResolvedValue([{ _id: '507f1f77bcf86cd799439012', extensionTokenId: '507f1f77bcf86cd799439013', shopId: '507f1f77bcf86cd799439011', clientId: 'rdc-1', label: 'RDC 01', lastSeenAt: new Date(Date.now() - 91_000) }]);
     authPublic.canAccessScope.mockReturnValue(true);
@@ -72,6 +99,18 @@ describe('extension command management', () => {
 
     expect(repository.upsertAgent).toHaveBeenCalledWith(expect.objectContaining({ lastReconnectedAt: expect.any(Date) }));
     expect(logger.info).toHaveBeenCalledWith('extension_agent_reconnected', expect.objectContaining({ agentId: 'agent-1', clientId: 'rdc-1', shopId: 'shop-1' }));
+  });
+
+  test('expires the agent’s stale Etsy lease during heartbeat', async () => {
+    repository.findAgentForToken.mockResolvedValue({ _id: 'agent-1' });
+    repository.upsertAgent.mockResolvedValue({ _id: 'agent-1', provider: 'ETSY' });
+
+    await service.heartbeat(
+      { clientId: 'etsy-1', label: 'Etsy worker', provider: 'ETSY', protocolVersion: 1 },
+      { tokenType: 'EXTENSION', extensionTokenId: 'token-1', scopes: [{ scopeType: 'shop', scopeId: 'shop-1' }] },
+    );
+
+    expect(repository.releaseExpired).toHaveBeenCalledWith('agent-1', expect.any(Date), 'ETSY');
   });
 
   test('queues a manual import with the agent-scoped active key', async () => {

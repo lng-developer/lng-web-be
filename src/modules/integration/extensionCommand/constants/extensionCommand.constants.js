@@ -20,6 +20,7 @@ const extensionCommandStatuses = Object.freeze({
   RUNNING: 'RUNNING',
   WAITING_AMAZON: 'WAITING_AMAZON',
   SUCCEEDED: 'SUCCEEDED',
+  PARTIAL_FAILED: 'PARTIAL_FAILED',
   FAILED: 'FAILED',
 });
 

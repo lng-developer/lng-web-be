@@ -78,6 +78,7 @@ async function heartbeat(input, auth) {
   const offlineForMs = previous?.lastSeenAt ? Date.now() - new Date(previous.lastSeenAt).getTime() : 0;
   const reconnected = offlineForMs > ONLINE_MS;
   const agent = await repository.upsertAgent({ extensionTokenId: auth.extensionTokenId, shopId, clientId: input.clientId, label: input.label, version: input.version || null, apiBaseUrl: input.apiBaseUrl || null, listingImageSync: input.listingImageSync === true, lastSeenAt: now, ...(input.provider === 'ETSY' && input.protocolVersion === 1 ? { provider: 'ETSY', protocolVersion: 1 } : {}), ...(reconnected ? { lastReconnectedAt: now } : {}) });
+  await repository.releaseExpired(agent._id, now, agent.provider);
   if (reconnected) {
     logger.info('extension_agent_reconnected', { agentId: String(agent._id || agent.id), clientId: input.clientId, shopId: String(shopId), offlineForSeconds: Math.floor(offlineForMs / 1000) });
   }
@@ -210,9 +211,13 @@ async function renewCommand(commandId, input, auth) {
 async function completeCommand(commandId, input, auth) {
   const agent = await getCurrentAgent(auth, input);
   if (agent.provider === 'ETSY' && input.importJobId) await validateEtsyJob(commandId, input.importJobId, agent, auth);
+  const verifiedCount = Array.isArray(input.trackingResults) ? input.trackingResults.filter((item) => item.etsyStatus === 'VERIFIED').length : 0;
+  const terminalStatus = agent.provider === 'ETSY' && input.trackingResults?.length
+    ? (verifiedCount === input.trackingResults.length ? extensionCommandStatuses.SUCCEEDED : verifiedCount ? extensionCommandStatuses.PARTIAL_FAILED : extensionCommandStatuses.FAILED)
+    : (input.success ? extensionCommandStatuses.SUCCEEDED : extensionCommandStatuses.FAILED);
   let command = await repository.updateClaimed({
     commandId, agentId: agent._id, leaseTokenHash: hashString(input.leaseToken), statuses: [extensionCommandStatuses.CLAIMED, extensionCommandStatuses.RUNNING, extensionCommandStatuses.WAITING_AMAZON],
-    patch: { status: input.success ? extensionCommandStatuses.SUCCEEDED : extensionCommandStatuses.FAILED, completedAt: new Date(), leaseExpiresAt: null, ...(agent.provider === 'ETSY' ? {} : { leaseTokenHash: null }), ...(agent.provider === 'ETSY' && !input.importJobId ? {} : { importJobId: input.importJobId || null }), result: { importedCount: input.importedCount, failedCount: input.failedCount }, errorMessage: input.success ? null : (input.errorMessage || 'Extension task failed') }, unset: { activeOrderKey: 1 },
+    patch: { status: terminalStatus, completedAt: new Date(), leaseExpiresAt: null, ...(agent.provider === 'ETSY' ? {} : { leaseTokenHash: null }), ...(agent.provider === 'ETSY' && !input.importJobId ? {} : { importJobId: input.importJobId || null }), result: { importedCount: input.importedCount, failedCount: input.failedCount }, ...(Array.isArray(input.trackingResults) ? { trackingResults: input.trackingResults } : {}), errorMessage: terminalStatus === extensionCommandStatuses.SUCCEEDED ? null : (input.errorMessage || 'Extension task failed') }, unset: { activeOrderKey: 1 },
   });
   // A completed Etsy lease can acknowledge the same request, never reopen work.
   if (!command && agent.provider === 'ETSY') command = await repository.findCompletedForLease({ commandId, agentId: agent._id, leaseTokenHash: hashString(input.leaseToken) });

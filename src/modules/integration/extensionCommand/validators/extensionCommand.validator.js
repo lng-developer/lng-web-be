@@ -4,6 +4,7 @@ const objectId = Joi.string().hex().length(24);
 const adsDate = Joi.date().iso().raw();
 const financeDateCommandTypes = [extensionCommandTypes.IMPORT_ADS_SPEND, extensionCommandTypes.IMPORT_TRANSACTIONS];
 const trackingItem = Joi.object({ orderId: Joi.string().trim().pattern(/^\d+$/).required(), trackingNumber: Joi.string().trim().min(1).max(120).required(), carrier: Joi.string().trim().max(120).allow('', null) });
+const trackingResult = trackingItem.keys({ etsyStatus: Joi.string().valid('PENDING', 'ETSY_ACCEPTED', 'VERIFIED', 'FAILED').required(), acceptedAt: Joi.date().iso().allow(null), verifiedAt: Joi.date().iso().allow(null), errorMessage: Joi.string().trim().max(1000).allow('', null) });
 const createCommandSchema = Joi.object({ maxOrders: Joi.number().integer().min(1).max(200), type: Joi.string().valid(extensionCommandTypes.IMPORT_NEW_ORDERS, extensionCommandTypes.IMPORT_ADS_SPEND, extensionCommandTypes.IMPORT_TRANSACTIONS, extensionCommandTypes.IMPORT_SETTLEMENTS, extensionCommandTypes.UPLOAD_TRACKING, extensionCommandTypes.TEST_CONNECTION).required(), shopId: objectId.required(), agentId: objectId.required(), items: Joi.array().items(trackingItem).min(1).max(200).when('type', { is: extensionCommandTypes.UPLOAD_TRACKING, then: Joi.required(), otherwise: Joi.forbidden() }), numDays: Joi.number().integer().valid(1, 2, 7, 15, 30).default(1), dateFrom: adsDate.when('type', { is: Joi.valid(...financeDateCommandTypes), then: Joi.required() }), dateTo: adsDate.when('type', { is: Joi.valid(...financeDateCommandTypes), then: Joi.required() }) }).custom((value, helpers) => {
   if (value.type === extensionCommandTypes.IMPORT_SETTLEMENTS && (!!value.dateFrom !== !!value.dateTo)) return helpers.error('any.invalid');
   if (!financeDateCommandTypes.includes(value.type) && !(value.type === extensionCommandTypes.IMPORT_SETTLEMENTS && value.dateFrom)) return value;
@@ -22,7 +23,7 @@ const manualAdsImportSchema = heartbeatSchema.keys({ dateFrom: adsDate.required(
 const commandIdSchema = Joi.object({ commandId: objectId.required() });
 const leaseSchema = Joi.object({ leaseToken: Joi.string().trim().min(20).max(200).required() });
 const renewSchema = leaseSchema.keys({ importJobId: objectId });
-const completeSchema = leaseSchema.keys({ success: Joi.boolean().required(), importJobId: objectId.allow(null), importedCount: Joi.number().integer().min(0).max(1000000).default(0), failedCount: Joi.number().integer().min(0).max(1000000).default(0), errorMessage: Joi.string().trim().max(1000).allow('', null) });
+const completeSchema = leaseSchema.keys({ success: Joi.boolean().required(), importJobId: objectId.allow(null), importedCount: Joi.number().integer().min(0).max(1000000).default(0), failedCount: Joi.number().integer().min(0).max(1000000).default(0), errorMessage: Joi.string().trim().max(1000).allow('', null), trackingResults: Joi.array().items(trackingResult).max(200) });
 const listSchema = Joi.object({ page: Joi.number().integer().min(1).default(1), limit: Joi.number().integer().min(1).max(100).default(20) });
 const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
 const upsertOrderScheduleSchema = Joi.object({
