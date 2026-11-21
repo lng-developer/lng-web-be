@@ -35,7 +35,7 @@ function buildFilter(query = {}) {
   }
   if (query.dateFrom || query.dateTo) {
     filter.createdAt = {};
-    if (query.dateFrom) filter.createdAt.$gte = query.dateFrom;
+    if (query.dateFrom) filter.createdAt.$gte = new Date(query.dateFrom);
     if (query.dateTo) {
       const value = query.dateTo;
       filter.createdAt.$lte = new Date(
