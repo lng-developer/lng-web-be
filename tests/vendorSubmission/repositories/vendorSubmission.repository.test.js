@@ -112,6 +112,15 @@ describe('vendorSubmission.repository', () => {
     });
   });
 
+  test('converts dateFrom and dateTo into Date instances for aggregation compatibility', () => {
+    const filter = repository.buildFilter({
+      dateFrom: '2026-11-14T17:00:00.000Z',
+      dateTo: '2026-11-21T16:59:59.999Z',
+    });
+    expect(filter.createdAt.$gte).toEqual(new Date('2026-11-14T17:00:00.000Z'));
+    expect(filter.createdAt.$lte).toEqual(new Date('2026-11-21T16:59:59.999Z'));
+  });
+
   test('prioritizes tracking submissions that have never been checked, then the oldest check', async () => {
     const lean = jest.fn().mockResolvedValue([]);
     const select = jest.fn().mockReturnValue({ lean });
