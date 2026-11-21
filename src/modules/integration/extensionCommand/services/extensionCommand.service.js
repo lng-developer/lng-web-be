@@ -111,7 +111,7 @@ async function createCommand(input, auth) {
       if (!Number.isInteger(maxOrders) || maxOrders < 1 || maxOrders > 200) {
         throw invalid('Etsy requires an Orders request with maxOrders from 1 to 200');
       }
-    } else if (![extensionCommandTypes.IMPORT_ADS_SPEND, extensionCommandTypes.IMPORT_SETTLEMENTS].includes(input.type)) {
+    } else if (![extensionCommandTypes.IMPORT_ADS_SPEND, extensionCommandTypes.IMPORT_SETTLEMENTS, extensionCommandTypes.UPLOAD_TRACKING].includes(input.type)) {
       throw invalid(`Unsupported Etsy command type: ${input.type}`);
     }
     await repository.releaseExpired(agent._id, new Date(), 'ETSY');
@@ -125,6 +125,7 @@ async function createCommand(input, auth) {
     numDays: input.numDays,
     dateFrom: input.dateFrom || null,
     dateTo: input.dateTo || null,
+    ...(input.type === extensionCommandTypes.UPLOAD_TRACKING ? { items: input.items } : {}),
     createdByAccountId: auth.accountId || null,
   };
   return lockedImportTypes.includes(input.type) ? createLockedImportCommand(payload) : repository.createCommand(payload);

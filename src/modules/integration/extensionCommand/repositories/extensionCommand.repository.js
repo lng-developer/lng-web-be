@@ -63,6 +63,7 @@ function claimNext({ agentId, provider, leaseTokenHash, now, leaseExpiresAt, lis
           { type: extensionCommandTypes.IMPORT_NEW_ORDERS, origin: 'SCHEDULE' },
           { type: extensionCommandTypes.IMPORT_ADS_SPEND },
           { type: extensionCommandTypes.IMPORT_SETTLEMENTS },
+          { type: extensionCommandTypes.UPLOAD_TRACKING },
         ],
       }
       : !listingImageSync ? { type: { $ne: extensionCommandTypes.SYNC_LISTING_IMAGES } } : {}) },
