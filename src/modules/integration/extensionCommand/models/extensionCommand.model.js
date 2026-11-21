@@ -25,6 +25,7 @@ const extensionCommandSchema = new mongoose.Schema({
   imageSyncJobId: { type: mongoose.Schema.Types.ObjectId, default: null },
   imageSyncItemIds: { type: [mongoose.Schema.Types.ObjectId], default: undefined },
   trackingSubmissionId: { type: mongoose.Schema.Types.ObjectId, default: null },
+  items: [{ orderId: { type: String, trim: true }, trackingNumber: { type: String, trim: true }, carrier: { type: String, trim: true, default: null } }],
   result: { importedCount: { type: Number, default: 0, min: 0 }, failedCount: { type: Number, default: 0, min: 0 } },
   errorMessage: { type: String, default: null, maxlength: 1000 },
 }, { timestamps: true });

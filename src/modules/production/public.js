@@ -29,6 +29,7 @@ const publicPort = {
   submitQc: productionTaskService.submitQc,
   updateCsNote: productionTaskService.updateCsNote,
   syncCsNoteFromOrderItem: productionTaskService.syncCsNoteFromOrderItem,
+  syncCustomizationSnapshot: productionTaskService.syncCustomizationSnapshot,
   updateCsStatus: productionTaskService.updateCsStatus,
   summarizeTasks: productionTaskService.summarizeTasks,
   syncOrderAddressSnapshot: productionTaskService.syncOrderAddressSnapshot,
