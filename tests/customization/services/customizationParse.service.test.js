@@ -1,4 +1,5 @@
 jest.mock('../../../src/modules/order/public', () => ({ updateOrderWorkbenchItem: jest.fn() }));
+jest.mock('../../../src/modules/production/public', () => ({ syncCustomizationSnapshot: jest.fn() }));
 jest.mock('../../../src/modules/customization/repositories/customizationPayload.repository', () => ({
   findByOrderItem: jest.fn(),
   updateParsedData: jest.fn(),

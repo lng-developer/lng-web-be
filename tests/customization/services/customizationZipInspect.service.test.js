@@ -16,6 +16,10 @@ jest.mock('../../../src/modules/order/public', () => ({
   updateItemAsin: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/production/public', () => ({
+  syncCustomizationSnapshot: jest.fn(),
+}));
+
 jest.mock('../../../src/shared/network/safeRemoteFetchStream', () => ({
   safeRemoteFetchStream: jest.fn(),
   redactUrl: jest.fn(() => 'https://example.test/[REDACTED_PATH]'),
@@ -381,6 +385,28 @@ describe('customizationZipInspect.service', () => {
                         },
                       },
                       {
+                        type: 'ColorCustomization',
+                        label: 'Thread Color Tank Top',
+                        colorSelection: {
+                          name: 'Red',
+                          value: '#ce1c2e',
+                          colorModel: 'rgb',
+                        },
+                      },
+                      {
+                        type: 'MaterialCustomization',
+                        label: 'Tank Top Material',
+                        selection: {
+                          label: 'Satin',
+                        },
+                      },
+                      {
+                        type: 'OptionCustomization',
+                        label: 'Thread Style',
+                        displayValue: '',
+                        optionSelection: { label: 'Script' },
+                      },
+                      {
                         type: 'ImageCustomization',
                         label: 'Upload Photo',
                         position: 'Front',
@@ -451,6 +477,9 @@ describe('customizationZipInspect.service', () => {
             ],
             options: expect.arrayContaining([
               expect.objectContaining({ label: 'Choose Size', value: '11.8 x 23.6 Inches' }),
+              expect.objectContaining({ label: 'Thread Color Tank Top', value: 'Red (#ce1c2e)' }),
+              expect.objectContaining({ label: 'Tank Top Material', value: 'Satin' }),
+              expect.objectContaining({ label: 'Thread Style', value: 'Script' }),
               expect.objectContaining({ label: 'Choose Color', value: 'Ash Gray', slotKey: 'BACK_SIDE' }),
             ]),
             images: [

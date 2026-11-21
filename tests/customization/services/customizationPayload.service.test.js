@@ -16,8 +16,13 @@ jest.mock('../../../src/modules/order/public', () => ({
   updateOrderWorkbenchItem: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/production/public', () => ({
+  syncCustomizationSnapshot: jest.fn(),
+}));
+
 const repository = require('../../../src/modules/customization/repositories/customizationPayload.repository');
 const orderPublic = require('../../../src/modules/order/public');
+const productionPublic = require('../../../src/modules/production/public');
 const service = require('../../../src/modules/customization/services/customizationPayload.service');
 const { customizationStatuses } = require('../../../src/modules/customization/constants/customizationStatuses');
 const fs = require('fs');
@@ -152,7 +157,17 @@ describe('customizationPayload.service', () => {
   test('syncs a parsed customization view to its order workbench row', async () => {
     repository.findById.mockResolvedValue({ _id: payloadId, orderId, orderItemId, shopId, parsedData: {} });
     repository.updateParsedData.mockResolvedValue({
-      _id: payloadId, orderId, orderItemId, shopId, status: customizationStatuses.PARSED, parsedData: {}, assets: [],
+      _id: payloadId,
+      orderId,
+      orderItemId,
+      shopId,
+      status: customizationStatuses.PARSED,
+      parsedData: {
+        amazonCustomization: {
+          customerInputs: { listingPreviewImageUrl: 'https://example.test/preview.jpg' },
+        },
+      },
+      assets: [],
     });
 
     await service.markParsed(payloadId, {}, { permissions: ['ORDERS:WRITE'] });
@@ -161,6 +176,14 @@ describe('customizationPayload.service', () => {
       orderId,
       orderItemId,
       { customization: expect.objectContaining({ status: customizationStatuses.PARSED }) },
+      { source: 'CUSTOMIZATION' },
+    );
+    expect(productionPublic.syncCustomizationSnapshot).toHaveBeenCalledWith(
+      orderItemId,
+      expect.objectContaining({
+        status: customizationStatuses.PARSED,
+        listingPreviewImageUrl: 'https://example.test/preview.jpg',
+      }),
       { source: 'CUSTOMIZATION' },
     );
   });

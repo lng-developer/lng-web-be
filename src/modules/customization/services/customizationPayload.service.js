@@ -23,15 +23,26 @@ function getShopPublic() {
   return require('../../shop/public');
 }
 
+function getProductionPublic() {
+  return require('../../production/public');
+}
+
 async function syncWorkbenchCustomization(payload) {
   if (!payload?.orderId || !payload?.orderItemId) return;
   const customization = toOrderItemCustomizationViewDto(payload);
-  delete customization.listingPreviewImageUrl;
-  delete customization.sourceCustomizationUrl;
+  const productionCustomization = { ...customization };
+  const workbenchCustomization = { ...customization };
+  delete workbenchCustomization.listingPreviewImageUrl;
+  delete workbenchCustomization.sourceCustomizationUrl;
   await getOrderPublic().updateOrderWorkbenchItem(
     payload.orderId,
     payload.orderItemId,
-    { customization },
+    { customization: workbenchCustomization },
+    { source: 'CUSTOMIZATION' },
+  );
+  await getProductionPublic().syncCustomizationSnapshot(
+    payload.orderItemId,
+    productionCustomization,
     { source: 'CUSTOMIZATION' },
   );
 }

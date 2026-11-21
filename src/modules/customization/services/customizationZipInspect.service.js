@@ -290,6 +290,48 @@ function firstImageUrl(value) {
   return found;
 }
 
+function colorSelectionValue(selection = {}) {
+  const name = selection.name || null;
+  const code = selection.value || null;
+  if (name && code && name !== code) return `${name} (${code})`;
+  return name || code;
+}
+
+function selectionValue(selection = {}) {
+  return selection.label || selection.name || selection.value || null;
+}
+
+function firstNonEmptyValue(...values) {
+  return values.find((value) => value !== null && value !== undefined && value !== '') ?? null;
+}
+
+function customerInputValue(node = {}) {
+  if (node.colorSelection) return colorSelectionValue(node.colorSelection);
+
+  return firstNonEmptyValue(
+    node.inputValue,
+    node.displayValue,
+    node.optionValue,
+    node.text,
+    node.selectedValue,
+    selectionValue(node.optionSelection),
+    selectionValue(node.selection),
+    node.value,
+  );
+}
+
+function isTextCustomization(node = {}) {
+  return node.type === 'TextCustomization' || node.customizationType === 'TextPrinting';
+}
+
+function isImageCustomization(node = {}) {
+  return node.type === 'ImageCustomization' && node.image?.imageName;
+}
+
+function isCustomerCustomization(node = {}) {
+  return String(node.type || '').endsWith('Customization') || Boolean(node.customizationType);
+}
+
 function parseAmazonCustomizationJson(document, sourceJsonPath) {
   const texts = [];
   const options = [];
@@ -297,32 +339,7 @@ function parseAmazonCustomizationJson(document, sourceJsonPath) {
   const listingPreviewImageUrl = firstImageUrl(document);
 
   walkCustomizationTree(document, (node) => {
-    if (node.type === 'TextCustomization' && node.inputValue !== undefined) {
-      texts.push({
-        label: node.label || node.name || null,
-        name: node.name || null,
-        value: String(node.inputValue),
-        ...positionMetadata(node),
-      });
-    }
-
-    if (node.type === 'OptionCustomization') {
-      const value = node.displayValue
-        || node.optionSelection?.label
-        || node.optionSelection?.name
-        || null;
-
-      if (value !== null) {
-        options.push({
-          label: node.label || node.name || null,
-          name: node.name || null,
-          value,
-          ...positionMetadata(node),
-        });
-      }
-    }
-
-    if (node.type === 'ImageCustomization' && node.image?.imageName) {
+    if (isImageCustomization(node)) {
       images.push({
         label: node.label || node.name || null,
         name: node.name || null,
@@ -330,25 +347,21 @@ function parseAmazonCustomizationJson(document, sourceJsonPath) {
         buyerFilename: node.image.buyerFilename || null,
         ...positionMetadata(node),
       });
+      return;
     }
 
-    if (node.customizationType === 'TextPrinting' && node.text !== undefined) {
-      texts.push({
-        label: node.label || node.name || null,
-        name: node.name || null,
-        value: String(node.text),
-        ...positionMetadata(node),
-      });
-    }
+    if (!isCustomerCustomization(node)) return;
 
-    if (node.customizationType === 'Options' && node.optionValue !== undefined) {
-      options.push({
-        label: node.label || node.name || null,
-        name: node.name || null,
-        value: node.optionValue,
-        ...positionMetadata(node),
-      });
-    }
+    const value = customerInputValue(node);
+    if (value === null || value === '') return;
+
+    const input = {
+      label: node.label || node.name || null,
+      name: node.name || null,
+      value: isTextCustomization(node) ? String(value) : value,
+      ...positionMetadata(node),
+    };
+    (isTextCustomization(node) ? texts : options).push(input);
   });
 
   return {
