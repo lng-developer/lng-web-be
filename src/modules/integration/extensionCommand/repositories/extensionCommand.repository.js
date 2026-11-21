@@ -90,7 +90,7 @@ function updateClaimed({ commandId, agentId, leaseTokenHash, patch, unset, statu
 }
 
 function findCompletedForLease({ commandId, agentId, leaseTokenHash }) {
-  return ExtensionCommand.findOne({ _id: commandId, agentId, provider: 'ETSY', leaseTokenHash, status: { $in: [extensionCommandStatuses.SUCCEEDED, extensionCommandStatuses.FAILED] } }).lean();
+  return ExtensionCommand.findOne({ _id: commandId, agentId, provider: 'ETSY', leaseTokenHash, status: { $in: [extensionCommandStatuses.SUCCEEDED, extensionCommandStatuses.PARTIAL_FAILED, extensionCommandStatuses.FAILED] } }).lean();
 }
 
 function listDueOrderSchedules(now) {
@@ -292,7 +292,7 @@ async function clearOrphanOrExpiredActiveLock(agentId, now = new Date()) {
     ExtensionCommand.updateMany(
       {
         activeOrderKey: String(agentId),
-        status: { $in: [extensionCommandStatuses.SUCCEEDED, extensionCommandStatuses.FAILED] },
+        status: { $in: [extensionCommandStatuses.SUCCEEDED, extensionCommandStatuses.PARTIAL_FAILED, extensionCommandStatuses.FAILED] },
       },
       { $unset: { activeOrderKey: 1 } },
     ),

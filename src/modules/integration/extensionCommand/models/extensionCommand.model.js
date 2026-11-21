@@ -26,6 +26,7 @@ const extensionCommandSchema = new mongoose.Schema({
   imageSyncItemIds: { type: [mongoose.Schema.Types.ObjectId], default: undefined },
   trackingSubmissionId: { type: mongoose.Schema.Types.ObjectId, default: null },
   items: [{ orderId: { type: String, trim: true }, trackingNumber: { type: String, trim: true }, carrier: { type: String, trim: true, default: null } }],
+  trackingResults: [{ orderId: { type: String, trim: true }, trackingNumber: { type: String, trim: true }, carrier: { type: String, trim: true, default: null }, etsyStatus: { type: String, enum: ['PENDING', 'ETSY_ACCEPTED', 'VERIFIED', 'FAILED'], required: true }, acceptedAt: { type: Date, default: null }, verifiedAt: { type: Date, default: null }, errorMessage: { type: String, maxlength: 1000, default: null } }],
   result: { importedCount: { type: Number, default: 0, min: 0 }, failedCount: { type: Number, default: 0, min: 0 } },
   errorMessage: { type: String, default: null, maxlength: 1000 },
 }, { timestamps: true });

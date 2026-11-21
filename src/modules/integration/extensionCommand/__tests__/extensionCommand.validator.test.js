@@ -59,6 +59,22 @@ describe('extension command validation', () => {
     expect(validate(createCommandSchema, { ...base, items: [{ orderId: 'etsy-id', trackingNumber: '' }] }).details).toBeDefined();
   });
 
+  test('accepts per-order Etsy tracking verification results on completion', () => {
+    const result = validate(completeSchema, {
+      leaseToken: 'x'.repeat(20),
+      success: false,
+      trackingResults: [{
+        orderId: '4231418315',
+        trackingNumber: '9214490374008505076402',
+        carrier: 'USPS',
+        etsyStatus: 'VERIFIED',
+        verifiedAt: '2026-11-21T00:00:00.000Z',
+      }],
+    });
+    expect(result.details).toBeUndefined();
+    expect(result.value.trackingResults).toHaveLength(1);
+  });
+
   test('keeps the reported API base URL for agent observability', () => {
     const result = validate(require('../validators/extensionCommand.validator').heartbeatSchema, {
       clientId: 'rdc-1', label: 'RDC 1', apiBaseUrl: 'https://dev-api.lngmerch.co',

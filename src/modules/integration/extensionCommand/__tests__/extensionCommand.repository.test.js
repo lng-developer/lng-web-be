@@ -81,7 +81,7 @@ describe('extension command leases', () => {
     expect(ExtensionCommand.updateMany).toHaveBeenNthCalledWith(1,
       {
         activeOrderKey: 'agent-1',
-        status: { $in: [extensionCommandStatuses.SUCCEEDED, extensionCommandStatuses.FAILED] },
+        status: { $in: [extensionCommandStatuses.SUCCEEDED, extensionCommandStatuses.PARTIAL_FAILED, extensionCommandStatuses.FAILED] },
       },
       { $unset: { activeOrderKey: 1 } },
     );
