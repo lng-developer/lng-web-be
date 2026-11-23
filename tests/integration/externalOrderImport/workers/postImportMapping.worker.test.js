@@ -4,6 +4,7 @@ jest.mock(
     claimPostImportRecords: jest.fn(),
     updatePostImportResultForLease: jest.fn(),
     listAllByJob: jest.fn(),
+    hasUnfinishedPostImportRecords: jest.fn(),
   }),
 );
 
@@ -66,6 +67,7 @@ describe("postImportMapping.worker", () => {
     rawRecordRepository.claimPostImportRecords.mockResolvedValue(true);
     rawRecordRepository.updatePostImportResultForLease.mockResolvedValue({});
     rawRecordRepository.listAllByJob.mockResolvedValue([]);
+    rawRecordRepository.hasUnfinishedPostImportRecords.mockResolvedValue(false);
     issueRepository.create.mockResolvedValue({});
     mappingPublic.recheckFulfillmentPlan.mockResolvedValue({
       status: "BLOCKED",
@@ -105,6 +107,17 @@ describe("postImportMapping.worker", () => {
       }),
     );
     expect(issueRepository.create).not.toHaveBeenCalled();
+  });
+
+  test('does not load the entire import on each unfinished image-sync eligibility check', async () => {
+    const { enqueueImagesWhenImportJobIsReady } = require('../../../../src/modules/integration/externalOrderImport/services/postImportMappingProcessor.service');
+    rawRecordRepository.hasUnfinishedPostImportRecords.mockResolvedValue(true);
+    for (let i = 0; i < 20; i += 1) {
+      await enqueueImagesWhenImportJobIsReady(payload.importJobId, 'shop');
+    }
+    expect(rawRecordRepository.hasUnfinishedPostImportRecords).toHaveBeenCalledTimes(20);
+    expect(rawRecordRepository.listAllByJob).not.toHaveBeenCalled();
+    expect(listingImageSync.enqueueImportedOrderImages).not.toHaveBeenCalled();
   });
 
   test("auto-requests PSD when an Amazon mapping plan has no PSD", async () => {

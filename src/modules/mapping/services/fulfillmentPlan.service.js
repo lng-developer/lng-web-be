@@ -1567,7 +1567,7 @@ function snapshotFrom({
   };
 }
 
-async function triggerProductionTaskForReadyPlan(orderItemId, plan, authContext) {
+async function triggerProductionTaskForReadyPlan(orderItemId, plan, authContext, strict = false) {
   const startedAt = Date.now();
   try {
     // ponytail: inline trigger is enough for V1; move to a queue if this becomes slow or needs retries.
@@ -1580,6 +1580,7 @@ async function triggerProductionTaskForReadyPlan(orderItemId, plan, authContext)
       });
     }
   } catch (error) {
+    if (strict) throw error;
     logger.warn('Auto production task trigger skipped', {
       orderItemId,
       fulfillmentPlanId: toId(plan),
@@ -1594,26 +1595,26 @@ async function triggerProductionTaskForReadyPlan(orderItemId, plan, authContext)
   }
 }
 
-async function applyFulfillmentSideEffects({ orderItemId, orderId, markReady = false, triggerProduction = false, authContext = {} }) {
-  await Promise.all([
+async function applyFulfillmentSideEffects({ orderItemId, orderId, markReady = false, triggerProduction = false, authContext = {}, deferOrderRefresh = false, strict = false }) {
+  if (!deferOrderRefresh) await Promise.all([
     orderPublic.updateCostCenterStatusForOrder(orderId),
     orderPublic.updatePsdStatusForOrder(orderId),
   ]);
   if (markReady) {
-    await markFulfillmentReadyAfterPlan(orderItemId);
+    await markFulfillmentReadyAfterPlan(orderItemId, strict);
   }
   if (triggerProduction) {
-    await triggerProductionTaskForReadyPlan(orderItemId, {}, authContext);
+    await triggerProductionTaskForReadyPlan(orderItemId, {}, authContext, strict);
   }
 }
 
 async function scheduleFulfillmentSideEffects(orderItemId, orderId, { markReady = false, triggerProduction = false }, authContext) {
   const payload = { orderItemId, orderId, markReady, triggerProduction, authContext: authContext || {} };
   const result = await fulfillmentSideEffectQueue.enqueueFulfillmentSideEffects(payload);
-  if (!result.queued) await applyFulfillmentSideEffects(payload);
+  if (!result.queued && !result.durable) await applyFulfillmentSideEffects(payload);
 }
 
-async function markFulfillmentReadyAfterPlan(orderItemId) {
+async function markFulfillmentReadyAfterPlan(orderItemId, strict = false) {
   try {
     const item = await orderPublic.findItemById(orderItemId);
     if (['NEED_PRODUCTION', 'IN_PRODUCTION', 'QC_REJECTED', 'READY_TO_SEND_VENDOR',
@@ -1623,6 +1624,7 @@ async function markFulfillmentReadyAfterPlan(orderItemId) {
     await orderPublic.markFulfillmentReady(orderItemId);
     return true;
   } catch (error) {
+    if (strict) throw error;
     logger.warn('Auto fulfillment-ready skipped after mapping', { orderItemId, error });
     return false;
   }
@@ -1784,23 +1786,23 @@ async function persistReadyPlan(orderItemId, payload = {}, authContext, selectio
   const markReady = preview.ready || (manualOverride && !customizationBlocked);
 
   if (!options.deferSideEffects) {
-    if (typeof orderPublic.refreshFulfillmentStatusesForOrder === 'function') {
+    if (!config.mapping?.durableSideEffectsEnabled && typeof orderPublic.refreshFulfillmentStatusesForOrder === 'function') {
       await orderPublic.refreshFulfillmentStatusesForOrder(preview.item.orderId);
     }
-    if (typeof orderPublic.updateCostCenterStatusForOrder === 'function') {
+    if (!config.mapping?.durableSideEffectsEnabled && typeof orderPublic.updateCostCenterStatusForOrder === 'function') {
       await Promise.all([
         orderPublic.updateCostCenterStatusForOrder(preview.item.orderId),
         orderPublic.updatePsdStatusForOrder(preview.item.orderId),
       ]);
     }
-    if (selectionMode === fulfillmentPlanSelectionModes.MANUAL && markReady) {
+    if (!config.mapping?.durableSideEffectsEnabled && selectionMode === fulfillmentPlanSelectionModes.MANUAL && markReady) {
       await markFulfillmentReadyAfterPlan(orderItemId);
     }
     await scheduleFulfillmentSideEffects(
       orderItemId,
       preview.item.orderId,
       {
-        markReady: selectionMode !== fulfillmentPlanSelectionModes.MANUAL && markReady,
+        markReady: (config.mapping?.durableSideEffectsEnabled || selectionMode !== fulfillmentPlanSelectionModes.MANUAL) && markReady,
         triggerProduction: true,
       },
       authContext,
@@ -1865,10 +1867,10 @@ async function resolveFulfillmentPlan(orderItemId, options = {}, authContext) {
     });
     await syncWorkbenchFulfillmentPlan(plan);
     if (!options.deferSideEffects) {
-      if (typeof orderPublic.refreshFulfillmentStatusesForOrder === 'function') {
+      if (!config.mapping?.durableSideEffectsEnabled && typeof orderPublic.refreshFulfillmentStatusesForOrder === 'function') {
         await orderPublic.refreshFulfillmentStatusesForOrder(preview.item.orderId);
       }
-      if (typeof orderPublic.updateCostCenterStatusForOrder === 'function') {
+      if (!config.mapping?.durableSideEffectsEnabled && typeof orderPublic.updateCostCenterStatusForOrder === 'function') {
         await Promise.all([
           orderPublic.updateCostCenterStatusForOrder(preview.item.orderId),
           orderPublic.updatePsdStatusForOrder(preview.item.orderId),

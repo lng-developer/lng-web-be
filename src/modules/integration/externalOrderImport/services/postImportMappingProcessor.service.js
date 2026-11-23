@@ -63,6 +63,7 @@ async function enqueueImagesWhenImportJobIsReady(importJobId, shopId) {
   if (!importJobId || !shopId) return;
 
   try {
+    if (await rawRecordRepository.hasUnfinishedPostImportRecords(importJobId)) return;
     const rawRecords = await rawRecordRepository.listAllByJob(importJobId, {
       importStatus: "IMPORTED",
     });
