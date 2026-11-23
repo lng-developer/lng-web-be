@@ -17,7 +17,7 @@
 - Do not enable the metrics endpoint or change production data/configuration during implementation.
 - Preserve audit records, authorization, vendor idempotency and financial transactions.
 - Do not parallelize operations sharing a Mongoose transaction/session.
-- Create separate PRs into develop. PR CI is the normal test gate; do not manually rerun suites on develop without new unverified changes or an explicit request.
+- Create PRs into develop. Stages 2-5 share one gated PR because the split runtime depends on all durable execution paths; baseline PR #175 remains separate. PR CI is the normal test gate; do not manually rerun suites on develop without new unverified changes or an explicit request.
 - Do not merge or deploy without user authorization. Clean task branches/worktrees after authorized release.
 
 ## Audit Baseline and Limits
@@ -55,14 +55,14 @@
 
 **Files:** Modify src/modules/shipment/services/vendorTrackingRecheckScheduler.service.js and shipment.service.js; create shipment/services/vendorTrackingQueue.service.js, shipment/workers/vendorTracking.worker.js, shipment/models/vendorTrackingPoll.model.js and shipment/repositories/vendorTrackingPoll.repository.js. Extend the vendorSubmission public/repository tracking-selection contract only if needed to resolve credential scope without internal imports. Tests: add tests/shipment/services/vendorTrackingQueue.service.test.js, tests/shipment/workers/vendorTracking.worker.test.js and a polling lease persistence test.
 
-**Interfaces:** enqueueTrackingCheck({ vendorSubmissionId }) returns { queued, jobId }. Worker reloads current submission/credential references through public ports. Poll state keyed uniquely by vendorSubmissionId stores nextCheckAt, attempt, leaseToken, leaseExpiresAt and lastOutcome. Repository claimDue({ limit, now, leaseToken, leaseExpiresAt }) atomically claims eligible work.
+**Interfaces:** enqueueTrackingCheck({ vendorSubmissionId }) returns { queued, jobId }. Worker reloads current submission/credential references through public ports. Poll state keyed uniquely by vendorSubmissionId stores nextCheckAt, attempt, leaseToken, leaseExpiresAt and lastOutcome. Workers claim due submissions atomically by ID. Before applying a vendor result, the owner stores pendingUpdate with canonical tracking fields and an identity hash. After interruption, the next owner repairs the workbench, item status and timeline from the committed shipment and resumes the pending update. Successful completion clears pendingUpdate using the same lease token.
 
-- [ ] Test: a slow client does not block another; duplicate scheduling produces one effective poll; terminal/already-tracked shipment makes no vendor call; expired lease permits recovery while a stale lease cannot commit.
-- [ ] Test: 429 honors Retry-After; timeout uses exponential backoff with jitter; invalid references become actionable failures instead of tight retry loops. Explicitly prove manual recheck cannot bypass the same per-client execution guard.
-- [ ] Implement short scheduler discovery/enqueue work and worker execution. Preserve the existing manual batch response contract; route its actual vendor call through the shared guarded execution path.
-- [ ] Use shared Redis rate/concurrency control by provider plus credential/client ID. Start at one in-flight call per client and two globally; do not rely on per-process counters. Resolve actual vendor limits before activation.
-- [ ] Update nextCheckAt after each outcome. Keep the existing 60-minute no-change cadence initially; assess a shorter cadence separately after measuring vendor call volume. Remove completed tracking candidates using current business rules.
-- [ ] Run `npm test -- tests/shipment tests/architecture`; include multi-worker/restart persistence tests. Commit and create a standalone PR.
+- [x] Test: a slow client does not block another; duplicate scheduling produces one effective poll; terminal/already-tracked shipment makes no vendor call; expired lease permits recovery while a stale lease cannot commit.
+- [x] Test: 429 honors Retry-After; timeout uses exponential backoff with jitter; invalid references become actionable failures instead of tight retry loops. Explicitly prove manual recheck cannot bypass the same per-client execution guard.
+- [x] Implement short scheduler discovery/enqueue work and worker execution. Preserve the existing manual batch response contract; route its actual vendor call through the shared guarded execution path.
+- [x] Use shared Redis rate/concurrency control by provider plus credential/client ID. Start at one in-flight call per client and two globally; do not rely on per-process counters. Resolve actual vendor limits before activation.
+- [x] Update nextCheckAt after each outcome. Keep the existing 60-minute no-change cadence initially; assess a shorter cadence separately after measuring vendor call volume. Remove completed tracking candidates using current business rules.
+- [x] Run `npm test -- tests/shipment tests/architecture`; include multi-worker/restart persistence tests. Deliver in the integrated stages 2-5 PR.
 
 **Gate:** The same workload has no duplicate effective polls, no starvation and no increase in 429/error rate; tracking age improves relative to the baseline.
 
@@ -72,14 +72,14 @@
 
 **Files:** Modify finance/services/financeSnapshotQueue.service.js, financeSnapshot.service.js, financeSnapshotReconciliation.service.js, financeImport.service.js and finance/workers/financeSnapshot.worker.js. Add finance/models/financeRecalculationRequest.model.js and finance/repositories/financeRecalculationRequest.repository.js. Extend finance public ports and order mutation callers for durable notification where necessary. Tests: finance queue/worker/service suites plus tests/finance/financeRecalculation.persistence.test.js.
 
-**Interfaces:** requestRecalculation({ orderItemId, reason, importBatchId }, { session } = {}) persists requestedVersion before queue notification. Claim records the version being processed; completion updates completedVersion only for its own lease/version. A newer requestedVersion remains pending and is re-enqueued. A recovery scanner finds durable pending requests whose queue notification was lost.
+**Interfaces:** requestRecalculation({ orderItemId, reason, importBatchId }, { session } = {}) persists requestedVersion before queue notification. Claim records the version being processed; completion updates completedVersion only for its processed version inside the order-guarded transaction. A newer requestedVersion remains pending and is re-enqueued. A recovery scanner finds durable pending requests whose queue notification was lost.
 
-- [ ] Write failing tests for two batches targeting one item, updates arriving mid-run, process death after snapshot commit, Redis unavailable after request persistence, and completion/progress counted once per batch-item.
-- [ ] Choose and enforce one conflict boundary: serialize work by orderId while recalculating individual items. This also protects manual whole-order transactions from overlapping item workers; migrate all recalculation entrypoints through the same guard.
-- [ ] Keep concurrency 3 initially. Read latest source data at execution time. Use version/CAS checks and recovery to converge to the latest requested state; do not claim exactly-once delivery.
-- [ ] Keep transaction-bound snapshot writes and audit intact. Persist the request in the originating transaction where supported; explicitly test the recovery path for callers without a shared session.
-- [ ] Replace reconciliation's full ID fetch plus slice with DB cursor pagination and a resumable checkpoint; enqueue bounded chunks. Test that later pages are reached after the first page already has snapshots.
-- [ ] Run `npm test -- tests/finance tests/architecture` plus affected order mutation tests; commit and create a standalone PR.
+- [x] Write failing tests for two batches targeting one item, updates arriving mid-run, process death after snapshot commit, Redis unavailable after request persistence, and completion/progress counted once per batch-item.
+- [x] Choose and enforce one conflict boundary: serialize work by orderId while recalculating individual items. This also protects manual whole-order transactions from overlapping item workers; migrate all recalculation entrypoints through the same guard.
+- [x] Keep concurrency 3 initially. Read latest source data at execution time. Use version/CAS checks and recovery to converge to the latest requested state; do not claim exactly-once delivery.
+- [x] Keep transaction-bound snapshot writes and audit intact. Persist the request in the originating transaction where supported; explicitly test the recovery path for callers without a shared session.
+- [x] Replace reconciliation's full ID fetch plus slice with DB cursor pagination and a resumable checkpoint; enqueue bounded chunks. Test that later pages are reached after the first page already has snapshots.
+- [x] Run `npm test -- tests/finance tests/architecture` plus affected order mutation tests; deliver in the integrated stages 2-5 PR.
 
 **Gate:** Existing financial fixtures remain equal; the latest source version eventually appears in snapshots after crashes/retries; each batch's success/failure counters remain accurate.
 
@@ -93,10 +93,10 @@
 
 **Interfaces:** Explicit process roles `api`, `worker`, `scheduler`; preserve existing combined mode during migration. Role entrypoints own startup, graceful shutdown, health readiness and connections, not domain rules.
 
-- [ ] Write tests proving API-only starts no background processors, worker-only opens no HTTP listener, scheduler-only starts no business worker, and shutdown closes resources after stopping intake.
-- [ ] Keep exactly one scheduler role initially; retain distributed protection for deployments/failover. Worker concurrency is a global capacity budget: document process count multiplied by per-process concurrency.
-- [ ] Make queue outages visible and durable. Do not silently fall back to heavy synchronous processing in HTTP when using split mode; retain/reconcile pending work instead.
-- [ ] Run startup/role tests and architecture checks. Rehearse restart and queue outage locally; create a deployment PR with a process-by-process cutover and rollback sequence.
+- [x] Write tests proving API-only starts no background processors, worker-only opens no HTTP listener, scheduler-only starts no business worker, and shutdown closes resources after stopping intake.
+- [x] Keep exactly one scheduler role initially; retain distributed protection for deployments/failover. Worker concurrency is a global capacity budget: document process count multiplied by per-process concurrency.
+- [x] Make queue outages visible and durable. Do not silently fall back to heavy synchronous processing in HTTP when using split mode; retain/reconcile pending work instead.
+- [x] Run startup/role tests and architecture checks. Rehearse restart and queue outage locally; include deployment configuration in the integrated PR with a process-by-process cutover and rollback sequence.
 
 **Gate:** No double processing after restart; no lost accepted work; API p95 during import/tracking bursts is no worse than baseline, and database latency stays within the agreed budget.
 
@@ -108,12 +108,14 @@
 
 **Interfaces:** Retain existing public ports. Group independent work by order/item and serialize effects that mutate the same aggregate. No generic workflow engine.
 
-- [ ] Add a multi-item same-order test proving final order status is correct despite interleaving/retries, and a recovery test proving invalid vendor/customization data is surfaced without repeated automatic vendor submission.
-- [ ] Batch repeated reads using existing bulk public ports, chunk enqueue operations, and recompute order-level projections once per affected order when dependencies are complete.
-- [ ] Increase import throughput only across independent orders. Preserve sequential state transitions, customization handoff, financial allocation semantics and external submission idempotency.
-- [ ] Run affected import/mapping/vendorSubmission suites and architecture checks. Benchmark the same fixture before/after and commit only measured improvements.
+- [x] Add a multi-item same-order test proving final order status is correct despite interleaving/retries, and a recovery test proving invalid vendor/customization data is surfaced without repeated automatic vendor submission.
+- [x] Batch repeated reads using existing bulk public ports, chunk enqueue operations, and recompute order-level projections once per affected order when dependencies are complete.
+- [x] Retain existing import concurrency; independent order side effects remain concurrent. Preserve sequential state transitions, customization handoff, financial allocation semantics and external submission idempotency.
+- [x] Run affected import/mapping/vendorSubmission suites and architecture checks. Benchmark the same fixture before/after and commit only measured improvements.
 
 ## Release Order and Acceptance
+
+Implementation update: baseline PR #175 stays separate. Stages 2-5 share one gated PR with domain commits and local integrated restart/outage verification. Production acceptance gates remain pending separately authorized rollout. See [implementation results](../../background-flow-execution.md) and [cutover](../../background-flow-cutover.md).
 
 1. PR 1: baseline timing/logs.
 2. PR 2: tracking queue/leases/client limits.
