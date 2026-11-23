@@ -245,7 +245,7 @@ async function upsertItem({ item, dto, identity, orderId, importSources, now }) 
   return { orderItem, created: false, updated: true };
 }
 
-async function autoRequestPsdForImportedAmazonListing({ listing, orderId, orderItemId, asin, sku }) {
+async function autoRequestPsdForImportedListing({ listing, orderId, orderItemId, salesChannelCode, listingReference }) {
   const listingId = getEntityId(listing);
   if (!listingId || listing?.defaultPsdTemplateAssetId) return;
 
@@ -256,12 +256,13 @@ async function autoRequestPsdForImportedAmazonListing({ listing, orderId, orderI
         listingId,
         orderId: orderId ? String(orderId) : null,
         orderItemId: orderItemId ? String(orderItemId) : null,
-        note: `Auto-requested from Amazon order import (${asin || sku || ''})`.trim(),
+        note: `Auto-requested from ${salesChannelCode === 'AMAZON' ? 'Amazon' : 'Etsy'} order import (${listingReference})`,
         priority: 'NORMAL',
-      }, { system: true, source: 'AMAZON_ORDER_IMPORT' });
+      }, { system: true, source: `${salesChannelCode}_ORDER_IMPORT` });
     }
   } catch (error) {
-    logger.info('Auto PSD request skipped or already exists for Amazon listing', {
+    logger.info('Auto PSD request skipped or already exists for imported listing', {
+      salesChannelCode,
       listingId,
       orderItemId,
       error: error.message,
@@ -269,12 +270,17 @@ async function autoRequestPsdForImportedAmazonListing({ listing, orderId, orderI
   }
 }
 
-async function ensureImportedAmazonListing({ item, orderItem, dto, identity, orderId }) {
-  if (identity.salesChannelCode !== 'AMAZON') return orderItem;
+async function ensureImportedListing({ item, orderItem, dto, identity, orderId }) {
+  const { salesChannelCode } = identity;
+  if (!['AMAZON', 'ETSY'].includes(salesChannelCode)) return orderItem;
+  const etsyListingId = salesChannelCode === 'ETSY'
+    ? normalizeTrimmed(item.externalListingId || orderItem.externalListingId) : null;
   const asin = (normalizeTrimmed(item.asin) || '').toUpperCase();
   const sku = (normalizeTrimmed(item.sku || orderItem.sku) || '').toUpperCase();
   const title = normalizeTrimmed(item.title || orderItem.title) || '';
-  if (!/^[A-Z0-9]{10}$/.test(asin) || !sku || !title) return orderItem;
+  if (!title) return orderItem;
+  if (salesChannelCode === 'AMAZON' && (!/^[A-Z0-9]{10}$/.test(asin) || !sku)) return orderItem;
+  if (salesChannelCode === 'ETSY' && !etsyListingId && !sku) return orderItem;
 
   const listing = await catalogPublic.findOrCreateDraftListingForOrderItem({
     shopId: dto.shopId,
@@ -282,18 +288,19 @@ async function ensureImportedAmazonListing({ item, orderItem, dto, identity, ord
     marketplaceCode: identity.marketplaceCode,
     asin,
     sku,
+    ...(salesChannelCode === 'ETSY' ? { etsyListingId } : {}),
     title,
     currency: item.price?.currency || dto.currency || null,
   }, { system: true, source: 'ORDER_IMPORT' });
   const listingId = getEntityId(listing);
 
   if (listingId && !listing?.defaultPsdTemplateAssetId) {
-    await autoRequestPsdForImportedAmazonListing({
+    await autoRequestPsdForImportedListing({
       listing,
       orderId,
       orderItemId: getEntityId(orderItem),
-      asin,
-      sku,
+      salesChannelCode,
+      listingReference: etsyListingId || asin || sku,
     });
   }
 
@@ -343,7 +350,7 @@ async function importExternalOrder(externalOrderDto = {}) {
       importSources,
       now,
     });
-    result.orderItem = await ensureImportedAmazonListing({
+    result.orderItem = await ensureImportedListing({
       item,
       orderItem: result.orderItem,
       dto: externalOrderDto,
