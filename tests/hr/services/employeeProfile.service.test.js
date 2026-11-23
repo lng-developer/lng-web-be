@@ -148,7 +148,7 @@ describe('employeeProfile service', () => {
     expect(mediaPublic.storeAsset).not.toHaveBeenCalled();
   });
 
-  test('streams a profile avatar through Media after HR read authorization', async () => {
+  test.each(['HR_EMPLOYEES:READ', 'DESIGN:READ', 'PRODUCTION:READ', 'PRODUCTION:SCALE_WORK'])('streams a profile avatar with %s', async (permission) => {
     const profileId = '660000000000000000000004';
     const avatarAssetId = '660000000000000000000009';
     const callback = jest.fn().mockResolvedValue('streamed');
@@ -160,12 +160,20 @@ describe('employeeProfile service', () => {
 
     const result = await service.withProfileAvatar(
       profileId,
-      { permissions: ['HR_EMPLOYEES:READ'] },
+      { permissions: [permission] },
       callback,
     );
 
     expect(mediaPublic.withAssetLocalReadFile).toHaveBeenCalledWith(avatarAssetId, callback);
     expect(result).toBe('streamed');
+  });
+
+  test.each([{}, { permissions: ['HR_PAYROLL:READ'] }, { scopes: [{ scopeType: 'team', scopeId: teamId, permissions: ['PRODUCTION:READ'] }] }])('denies unrelated avatar access for %j', async (authContext) => {
+    const profileId = '660000000000000000000004';
+    repository.findById.mockResolvedValue({ _id: profileId, teamId, avatarAssetId: 'asset' });
+    await expect(service.withProfileAvatar(profileId, authContext, jest.fn()))
+      .rejects.toMatchObject({ code: 'AUTHORIZATION_ERROR' });
+    expect(mediaPublic.withAssetLocalReadFile).not.toHaveBeenCalled();
   });
 
   test('streams an authenticated employee own avatar without HR permissions', async () => {

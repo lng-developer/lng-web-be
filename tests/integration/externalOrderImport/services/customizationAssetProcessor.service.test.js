@@ -60,6 +60,7 @@ describe('customizationAssetProcessor.service', () => {
       payload: { parsedData: { amazonCustomization: { customerInputs: {} } } },
     });
     orderPublic.findItemById.mockResolvedValue({
+      status: 'CUSTOMIZATION_PENDING',
       id: 'item-1',
       shopId: 'shop-1',
       salesChannelCode: 'AMAZON',
@@ -76,6 +77,14 @@ describe('customizationAssetProcessor.service', () => {
     });
     orderPublic.syncOrderWorkbenchListingImage.mockResolvedValue({ modifiedCount: 1 });
     postImportMappingQueue.enqueuePostImportMappingJob.mockResolvedValue({ queued: true });
+  });
+
+  test.each(['NEED_PRODUCTION', 'TRACKING_PENDING', 'SHIPPED', 'CANCELLED', 'CUSTOMIZATION_PARSED'])('does not rewind %s during asset retries', async (status) => {
+    orderPublic.findItemById.mockResolvedValue({ id: 'item-1', status });
+    await processCustomizationAssets(payload);
+    expect(orderPublic.transitionItemStatus).not.toHaveBeenCalled();
+    expect(customizationPublic.downloadAssetsForOrderItem).toHaveBeenCalled();
+    expect(postImportMappingQueue.enqueuePostImportMappingJob).toHaveBeenCalled();
   });
 
   test('processes assets before enqueueing post-import mapping', async () => {

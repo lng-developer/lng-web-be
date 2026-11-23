@@ -1615,6 +1615,11 @@ async function scheduleFulfillmentSideEffects(orderItemId, orderId, { markReady 
 
 async function markFulfillmentReadyAfterPlan(orderItemId) {
   try {
+    const item = await orderPublic.findItemById(orderItemId);
+    if (['NEED_PRODUCTION', 'IN_PRODUCTION', 'QC_REJECTED', 'READY_TO_SEND_VENDOR',
+      'SENT_TO_VENDOR', 'TRACKING_PENDING', 'SHIPPED', 'CANCELLED', 'REFUNDED', 'FAILED'].includes(item?.status)) {
+      return false;
+    }
     await orderPublic.markFulfillmentReady(orderItemId);
     return true;
   } catch (error) {

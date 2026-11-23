@@ -164,7 +164,9 @@ async function syncListingPreviewImage(orderItemId, extractResult) {
 async function processCustomizationAssets(payload = {}, { isFinalAttempt = false } = {}) {
   try {
     const parsed = await customizationPublic.parseForOrderItem(payload.orderItemId);
-    if (parsed?.status === 'PARSED') {
+    const item = parsed?.status === 'PARSED' ? await orderPublic.findItemById(payload.orderItemId) : null;
+    // Asset retries must not move an order back from mapping or production.
+    if (parsed?.status === 'PARSED' && item?.status === 'CUSTOMIZATION_PENDING') {
       try {
         await orderPublic.transitionItemStatus(payload.orderItemId, 'CUSTOMIZATION_PARSED', {
           system: true,
