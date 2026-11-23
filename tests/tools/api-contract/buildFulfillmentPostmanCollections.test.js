@@ -1,9 +1,17 @@
 const { buildCollection } = require('../../../tools/api-contract/buildFulfillmentPostmanCollections');
 
-const expectedCounts = { design: 27, production: 28, vendorSubmission: 15, shipment: 18 };
+const expectedCounts = { design: 27, production: 29, vendorSubmission: 15, shipment: 18 };
 const requests = (collection) => collection.item.flatMap((folder) => folder.item);
 
 describe('fulfillment Postman collections', () => {
+  test('bulk CS assignment includes the required request fields', () => {
+    const assignment = requests(buildCollection('production'))
+      .find(({ name }) => name === 'PATCH /api/production/tasks/bulk-assign-cs');
+    expect(JSON.parse(assignment.request.body.raw)).toMatchObject({
+      taskIds: ['{{taskId}}'], csAssigneeId: '{{designerId}}',
+    });
+  });
+
   test.each(Object.entries(expectedCounts))('%s covers its registered routes', (moduleName, count) => {
     const items = requests(buildCollection(moduleName));
     expect(items).toHaveLength(count);
