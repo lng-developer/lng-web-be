@@ -1,6 +1,6 @@
 const https = require('https');
 
-function requestJson(url, { method = 'GET', token, body = null } = {}) {
+function requestJson(url, { method = 'GET', token, body = null, signal } = {}) {
   return new Promise((resolve, reject) => {
     const payload = body ? JSON.stringify(body) : null;
     const headers = {
@@ -17,6 +17,7 @@ function requestJson(url, { method = 'GET', token, body = null } = {}) {
       method,
       headers,
       timeout: 20000,
+      ...(signal && { signal }),
     }, (response) => {
       let raw = '';
       response.setEncoding('utf8');
@@ -27,6 +28,13 @@ function requestJson(url, { method = 'GET', token, body = null } = {}) {
           json = raw ? JSON.parse(raw) : null;
         } catch (error) {
           json = null;
+        }
+        if (signal && response.statusCode === 429) {
+          const error = new Error('Vendor tracking rate limited');
+          error.vendorHttpStatus = 429;
+          error.retryAfter = response.headers?.['retry-after'];
+          reject(error);
+          return;
         }
         resolve({ statusCode: response.statusCode, json, raw });
       });

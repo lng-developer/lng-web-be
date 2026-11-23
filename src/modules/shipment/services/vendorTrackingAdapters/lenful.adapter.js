@@ -25,7 +25,7 @@ module.exports = Object.freeze({
     return normalizeVendorTrackingPayload(provider, payload);
   },
 
-  async fetchTrackingByExternalOrderId(externalOrderId, { credential } = {}) {
+  async fetchTrackingByExternalOrderId(externalOrderId, { credential, signal } = {}) {
     const baseUrl = credential?.baseUrl;
     const token = credential?.accessToken;
     if (!baseUrl || !token) {
@@ -40,7 +40,7 @@ module.exports = Object.freeze({
     url.searchParams.set('keyword', externalOrderId);
     url.searchParams.set('keyword_type', 'order');
     url.searchParams.set('sort_by', 'create_at_desc');
-    const result = await requestJson(url, { method: 'GET', token });
+    const result = await requestJson(url, { method: 'GET', token, ...(signal && { signal }) });
     if (result.statusCode < 200 || result.statusCode >= 300 || result.json?.success === false) {
       const error = new Error('LENFUL tracking request failed');
       error.vendorHttpStatus = result.statusCode;

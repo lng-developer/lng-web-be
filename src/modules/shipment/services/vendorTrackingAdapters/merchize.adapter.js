@@ -115,6 +115,7 @@ module.exports = Object.freeze({
     const result = await requestJson(trackingUrl, {
       method: 'POST',
       token,
+      ...(options.signal && { signal: options.signal }),
       body: { orders: candidateOrders },
     });
 
@@ -131,6 +132,7 @@ module.exports = Object.freeze({
     const detailResult = await requestJson(detailUrl, {
       method: 'POST',
       token,
+      ...(options.signal && { signal: options.signal }),
       body: { orders: candidateOrders },
     });
 

@@ -47,7 +47,7 @@ module.exports = Object.freeze({
   normalizeTracking(provider, payload) {
     return normalizeVendorTrackingPayload(provider, payload);
   },
-  async fetchTrackingByExternalOrderId(externalOrderId, { credential } = {}) {
+  async fetchTrackingByExternalOrderId(externalOrderId, { credential, signal } = {}) {
     const baseUrl = String(credential?.baseUrl || '').replace(/\/+$/, '');
     const apiKey = credential?.accessToken;
     if (!baseUrl || !apiKey) {
@@ -57,12 +57,14 @@ module.exports = Object.freeze({
     }
 
     const response = await fetch(`${baseUrl}/orders/${encodeURIComponent(externalOrderId)}`, {
+      ...(signal && { signal }),
       headers: { Accept: 'application/json', 'X-API-Key': apiKey },
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok || body.status === false) {
       const error = new Error('MANGOTEE tracking request failed');
       error.vendorHttpStatus = response.status;
+      error.retryAfter = response.headers?.get?.('retry-after');
       error.vendorMessage = body.message || body.error || null;
       throw error;
     }
