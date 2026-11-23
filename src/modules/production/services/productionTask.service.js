@@ -928,20 +928,21 @@ function orderItemStatusForProductionAggregate(aggregate, mode = 'task') {
   return 'NEED_PRODUCTION';
 }
 
-async function filterDesignTeamProfiles(profiles = []) {
+async function filterDesignDepartmentProfiles(profiles = []) {
   const accountIds = profiles.map((profile) => toId(profile.accountId)).filter(Boolean);
   if (!accountIds.length) {
     return [];
   }
 
   const organizations = await organizationPublic.listAccountOrganizationSummaries(accountIds);
-  const designTeamAccountIds = new Set(
+  const designDepartmentAccountIds = new Set(
     organizations
-      .filter((organization) => /^DES(?:IGN)?$/i.test(String(organization.team?.code || '')))
+      .filter((organization) => organization.department?.status === 'active'
+        && /^DES(?:IGN)?$/i.test(String(organization.department?.code || '')))
       .map((organization) => toId(organization.accountId)),
   );
 
-  return profiles.filter((profile) => designTeamAccountIds.has(toId(profile.accountId)));
+  return profiles.filter((profile) => designDepartmentAccountIds.has(toId(profile.accountId)));
 }
 
 async function transitionOrderItemStatus(orderItemId, targetStatus, session) {
@@ -2481,7 +2482,7 @@ async function assignDesignTask(taskId, payload = {}, authContext) {
     payload.assignedDesignUserId,
     DESIGN_WORK_PERMISSION,
     'Assigned user is not eligible for scale design tasks',
-    filterDesignTeamProfiles,
+    filterDesignDepartmentProfiles,
   );
   const patch = {
     assignedDesignUserId: payload.assignedDesignUserId,
@@ -3153,14 +3154,26 @@ async function getScaleAssignees(query = {}, authContext) {
   if (!canReadProductionQueue(authContext)) {
     throw forbidden();
   }
+  const source = await organizationPublic.listRoleAssignmentSource();
+  const departmentIds = new Set(source.departments
+    .filter((department) => /^DES(?:IGN)?$/i.test(department.code))
+    .map((department) => department.id));
+  const teamIds = new Set(source.teams
+    .filter((team) => departmentIds.has(team.departmentId))
+    .map((team) => team.id));
+  const accountIds = unique(source.memberships
+    .filter((membership) => teamIds.has(membership.teamId))
+    .map((membership) => membership.accountId));
+  if (!accountIds.length) return { items: [] };
   const profiles = await hrPublic.listAssignableProfiles({
+    accountIds,
     search: query.search,
     limit: Math.min(Number(query.limit || 50), 100),
     requiredPermission: DESIGN_WORK_PERMISSION,
   });
-  const designTeamProfiles = await filterDesignTeamProfiles(profiles || []);
+  const designDepartmentProfiles = await filterDesignDepartmentProfiles(profiles || []);
   return {
-    items: designTeamProfiles.map((profile) => ({
+    items: designDepartmentProfiles.map((profile) => ({
       id: toId(profile.accountId),
       fullName: profile.fullName || null,
       employeeCode: profile.employeeCode || null,
