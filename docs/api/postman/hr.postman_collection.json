@@ -1,6 +1,6 @@
 {
   "info": {
-    "_postman_id": "9cc96053-e553-41f8-943a-80578b1c6a2a",
+    "_postman_id": "4938b1f1-e69d-41f4-8c07-f0d4e0b30f11",
     "name": "LNG Web BE - HR",
     "description": "Complete HR API requests generated from the registered Express routes. Example values follow the Joi request contracts.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
@@ -586,7 +586,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"profileId\": \"{{profileId}}\",\n  \"workDateKey\": \"2026-08-06\",\n  \"status\": \"PRESENT\",\n  \"reason\": \"Recover missing attendance record\"\n}",
+              "raw": "{\n  \"profileId\": \"{{profileId}}\",\n  \"workDateKey\": \"2026-08-06\",\n  \"status\": \"PRESENT\",\n  \"workDayValue\": 1,\n  \"checkInAt\": \"2026-08-06T01:00:00.000Z\",\n  \"checkOutAt\": \"2026-08-06T10:00:00.000Z\",\n  \"reason\": \"Manual entry\"\n}",
               "options": {
                 "raw": {
                   "language": "json"

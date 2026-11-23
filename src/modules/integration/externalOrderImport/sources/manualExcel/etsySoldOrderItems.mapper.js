@@ -189,9 +189,12 @@ function buildOrder(row, context, items) {
     orderedAt: nullable(value(row, 'Date Paid') || value(row, 'Sale Date')),
     buyer: {
       name: nullable(value(row, 'Ship Name') || value(row, 'Buyer')),
+      ...(value(row, 'Buyer Email') ? { emailMasked: value(row, 'Buyer Email') } : {}),
+      ...(value(row, 'LNG Buyer ID') ? { externalBuyerId: value(row, 'LNG Buyer ID') } : {}),
     },
     shippingAddress: {
       name: nullable(value(row, 'Ship Name')),
+      ...(value(row, 'Ship Phone') ? { phoneMasked: value(row, 'Ship Phone') } : {}),
       addressLine1: nullable(value(row, 'Ship Address1')),
       addressLine2: nullable(value(row, 'Ship Address2')),
       city: nullable(value(row, 'Ship City')),

@@ -1033,7 +1033,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"taskIds\": [\n    \"{{taskId}}\"\n  ],\n  \"csAssigneeId\": \"{{designerId}}\",\n  \"csNote\": \"Confirm customer requests.\"\n}",
+              "raw": "{\n  \"taskIds\": [\n    \"{{taskId}}\"\n  ],\n  \"csAssigneeId\": \"{{designerId}}\",\n  \"csNote\": \"Confirm customer request.\"\n}",
               "options": {
                 "raw": {
                   "language": "json"

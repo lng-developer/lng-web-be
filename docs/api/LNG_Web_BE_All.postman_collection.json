@@ -6093,7 +6093,7 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"profileId\": \"{{profileId}}\",\n  \"workDateKey\": \"2026-08-06\",\n  \"status\": \"PRESENT\",\n  \"reason\": \"Recover missing attendance record\"\n}",
+                  "raw": "{\n  \"profileId\": \"{{profileId}}\",\n  \"workDateKey\": \"2026-08-06\",\n  \"status\": \"PRESENT\",\n  \"workDayValue\": 1,\n  \"checkInAt\": \"2026-08-06T01:00:00.000Z\",\n  \"checkOutAt\": \"2026-08-06T10:00:00.000Z\",\n  \"reason\": \"Manual entry\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -15880,7 +15880,7 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"taskIds\": [\n    \"{{taskId}}\"\n  ],\n  \"csAssigneeId\": \"{{designerId}}\",\n  \"csNote\": \"Confirm customer requests.\"\n}",
+                  "raw": "{\n  \"taskIds\": [\n    \"{{taskId}}\"\n  ],\n  \"csAssigneeId\": \"{{designerId}}\",\n  \"csNote\": \"Confirm customer request.\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"

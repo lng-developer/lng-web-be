@@ -16,7 +16,8 @@ describe('HR Postman collection', () => {
     const manual = items.find(({ name }) => name === 'POST /api/hr/attendance/manual');
     expect(JSON.parse(manual.request.body.raw)).toMatchObject({
       profileId: '{{profileId}}', workDateKey: '2026-08-06', status: 'PRESENT',
-      reason: 'Recover missing attendance record',
+      reason: 'Manual entry', workDayValue: 1,
+      checkInAt: '2026-08-06T01:00:00.000Z', checkOutAt: '2026-08-06T10:00:00.000Z',
     });
     expect(items.find(({ name }) => name === 'DELETE /api/hr/attendance/:attendanceId')).toBeDefined();
 

@@ -3,6 +3,20 @@ const {
 } = require('../../../../../src/modules/integration/externalOrderImport/sources/manualExcel/etsySoldOrderItems.mapper');
 
 describe('etsySoldOrderItems.mapper', () => {
+  test('maps optional extension recipient contacts to existing order fields', () => {
+    const [dto] = mapEtsySoldOrderItemRowsToExternalOrderDtos([{
+      'Order ID': '1', 'Transaction ID': '2',
+      'Ship Phone': ' (202) 555-0123 ', 'Buyer Email': ' buyer@example.invalid ', 'LNG Buyer ID': '7',
+    }]);
+    expect(dto.shippingAddress.phoneMasked).toBe('(202) 555-0123');
+    expect(dto.buyer).toMatchObject({ emailMasked: 'buyer@example.invalid', externalBuyerId: '7' });
+  });
+  test('legacy CSVs do not invent contact fields', () => {
+    const [dto] = mapEtsySoldOrderItemRowsToExternalOrderDtos([{ 'Order ID': '1', 'Transaction ID': '2' }]);
+    expect(dto.shippingAddress.phoneMasked).toBeUndefined();
+    expect(dto.buyer.emailMasked).toBeUndefined();
+    expect(dto.buyer.externalBuyerId).toBeUndefined();
+  });
   test.each([['Switzerland', 'CH'], ['Germany', 'DE'], ['Unknown destination', null]])('preserves country %s', (country, code) => {
     const [dto] = mapEtsySoldOrderItemRowsToExternalOrderDtos([{ 'Order ID': '1', 'Transaction ID': '2', 'Ship Country': country }]);
     expect(dto.shippingAddress).toMatchObject({ country, countryCode: code });
