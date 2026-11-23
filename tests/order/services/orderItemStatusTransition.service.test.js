@@ -14,6 +14,7 @@ jest.mock('../../../src/modules/order/repositories/order.repository', () => ({
 
 jest.mock('../../../src/modules/order/services/orderTimeline.service', () => ({
   appendTimeline: jest.fn(),
+  appendTimelineOnce: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/order/services/orderWorkbenchProjection.service', () => ({
@@ -268,6 +269,17 @@ describe('orderItemStatusTransition.service', () => {
       deliveredAt: expect.any(Date),
       'order.deliveredAt': expect.any(Date),
     }, { source: 'ORDER_DELIVERED' });
+  });
+
+  test('uses one order delivery timeline key when a tracking worker replays the delivery', async () => {
+    const idempotencyKey = `ORDER_DELIVERED:${orderId}`;
+    const deliveredAt = new Date();
+    for (let i = 0; i < 2; i += 1) {
+      await service.markOrderDelivered(orderId, deliveredAt, { source: 'SHIPMENT', idempotencyKey });
+    }
+    expect(orderTimelineService.appendTimelineOnce.mock.calls[0][0]).toMatchObject({ orderId, idempotencyKey });
+    expect(orderTimelineService.appendTimelineOnce.mock.calls[1]).toEqual(orderTimelineService.appendTimelineOnce.mock.calls[0]);
+    expect(orderTimelineService.appendTimeline).not.toHaveBeenCalled();
   });
 
   test('syncs parent order to shipped when all items are shipped', async () => {

@@ -75,6 +75,12 @@ async function findByIds(orderItemIds = []) {
   return OrderItem.find({ _id: { $in: orderItemIds.map(toObjectId) } }).lean();
 }
 
+async function pageIds(after, limit) {
+  const rows = await OrderItem.find(after ? { _id: { $gt: after } } : {})
+    .select('_id').sort({ _id: 1 }).limit(limit).lean();
+  return rows.map((row) => row._id);
+}
+
 async function findIds(query = {}) {
   return OrderItem.distinct('_id', buildFilter(query));
 }
@@ -459,6 +465,7 @@ module.exports = {
   findByIdWithOrder,
   findByIds,
   findIds,
+  pageIds,
   findListingIdsByOrderIds,
   findDistinctAsins,
   findDistinctAsinsByListingId,

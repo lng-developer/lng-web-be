@@ -52,8 +52,12 @@ function buildFilter(query = {}) {
   return filter;
 }
 
-async function findByOrderItem(orderItemId) {
-  return FinanceSnapshot.findOne({ orderItemId }).lean();
+async function findByOrderItem(orderItemId, options) {
+  return FinanceSnapshot.findOne({ orderItemId }, null, options).lean();
+}
+
+function listCalculationTimes(orderItemIds) {
+  return FinanceSnapshot.find({ orderItemId: { $in: orderItemIds } }).select('orderItemId calculatedAt').lean();
 }
 
 async function listByOrderItemIds(orderItemIds = []) {
@@ -995,11 +999,11 @@ async function upsertByOrderItem(orderItemId, payload, { session } = {}) {
   ).lean();
 }
 
-async function updateActualVendorCost(orderItemId, payload) {
+async function updateActualVendorCost(orderItemId, payload, options) {
   return FinanceSnapshot.findOneAndUpdate(
     { orderItemId },
     { $set: payload },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, ...options },
   ).lean();
 }
 
@@ -1011,6 +1015,7 @@ module.exports = {
   listFilterOptions,
   listByOrder,
   listByOrderItemIds,
+  listCalculationTimes,
   summarizeOrderPnl,
   summarizeQuality,
   summarizeBySeller,
