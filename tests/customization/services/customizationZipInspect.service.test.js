@@ -338,6 +338,52 @@ describe('customizationZipInspect.service', () => {
     expect(result).not.toHaveProperty('localPath');
   });
 
+  test('preserves all sixteen Amazon fields without repeating the three text inputs', async () => {
+    repository.findByOrderItem.mockResolvedValue(payload());
+    const textFields = [
+      ['Custom Nickname', 'Mama'], ['Custom EST Year', '2014'], ['Custom Kid\'s Names', 'Alex Sam'],
+    ];
+    const optionFields = [
+      ['Select Product Type', 'Crewneck Sweatshirt'], ['Select Color', 'Navy'],
+      ['Choose Pattern', 'P05'], ['Select Thread Color (JOB TITLE)', 'Tusk/Sand (1055)'],
+      ['Choose Icon on Sleeve', 'Icon 5'], ['Select number of kid names on sleeve', '1-2 Kid\'s Names'],
+      ['Select Size', 'M'],
+    ];
+    const document = {
+      orderItemId: '163223994462241',
+      // The legacy structure can appear first in JSON; it must not duplicate modern text.
+      'version3.0': { customizationInfo: { surfaces: [{ areas: textFields.map(([label, text]) => ({
+        customizationType: 'TextPrinting', name: 'Text Input 1', label, text,
+      })) }] } },
+      customizationData: { children: [
+        ...optionFields.map(([label, displayValue]) => ({ type: 'OptionCustomization', label, displayValue })),
+        ...textFields.flatMap(([label, inputValue]) => [
+          { type: 'FontCustomization', label, fontSelection: { family: 'Lato' } },
+          { type: 'ColorCustomization', label, colorSelection: { name: 'Black', value: '#000000' } },
+          { type: 'TextCustomization', label, inputValue },
+        ]),
+      ] },
+    };
+    mockZip([{ fileName: '163223994462241.json', compressedSize: 100, uncompressedSize: 5000,
+      generalPurposeBitFlag: 0, externalFileAttributes: 0, content: JSON.stringify(document) }]);
+    const result = await service.extractZipImagesForOrderItem(orderItemId);
+    const inputs = result.payload.parsedData.amazonCustomization.customerInputs;
+    expect(inputs.texts).toHaveLength(3);
+    expect(inputs.options).toHaveLength(13);
+    for (const [label, value] of textFields) {
+      expect(inputs.texts).toContainEqual(expect.objectContaining({ label, value }));
+      expect(inputs.options).toContainEqual(expect.objectContaining({ label, value: 'Lato' }));
+      expect(inputs.options).toContainEqual(expect.objectContaining({ label, value: 'Black (#000000)' }));
+    }
+    expect(orderPublic.updateOrderWorkbenchItem).toHaveBeenCalledWith(
+      expect.anything(), orderItemId,
+      { customization: expect.objectContaining({ customerInputs: expect.objectContaining({
+        texts: expect.arrayContaining([expect.objectContaining({ value: 'Mama' })]),
+        options: expect.arrayContaining([expect.objectContaining({ value: 'Lato' })]),
+      }) }) }, { source: 'CUSTOMIZATION' },
+    );
+  });
+
   test('extractZipImagesForOrderItem parses json customer inputs and links image uploads', async () => {
     repository.findByOrderItem.mockResolvedValue(payload({
       metadata: {
@@ -421,6 +467,11 @@ describe('customizationZipInspect.service', () => {
                         placement: { name: 'Front Text' },
                         inputValue: 'We love you!',
                       },
+                      {
+                        type: 'FontCustomization',
+                        label: 'Custom Text',
+                        fontSelection: { family: 'Lato', fontUrl: 'https://example.test/font.ttf' },
+                      },
                     ],
                   },
                 ],
@@ -433,6 +484,13 @@ describe('customizationZipInspect.service', () => {
                 {
                   name: 'Surface 1',
                   areas: [
+                    {
+                      customizationType: 'TextPrinting',
+                      name: 'Text Input 1',
+                      label: 'Custom Text',
+                      placement: { name: 'Front Text' },
+                      text: 'We love you!',
+                    },
                     {
                       customizationType: 'Options',
                       label: 'Choose Color',
@@ -480,6 +538,7 @@ describe('customizationZipInspect.service', () => {
               expect.objectContaining({ label: 'Thread Color Tank Top', value: 'Red (#ce1c2e)' }),
               expect.objectContaining({ label: 'Tank Top Material', value: 'Satin' }),
               expect.objectContaining({ label: 'Thread Style', value: 'Script' }),
+              expect.objectContaining({ label: 'Custom Text', value: 'Lato' }),
               expect.objectContaining({ label: 'Choose Color', value: 'Ash Gray', slotKey: 'BACK_SIDE' }),
             ]),
             images: [
