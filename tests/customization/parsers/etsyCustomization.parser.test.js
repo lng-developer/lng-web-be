@@ -5,6 +5,16 @@ const { customizationStatuses } = require('../../../src/modules/customization/co
 const { customizationErrorCodes } = require('../../../src/modules/customization/constants/customizationErrorCodes');
 
 describe('etsyCustomization.parser', () => {
+  test('deduplicates an explicit personalization subset while retaining standard variants', () => {
+    const result = normalizeEtsyCustomization({
+      variations: 'Select Size: XL, Select Color: Black, Main text: TEST SCHOOL, Main Text Color: Gold, Secondary Text: TEST TEAM, Secondary Text Color: White',
+      personalization: 'Main text: TEST SCHOOL\nMain Text Color: Gold\nSecondary Text: TEST TEAM\nSecondary Text Color: White',
+    });
+    const inputs = result.parsedData.amazonCustomization.customerInputs;
+    expect(inputs.texts).toHaveLength(4);
+    expect(inputs.options).toHaveLength(2);
+    expect(inputs.texts.some(input => input.label === 'Personalization')).toBe(false);
+  });
   test('deduplicates the legacy all-fields personalization and retains options and multiline text', () => {
     const result = normalizeEtsyCustomization({
       variations: 'SIZES: 3.5in, Choose Background: Design 1, Enter Your Custom: Nora\nPreschool\n2026, Border Color: Red, Print Placement: Square',
