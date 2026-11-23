@@ -53,9 +53,9 @@ describe('orderExport.service', () => {
       { accountId: 'a1' },
     );
     expect(result.filename).toMatch(/^orders-export-\d{4}-\d{2}-\d{2}\.csv$/);
-    expect(result.csv).toContain('Order ID,Channel,Shop,ASIN / Listing ID,SKU');
+    expect(result.csv).toContain('Order ID,Channel,Shop,ASIN / Listing ID,SKU,Quantity');
     expect(result.csv).toContain('Mapping status,Selection mode,Vendor,Vendor product,Cost center');
-    expect(result.csv).toContain('J2605,AMAZON,"Shop ""A""",B0TEST,SKU-1');
+    expect(result.csv).toContain('J2605,AMAZON,"Shop ""A""",B0TEST,SKU-1,1');
     expect(result.csv).toContain('READY,VARIANT,Vendor A,Shirt,CC-1,CC-SKU-1,799,899');
     expect(result.csv).toContain('"Rich, Kim"');
   });

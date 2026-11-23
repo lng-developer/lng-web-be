@@ -8,6 +8,7 @@ const {
   attendanceIdParamsSchema,
   listAttendanceSchema,
   listMyAttendanceSchema,
+  manualAttendanceSchema,
   monthMatrixSchema,
   validate,
 } = require('../validators/attendance.validator');
@@ -51,4 +52,23 @@ async function adjustAttendance(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: await service.adjustAttendance(attendanceId, payload, req.auth) });
 }
 
-module.exports = { adjustAttendance, checkIn, checkOut, listAttendance, listMonthMatrix, listMyAttendance };
+async function createManualAttendance(req, res) {
+  const payload = assertValid(manualAttendanceSchema, req.body);
+  res.status(httpStatus.OK).json({ success: true, data: await service.createManualAttendance(payload, req.auth) });
+}
+
+async function deleteAttendance(req, res) {
+  const { attendanceId } = assertValid(attendanceIdParamsSchema, req.params);
+  res.status(httpStatus.OK).json({ success: true, data: await service.deleteAttendance(attendanceId, req.auth) });
+}
+
+module.exports = {
+  adjustAttendance,
+  checkIn,
+  checkOut,
+  createManualAttendance,
+  deleteAttendance,
+  listAttendance,
+  listMonthMatrix,
+  listMyAttendance,
+};

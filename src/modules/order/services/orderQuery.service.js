@@ -22,6 +22,7 @@ function emptyPaginatedResult(query = {}) {
   return {
     items: [],
     total: 0,
+    totalItems: 0,
     page,
     limit,
     tabCounts: Object.fromEntries(Object.values(orderListTabs).map((tab) => [tab, 0])),
@@ -643,6 +644,7 @@ async function listOrderWorkbench(query = {}, authContext = {}, telemetry = {}) 
   return {
     items,
     total: orderPage.total,
+    totalItems: orderPage.totalItems ?? orderPage.total,
     page: orderPage.page,
     limit: orderPage.limit,
   };
