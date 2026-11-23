@@ -868,15 +868,23 @@ async function listWorkbench(query = {}) {
       $facet: {
         items: itemsPipeline.slice(prePagination.length),
         total: [{ $count: 'count' }],
+        totalItems: [
+          { $unwind: { path: '$items', preserveNullAndEmptyArrays: false } },
+          { $group: { _id: null, count: { $sum: { $ifNull: ['$items.quantity', 1] } } } },
+        ],
       },
     },
   ]);
-  return toPaginatedResult({
-    items: result.items || [],
-    total: result.total?.[0]?.count || 0,
-    page,
-    limit,
-  });
+  const totalItems = result.totalItems?.[0]?.count ?? result.total?.[0]?.count ?? 0;
+  return {
+    ...toPaginatedResult({
+      items: result.items || [],
+      total: result.total?.[0]?.count || 0,
+      page,
+      limit,
+    }),
+    totalItems,
+  };
 }
 
 async function countByTabs({ search, employeeCode, vendorId, ...filters } = {}) {

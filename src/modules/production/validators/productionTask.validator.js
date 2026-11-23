@@ -176,6 +176,12 @@ const bulkAssignDesignTasksSchema = Joi.object({
   designNote: Joi.string().trim().allow('', null),
 });
 
+const bulkAssignCsTasksSchema = Joi.object({
+  taskIds: Joi.array().items(objectId.required()).min(1).max(100).required(),
+  csAssigneeId: objectId.allow(null, '').required(),
+  csNote: Joi.string().trim().allow('', null),
+});
+
 const bulkPushVendorSchema = Joi.object({
   taskIds: Joi.array().items(objectId.required()).min(1).max(25).required(),
   vendorSubmissionIdsByTaskId: Joi.object()
@@ -230,6 +236,7 @@ const sentToVendorSchema = Joi.object({
 module.exports = {
   assignDesignTaskSchema,
   assignCsTaskSchema,
+  bulkAssignCsTasksSchema,
   bulkAssignDesignTasksSchema,
   bulkPushVendorSchema,
   csAssigneesQuerySchema,

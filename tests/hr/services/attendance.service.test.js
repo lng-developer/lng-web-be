@@ -5,6 +5,7 @@ jest.mock('mongoose', () => ({
 }));
 jest.mock('../../../src/modules/hr/repositories/employeeProfile.repository', () => ({
   findByAccountId: jest.fn(),
+  findById: jest.fn(),
   list: jest.fn(),
   listIds: jest.fn(),
 }));
@@ -1111,6 +1112,47 @@ describe('attendance service', () => {
       statusCounts: expect.objectContaining({ ERROR: 3, PAID_LEAVE: 4 }),
       approvedOvertimeCount: 5,
       manualAdjustmentCount: 2,
+    }));
+  });
+
+  it('creates manual attendance with fallback schedule snapshot when employee has no schedule assignment', async () => {
+    const adminAuth = { accountId, permissions: ['HR_ATTENDANCE:MANAGE'], scopes: [] };
+    profileRepository.findById.mockResolvedValue(profile);
+    profileRepository.findByAccountId.mockResolvedValue({ fullName: 'HR Admin' });
+    repository.findByProfileAndWorkDate.mockResolvedValue(null);
+    resolver.resolveWorkContext.mockResolvedValue({ status: 'SCHEDULE_UNRESOLVED' });
+
+    repository.createDaily.mockImplementation(async (doc) => ({
+      ...doc,
+      _id: '660000000000000000000099',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }));
+
+    const result = await service.createManualAttendance({
+      profileId,
+      workDateKey: '2026-11-20',
+      status: 'PRESENT',
+      workDayValue: 1,
+      checkInAt: '2026-11-20T01:30:00.000Z',
+      checkOutAt: '2026-11-20T10:30:00.000Z',
+      reason: 'Máy lỗi',
+    }, adminAuth);
+
+    expect(result).toBeDefined();
+    expect(result.profileId).toBe(profileId);
+    expect(result.status).toBe('PRESENT');
+    expect(result.workDayValue).toBe(1);
+    expect(repository.createDaily).toHaveBeenCalledWith(expect.objectContaining({
+      profileId,
+      workDateKey: '2026-11-20',
+      status: 'PRESENT',
+      workDayValue: 1,
+      isManualEdited: true,
+      scheduleSnapshot: expect.objectContaining({
+        calendarStatus: 'WORKING_DAY',
+        timezone: expect.any(String),
+      }),
     }));
   });
 });

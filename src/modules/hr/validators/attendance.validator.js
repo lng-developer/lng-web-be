@@ -67,14 +67,25 @@ const monthMatrixSchema = Joi.object({
 
 const adjustAttendanceSchema = Joi.object({
   status: Joi.string().valid(...Object.values(hrAttendanceStatuses)),
+  workDayValue: Joi.number().min(0).max(1),
   checkInAt: instant.allow(null),
   checkOutAt: instant.allow(null),
   reason: Joi.string().trim().min(1).max(500).required(),
 }).custom((value, helpers) => (
-  ['status', 'checkInAt', 'checkOutAt'].some((key) => Object.hasOwn(value, key))
+  ['status', 'workDayValue', 'checkInAt', 'checkOutAt'].some((key) => Object.hasOwn(value, key))
     ? value
     : helpers.error('object.missing')
 )).unknown(false);
+
+const manualAttendanceSchema = Joi.object({
+  profileId: objectId.required(),
+  workDateKey: dateKey.required(),
+  status: Joi.string().valid(...Object.values(hrAttendanceStatuses)).required(),
+  workDayValue: Joi.number().min(0).max(1),
+  checkInAt: instant.allow(null),
+  checkOutAt: instant.allow(null),
+  reason: Joi.string().trim().min(1).max(500).required(),
+}).unknown(false);
 
 const attendanceIdParamsSchema = Joi.object({ attendanceId: objectId.required() }).unknown(false);
 
@@ -83,6 +94,7 @@ module.exports = {
   attendanceEventSchema,
   attendanceIdParamsSchema,
   listAttendanceSchema,
+  manualAttendanceSchema,
   monthMatrixSchema,
   listMyAttendanceSchema,
   validate,

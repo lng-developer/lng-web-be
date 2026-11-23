@@ -85,6 +85,13 @@ router.patch(
   asyncHandler(controller.bulkAssignDesignTasks),
 );
 
+router.patch(
+  '/tasks/bulk-assign-cs',
+  authPublic.authenticate,
+  requireScaleAssign,
+  asyncHandler(controller.bulkAssignCsTasks),
+);
+
 router.post(
   '/tasks/bulk-push-vendor',
   authPublic.authenticate,

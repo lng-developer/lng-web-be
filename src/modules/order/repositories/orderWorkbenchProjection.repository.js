@@ -519,15 +519,41 @@ async function findPage({ page = 1, limit = 20, tab = orderListTabs.ALL, sort, s
   const filter = applyTabFilter(buildFilter(query), tab);
   applyStageFilter(filter, stage || itemStatus);
   appendSearchFilters(filter, { search, employeeCode, vendorId });
-  const [items, total] = await Promise.all([
+  const [items, total, itemsCountAgg] = await Promise.all([
     OrderWorkbenchProjection.find(filter)
       .sort(parseSort(sort))
       .skip(getPaginationOffset({ page, limit }))
       .limit(limit)
       .lean(),
     OrderWorkbenchProjection.countDocuments(filter),
+    OrderWorkbenchProjection.aggregate([
+      { $match: filter },
+      {
+        $project: {
+          count: {
+            $sum: {
+              $map: {
+                input: { $ifNull: ['$items', []] },
+                as: 'entry',
+                in: { $ifNull: ['$$entry.item.quantity', 1] },
+              },
+            },
+          },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalItems: { $sum: '$count' },
+        },
+      },
+    ]),
   ]);
-  return toPaginatedResult({ items, total, page, limit });
+  const totalItems = itemsCountAgg?.[0]?.totalItems ?? total;
+  return {
+    ...toPaginatedResult({ items, total, page, limit }),
+    totalItems,
+  };
 }
 
 async function countByTabs({ search, employeeCode, vendorId, ...query } = {}) {

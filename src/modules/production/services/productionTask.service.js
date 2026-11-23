@@ -2500,6 +2500,27 @@ async function bulkAssignDesignTasks(payload = {}, authContext) {
   return { assigned, failed };
 }
 
+async function bulkAssignCsTasks(payload = {}, authContext) {
+  assertValidObjectId(payload.csAssigneeId, 'csAssigneeId');
+  const assigned = [];
+  const failed = [];
+
+  for (const taskId of payload.taskIds || []) {
+    try {
+      assigned.push(await assignCsTask(taskId, {
+        csAssigneeId: payload.csAssigneeId,
+        ...(Object.prototype.hasOwnProperty.call(payload, 'csNote')
+          ? { csNote: payload.csNote }
+          : {}),
+      }, authContext));
+    } catch (error) {
+      failed.push(toBulkAssignFailure(taskId, error));
+    }
+  }
+
+  return { assigned, failed };
+}
+
 async function claimDesignTask(taskId, authContext = {}) {
   assertValidObjectId(authContext.accountId, 'accountId');
   const task = await loadTask(taskId);
@@ -3060,6 +3081,7 @@ const productionTaskService = {
   addManualScaledOutputFile,
   assignCsTask,
   assignDesignTask,
+  bulkAssignCsTasks,
   bulkAssignDesignTasks,
   bulkPushVendor,
   canReadTaskById,

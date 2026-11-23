@@ -6,6 +6,7 @@ const service = require('../services/productionTask.service');
 const {
   assignDesignTaskSchema,
   assignCsTaskSchema,
+  bulkAssignCsTasksSchema,
   bulkAssignDesignTasksSchema,
   bulkPushVendorSchema,
   csAssigneesQuerySchema,
@@ -176,6 +177,14 @@ async function bulkAssignDesignTasks(req, res) {
   });
 }
 
+async function bulkAssignCsTasks(req, res) {
+  const payload = assertValid(bulkAssignCsTasksSchema, req.body);
+  res.status(httpStatus.OK).json({
+    success: true,
+    data: await service.bulkAssignCsTasks(payload, auditAuth(req)),
+  });
+}
+
 async function bulkPushVendor(req, res) {
   const payload = assertValid(bulkPushVendorSchema, req.body);
   res.status(httpStatus.OK).json({
@@ -325,6 +334,7 @@ module.exports = {
   addManualScaledOutputFile,
   assignCsTask,
   assignDesignTask,
+  bulkAssignCsTasks,
   bulkAssignDesignTasks,
   bulkPushVendor,
   claimDesignTask,

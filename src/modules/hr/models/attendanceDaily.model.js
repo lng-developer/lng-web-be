@@ -8,6 +8,7 @@ const actorSchema = new mongoose.Schema({
 
 const adjustmentValueSchema = new mongoose.Schema({
   status: { type: String, enum: Object.values(hrAttendanceStatuses), default: null },
+  workDayValue: { type: Number, min: 0, max: 1, default: 0 },
   checkInAt: { type: Date, default: null },
   checkOutAt: { type: Date, default: null },
   lateMinutes: { type: Number, min: 0, default: 0 },
