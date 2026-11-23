@@ -70,6 +70,7 @@ jest.mock('../../../src/modules/hr/public', () => ({
 }));
 
 jest.mock('../../../src/modules/organization/public', () => ({
+  listRoleAssignmentSource: jest.fn(),
   listAccountOrganizationSummaries: jest.fn(),
   listTeamMembers: jest.fn(),
 }));
@@ -309,11 +310,19 @@ describe('productionTask.service', () => {
     organizationPublic.listAccountOrganizationSummaries.mockImplementation(async (accountIds = []) => (
       accountIds.map((accountId) => ({
         accountId,
+        department: String(accountId) === designerId
+          ? { code: 'DES', status: 'active' }
+          : { code: 'QC', status: 'active' },
         team: String(accountId) === designerId
           ? { id: '660000000000000000000102', code: 'DES', name: 'Design Team' }
           : { id: '660000000000000000000103', code: 'QC', name: 'QC Team' },
       }))
     ));
+    organizationPublic.listRoleAssignmentSource.mockResolvedValue({
+      departments: [{ id: 'design-department', code: 'DES', status: 'active' }],
+      teams: [{ id: 'design-team', departmentId: 'design-department', status: 'active' }],
+      memberships: [{ accountId: designerId, teamId: 'design-team', status: 'active' }],
+    });
     organizationPublic.listTeamMembers.mockResolvedValue({
       leaders: [{ accountId: qcUserId }],
       members: [{ accountId: designerId }],
@@ -2595,11 +2604,43 @@ describe('productionTask.service', () => {
       search: 'J26',
       limit: 10,
       requiredPermission: 'DESIGN:WORK',
+      accountIds: [designerId],
     });
     expect(organizationPublic.listAccountOrganizationSummaries).toHaveBeenCalledWith([designerId, qcUserId]);
     expect(result).toEqual({
       items: [{ id: designerId, fullName: 'Scale User', employeeCode: 'J2605' }],
     });
+  });
+
+  test('design assignment accepts any team in Design and rejects a Design-named team outside it', async () => {
+    hrPublic.listAssignableProfiles.mockResolvedValue([{ accountId: designerId }]);
+    organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([{
+      accountId: designerId, team: { code: 'EMBROIDERY' },
+      department: { code: 'DES', status: 'active' },
+    }]);
+    mockTaskUpdate({ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE' });
+    await expect(service.assignDesignTask(taskId, { assignedDesignUserId: designerId }, {
+      permissions: ['PRODUCTION:WRITE'],
+    })).resolves.toMatchObject({ assignedDesignUserId: designerId });
+
+    repository.updateById.mockClear();
+    repository.findById.mockResolvedValueOnce({ _id: taskId, shopId, orderItemId, status: 'NEED_SCALE' });
+    organizationPublic.listAccountOrganizationSummaries.mockResolvedValue([{
+      accountId: designerId, team: { code: 'DES' },
+      department: { code: 'SALE', status: 'active' },
+    }]);
+    const result = await service.bulkAssignDesignTasks({ taskIds: [taskId], assignedDesignUserId: designerId }, {
+      permissions: ['PRODUCTION:WRITE'],
+    });
+    expect(result.assigned).toEqual([]);
+    expect(result.failed).toEqual([expect.objectContaining({ code: 'VALIDATION_ERROR' })]);
+    expect(repository.updateById).not.toHaveBeenCalled();
+  });
+
+  test('empty Design department does not fall back to all employees', async () => {
+    organizationPublic.listRoleAssignmentSource.mockResolvedValue({ departments: [], teams: [], memberships: [] });
+    await expect(service.getScaleAssignees({}, { permissions: ['PRODUCTION:READ'] })).resolves.toEqual({ items: [] });
+    expect(hrPublic.listAssignableProfiles).not.toHaveBeenCalled();
   });
 
   test('getCsAssignees returns active production-write employee refs', async () => {
