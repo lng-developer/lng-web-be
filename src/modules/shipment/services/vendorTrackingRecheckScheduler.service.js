@@ -11,6 +11,7 @@ async function runOnce(authContext = { system: true, source: 'VENDOR_TRACKING_RE
   return withDistributedLock('scheduler:vendor_tracking_recheck', 120000, async () => {
     if (running) return null;
     running = true;
+    const startedAt = new Date();
     try {
       const settings = await trackingSyncConfigService.get();
       const result = await shipmentService.recheckSubmittedVendorTracking({
@@ -21,8 +22,12 @@ async function runOnce(authContext = { system: true, source: 'VENDOR_TRACKING_RE
         system: authContext.system ?? true,
         source: authContext.source || 'VENDOR_TRACKING_RECHECK_SCHEDULER',
       });
-      await trackingSyncConfigService.recordRun(result, authContext);
+      const finishedAt = new Date();
+      await trackingSyncConfigService.recordRun(result, authContext, { startedAt, finishedAt });
       logger.info('vendor_tracking_recheck_completed', {
+        startedAt,
+        finishedAt,
+        durationMs: Math.max(0, finishedAt - startedAt),
         checked: result.checked,
         applied: result.applied,
         skipped: result.skipped,
@@ -30,7 +35,10 @@ async function runOnce(authContext = { system: true, source: 'VENDOR_TRACKING_RE
       });
       return result;
     } catch (error) {
-      logger.warn('vendor_tracking_recheck_failed', { error });
+      const finishedAt = new Date();
+      logger.warn('vendor_tracking_recheck_failed', {
+        error, startedAt, finishedAt, durationMs: Math.max(0, finishedAt - startedAt),
+      });
       return null;
     } finally {
       running = false;
