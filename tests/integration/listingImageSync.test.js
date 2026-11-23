@@ -125,6 +125,29 @@ test('reimporting an ASIN with a successful Amazon image does not create another
   expect(await Command.countDocuments({ type: 'SYNC_LISTING_IMAGES' })).toBe(1);
 });
 
+test.each([false, true])('manual jobs exclude synced ASINs with explicit selection=%s', async (selected) => {
+  const synced = await listing({ asin: 'B000000001', productImageUrl: 'https://res.cloudinary.com/test/synced.jpg', imageSync: { source: 'AMAZON_SYNC', resultStatus: 'SUCCEEDED' } });
+  const unchanged = await listing({ asin: 'B000000002', productImageUrl: 'https://res.cloudinary.com/test/unchanged.jpg', imageSync: { source: 'AMAZON_SYNC', resultStatus: 'UNCHANGED' } });
+  const pending = await listing({ asin: 'B000000003', imageSync: { source: 'IMPORTED' } });
+  const failed = await listing({ asin: 'B000000004', imageSync: { source: 'IMPORTED' } });
+  await mongoose.model('ListingImageSyncJob').create({ shopId, agentId: agent._id, status: 'COMPLETED_WITH_ERRORS',
+    items: [{ listingId: failed._id, asin: failed.asin, status: 'FAILED', errorCode: 'IMAGE_NOT_FOUND' }],
+  });
+  const job = await sync.createJob({ shopId: String(shopId), agentId: String(agent._id),
+    ...(selected ? { asins: [synced.asin, unchanged.asin, pending.asin, failed.asin] } : {}),
+  }, admin);
+  expect(job.total).toBe(2);
+  const batch = await claim();
+  expect(batch.batch.items.map(item => item.asin).sort()).toEqual([pending.asin, failed.asin]);
+});
+
+test('manual request with only synced listings creates no job or command', async () => {
+  await listing({ imageSync: { source: 'AMAZON_SYNC' }, productImageUrl: sourceUrl });
+  await expect(request()).rejects.toThrow('NO_ELIGIBLE_LISTINGS');
+  expect(await mongoose.model('ListingImageSyncJob').countDocuments()).toBe(0);
+  expect(await Command.countDocuments()).toBe(0);
+});
+
 test('legacy Amazon seller-import images can refresh, but explicit manual and unrelated URLs stay protected', async () => {
   const legacyUrl = 'https://m.media-amazon.com/images/S/gestalt-seller-images-prod-us-east-1/market/seller/image.png';
   const row = await listing({ asin: 'B0HDSWTSPD', productImageUrl: legacyUrl });
@@ -185,7 +208,11 @@ test('valid result stores Cloudinary URL, duplicate acknowledgement is idempoten
   expect(saved.productImageUrl).toMatch(/^https:\/\/res.cloudinary.com/);
   expect(saved.imageSync).toMatchObject({ source: 'AMAZON_SYNC', hash: expect.any(String), mediaAssetId: expect.anything(), sourceUrl, lastCheckedAt: expect.any(Date) });
   await extension.completeCommand(batch.commandId, { ...batch.lease, success: true }, extAuth);
-  await request(); const next = await claim();
+  // Jobs queued before this filter change can still return an unchanged image.
+  const queued = await require('../../src/modules/integration/listingImageSync/repositories/listingImageSync.repository')
+    .createJob({ shopId, agentId: agent._id, candidates: [saved] });
+  await sync.dispatchJob(queued._id);
+  const next = await claim();
   expect(await acknowledge(next, next.batch.items[0])).toEqual({ status: 'UNCHANGED' });
   expect(cloudinary.uploader.upload_stream).toHaveBeenCalledTimes(1);
 });

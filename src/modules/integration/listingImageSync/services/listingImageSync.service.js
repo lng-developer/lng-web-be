@@ -53,7 +53,7 @@ async function createJob({ shopId, agentId, asins }, auth) {
   const agent = await commands.findAgentById(agentId);
   if (!agent || String(agent.shopId) !== String(shopId)) throw notFound();
   assertSupported(agent, new Date());
-  const job = await enqueue(agent, true, new Date(), asins);
+  const job = await enqueue(agent, true, new Date(), asins, true);
   await dispatchJob(job._id);
   return jobDto(await repository.findJob(job._id));
 }

@@ -17,6 +17,7 @@ jest.mock(
 jest.mock("../../../../src/modules/mapping/public", () => ({
   recheckFulfillmentPlan: jest.fn(),
 }));
+jest.mock("../../../../src/modules/order/public", () => ({ findItemsByIds: jest.fn() }));
 
 jest.mock("../../../../src/modules/production/public", () => ({
   createOrRecheckTaskForOrderItem: jest.fn(),
@@ -38,6 +39,7 @@ jest.mock("../../../../src/modules/catalog/public", () => ({
 const rawRecordRepository = require("../../../../src/modules/integration/externalOrderImport/repositories/externalOrderRawRecord.repository");
 const issueRepository = require("../../../../src/modules/integration/externalOrderImport/repositories/externalOrderImportIssue.repository");
 const mappingPublic = require("../../../../src/modules/mapping/public");
+const orderPublic = require("../../../../src/modules/order/public");
 const productionPublic = require("../../../../src/modules/production/public");
 const listingImageSync = require("../../../../src/modules/integration/listingImageSync/public");
 const designPublic = require("../../../../src/modules/design/public");
@@ -60,6 +62,7 @@ describe("postImportMapping.worker", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    orderPublic.findItemsByIds.mockResolvedValue([]);
     rawRecordRepository.claimPostImportRecords.mockResolvedValue(true);
     rawRecordRepository.updatePostImportResultForLease.mockResolvedValue({});
     rawRecordRepository.listAllByJob.mockResolvedValue([]);
@@ -196,6 +199,40 @@ describe("postImportMapping.worker", () => {
       expect.any(String),
       expect.objectContaining({ postImportStatus: "COMPLETED" }),
     );
+  });
+
+  test.each(["B0HQJ6F2KL", null])("uses resolved item ASINs with another raw ASIN %s and deduplicates the batch", async (rawAsin) => {
+    const shopId = "660000000000000000000201";
+    mappingPublic.recheckFulfillmentPlan.mockResolvedValue({ status: "BLOCKED", shopId });
+    rawRecordRepository.listAllByJob.mockResolvedValue([
+      { postImportStatus: "COMPLETED", asin: null, orderItemId: payload.orderItemId },
+      { postImportStatus: "COMPLETED", asin: "  ", orderItemId: payload.orderItemId },
+      { postImportStatus: "COMPLETED", asin: rawAsin },
+      { postImportStatus: "SKIPPED", asin: null, orderItemId: "missing-item" },
+    ]);
+    orderPublic.findItemsByIds.mockResolvedValue([
+      { _id: payload.orderItemId, shopId, salesChannelCode: "AMAZON", asin: "b0hqj6f2kl" },
+    ]);
+    await processPostImportMappingJob({ data: payload });
+    expect(orderPublic.findItemsByIds).toHaveBeenCalledTimes(1);
+    expect(orderPublic.findItemsByIds).toHaveBeenCalledWith([payload.orderItemId, "missing-item"]);
+    expect(listingImageSync.enqueueImportedOrderImages).toHaveBeenCalledTimes(1);
+    expect(listingImageSync.enqueueImportedOrderImages).toHaveBeenCalledWith({ shopId, asins: ["B0HQJ6F2KL"] });
+  });
+
+  test("does not enqueue fallback ASINs from another shop or Etsy", async () => {
+    const shopId = "660000000000000000000201";
+    mappingPublic.recheckFulfillmentPlan.mockResolvedValue({ status: "BLOCKED", shopId });
+    rawRecordRepository.listAllByJob.mockResolvedValue([
+      { postImportStatus: "COMPLETED", orderItemId: "foreign" },
+      { postImportStatus: "COMPLETED", orderItemId: "etsy" },
+    ]);
+    orderPublic.findItemsByIds.mockResolvedValue([
+      { _id: "foreign", shopId: "other", salesChannelCode: "AMAZON", asin: "B0HQJ6F2KL" },
+      { _id: "etsy", shopId, salesChannelCode: "ETSY", asin: "B0HQJ6F2KL" },
+    ]);
+    await processPostImportMappingJob({ data: payload });
+    expect(listingImageSync.enqueueImportedOrderImages).not.toHaveBeenCalled();
   });
 
   test("does not queue images while another imported record is still pending", async () => {

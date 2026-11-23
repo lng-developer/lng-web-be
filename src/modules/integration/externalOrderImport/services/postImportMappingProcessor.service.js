@@ -1,5 +1,6 @@
 const { randomUUID } = require("crypto");
 const mappingPublic = require("../../../mapping/public");
+const orderPublic = require("../../../order/public");
 const productionPublic = require("../../../production/public");
 const listingImageSync = require("../../listingImageSync/public");
 const logger = require("../../../../shared/utils/logger");
@@ -70,8 +71,17 @@ async function enqueueImagesWhenImportJobIsReady(importJobId, shopId) {
       externalOrderPostImportStatuses.SKIPPED,
     ].includes(record.postImportStatus))) return;
 
+    const missingAsinItemIds = [...new Set(rawRecords
+      .filter((record) => !String(record.asin || "").trim() && record.orderItemId)
+      .map((record) => String(record.orderItemId)))];
+    const resolvedItems = missingAsinItemIds.length
+      ? await orderPublic.findItemsByIds(missingAsinItemIds) : [];
+    const resolvedAsins = new Map(resolvedItems
+      .filter((item) => String(item.shopId) === String(shopId) && item.salesChannelCode === "AMAZON")
+      .map((item) => [String(item._id), item.asin]));
     const asins = [...new Set(rawRecords
-      .map((record) => String(record.asin || "").trim().toUpperCase())
+      .map((record) => (String(record.asin || "").trim()
+        || String(resolvedAsins.get(String(record.orderItemId)) || "").trim()).toUpperCase())
       .filter(Boolean))];
     if (asins.length) {
       const BATCH_SIZE = 25;
