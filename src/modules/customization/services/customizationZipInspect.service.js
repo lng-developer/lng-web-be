@@ -307,6 +307,7 @@ function firstNonEmptyValue(...values) {
 
 function customerInputValue(node = {}) {
   if (node.colorSelection) return colorSelectionValue(node.colorSelection);
+  if (node.fontSelection) return firstNonEmptyValue(node.fontSelection.family, node.fontSelection.name);
 
   return firstNonEmptyValue(
     node.inputValue,
@@ -337,8 +338,10 @@ function parseAmazonCustomizationJson(document, sourceJsonPath) {
   const options = [];
   const images = [];
   const listingPreviewImageUrl = firstImageUrl(document);
+  const primaryTextKeys = new Set();
+  const { customizationData, ...otherData } = document;
 
-  walkCustomizationTree(document, (node) => {
+  walkCustomizationTree([customizationData, otherData], (node) => {
     if (isImageCustomization(node)) {
       images.push({
         label: node.label || node.name || null,
@@ -361,7 +364,15 @@ function parseAmazonCustomizationJson(document, sourceJsonPath) {
       value: isTextCustomization(node) ? String(value) : value,
       ...positionMetadata(node),
     };
-    (isTextCustomization(node) ? texts : options).push(input);
+    if (isTextCustomization(node)) {
+      // Amazon repeats text in version3.0 with different internal field names.
+      const key = JSON.stringify({ ...input, name: null });
+      if (node.customizationType === 'TextPrinting' && primaryTextKeys.has(key)) return;
+      if (node.type === 'TextCustomization') primaryTextKeys.add(key);
+      texts.push(input);
+    } else {
+      options.push(input);
+    }
   });
 
   return {

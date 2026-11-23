@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const auditPublic = require('../../audit/public');
 const logger = require('../../../shared/utils/logger');
+const AUDIT_SOURCES = new Set(['HTTP', 'WORKER', 'SYSTEM', 'IMPORT']);
 
 async function recordDesignOperation({
   action,
@@ -23,7 +24,10 @@ async function recordDesignOperation({
       scopeType: shopId ? 'SHOP' : null,
       scopeId: shopId ? String(shopId) : null,
       outcome: 'SUCCEEDED',
-      source: authContext.source || (authContext.system ? 'SYSTEM' : 'HTTP'),
+      source: (AUDIT_SOURCES.has(authContext.source) ? authContext.source : null)
+        || (authContext.worker ? 'WORKER' : null)
+        || (authContext.import ? 'IMPORT' : null)
+        || (authContext.system ? 'SYSTEM' : 'HTTP'),
       requestId: authContext.auditContext?.requestId || null,
       ipAddress: authContext.auditContext?.ipAddress || null,
       userAgent: authContext.auditContext?.userAgent || null,

@@ -6,6 +6,7 @@ const overtimeRepository = require('./repositories/overtime.repository');
 const authPublic = require('../auth/public');
 const attendanceService = require('./services/attendance.service');
 const payrollService = require('./services/payroll.service');
+const monthlyLeaveAccrualScheduler = require('./services/monthlyLeaveAccrualScheduler.service');
 
 function toId(value) {
   return value ? String(value._id || value.id || value) : null;
@@ -203,4 +204,6 @@ module.exports = {
   listEmployeeProfilesByEmployeeCodes,
   listAssignableProfiles,
   syncEmployeeProfileTeam,
+  startMonthlyLeaveAccrualScheduler: monthlyLeaveAccrualScheduler.startMonthlyLeaveAccrualScheduler,
+  stopMonthlyLeaveAccrualScheduler: monthlyLeaveAccrualScheduler.stopMonthlyLeaveAccrualScheduler,
 };

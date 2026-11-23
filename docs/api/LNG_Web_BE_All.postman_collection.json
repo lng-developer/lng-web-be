@@ -5621,7 +5621,7 @@
             {
               "name": "GET /api/hr/announcements",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_ANNOUNCEMENTS:READ, HR_ANNOUNCEMENTS:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_ANNOUNCEMENTS:READ, HR_ANNOUNCEMENTS:WRITE.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -5660,7 +5660,7 @@
             {
               "name": "POST /api/hr/announcements",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_ANNOUNCEMENTS:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_ANNOUNCEMENTS:WRITE.",
                 "method": "POST",
                 "header": [
                   {
@@ -5703,7 +5703,7 @@
             {
               "name": "DELETE /api/hr/announcements/:id",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_ANNOUNCEMENTS:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_ANNOUNCEMENTS:WRITE.",
                 "method": "DELETE",
                 "header": [],
                 "url": {
@@ -5739,7 +5739,7 @@
             {
               "name": "GET /api/hr/announcements/:id",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_ANNOUNCEMENTS:READ, HR_ANNOUNCEMENTS:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_ANNOUNCEMENTS:READ, HR_ANNOUNCEMENTS:WRITE.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -5785,7 +5785,7 @@
             {
               "name": "PATCH /api/hr/announcements/:id",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_ANNOUNCEMENTS:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_ANNOUNCEMENTS:WRITE.",
                 "method": "PATCH",
                 "header": [
                   {
@@ -5885,9 +5885,45 @@
               }
             },
             {
+              "name": "DELETE /api/hr/attendance/:attendanceId",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_ATTENDANCE:MANAGE.",
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/hr/attendance/{{attendanceId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "hr",
+                    "attendance",
+                    "{{attendanceId}}"
+                  ],
+                  "variable": [
+                    {
+                      "key": "attendanceId",
+                      "value": "{{attendanceId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
               "name": "PATCH /api/hr/attendance/:attendanceId",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_ATTENDANCE:MANAGE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_ATTENDANCE:MANAGE.",
                 "method": "PATCH",
                 "header": [
                   {
@@ -5937,7 +5973,7 @@
             {
               "name": "POST /api/hr/attendance/check-in",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_ATTENDANCE:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_ATTENDANCE:WRITE.",
                 "method": "POST",
                 "header": [
                   {
@@ -5981,7 +6017,7 @@
             {
               "name": "POST /api/hr/attendance/check-out",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_ATTENDANCE:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_ATTENDANCE:WRITE.",
                 "method": "POST",
                 "header": [
                   {
@@ -6023,9 +6059,53 @@
               }
             },
             {
+              "name": "POST /api/hr/attendance/manual",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_ATTENDANCE:MANAGE.",
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/hr/attendance/manual",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "hr",
+                    "attendance",
+                    "manual"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"profileId\": \"{{profileId}}\",\n  \"workDateKey\": \"2026-08-06\",\n  \"status\": \"PRESENT\",\n  \"workDayValue\": 1,\n  \"checkInAt\": \"2026-08-06T01:00:00.000Z\",\n  \"checkOutAt\": \"2026-08-06T10:00:00.000Z\",\n  \"reason\": \"Manual entry\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
               "name": "GET /api/hr/attendance/me",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_ATTENDANCE:WRITE.",
+                "description": "Bearer token required.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -6122,7 +6202,7 @@
             {
               "name": "GET /api/hr/calendar-overrides",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_SCHEDULE:READ, HR_SCHEDULE:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_SCHEDULE:READ, HR_SCHEDULE:WRITE.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -6165,7 +6245,7 @@
             {
               "name": "POST /api/hr/calendar-overrides",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_SCHEDULE:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_SCHEDULE:WRITE.",
                 "method": "POST",
                 "header": [
                   {
@@ -6208,7 +6288,7 @@
             {
               "name": "PATCH /api/hr/calendar-overrides/:id",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_SCHEDULE:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_SCHEDULE:WRITE.",
                 "method": "PATCH",
                 "header": [
                   {
@@ -6263,7 +6343,7 @@
             {
               "name": "GET /api/hr/dashboard",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:READ, HR_EMPLOYEES:WRITE. Returns HR overview aggregates for employees, attendance, approvals, operations, latest payroll snapshot, announcements, and optional attendanceTrend when days=1|7|30.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_EMPLOYEES:READ, HR_EMPLOYEES:WRITE.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -6297,7 +6377,7 @@
             {
               "name": "GET /api/hr/employee-profiles",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:READ, HR_EMPLOYEES:WRITE, HR_CALENDAR:READ, HR_CALENDAR:WRITE, HR_SCHEDULE:READ, HR_SCHEDULE:WRITE, HR_ATTENDANCE:READ, HR_ATTENDANCE:MANAGE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_EMPLOYEES:READ, HR_EMPLOYEES:WRITE, HR_CALENDAR:READ, HR_CALENDAR:WRITE, HR_SCHEDULE:READ, HR_SCHEDULE:WRITE, HR_ATTENDANCE:READ, HR_ATTENDANCE:MANAGE.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -6340,7 +6420,7 @@
             {
               "name": "POST /api/hr/employee-profiles",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_EMPLOYEES:WRITE.",
                 "method": "POST",
                 "header": [
                   {
@@ -6383,7 +6463,7 @@
             {
               "name": "DELETE /api/hr/employee-profiles/:profileId",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_EMPLOYEES:WRITE.",
                 "method": "DELETE",
                 "header": [],
                 "url": {
@@ -6419,7 +6499,7 @@
             {
               "name": "GET /api/hr/employee-profiles/:profileId",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:READ, HR_EMPLOYEES:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_EMPLOYEES:READ, HR_EMPLOYEES:WRITE.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -6461,7 +6541,7 @@
             {
               "name": "PATCH /api/hr/employee-profiles/:profileId",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_EMPLOYEES:WRITE.",
                 "method": "PATCH",
                 "header": [
                   {
@@ -6511,7 +6591,7 @@
             {
               "name": "GET /api/hr/employee-profiles/:profileId/avatar",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:READ, HR_EMPLOYEES:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_EMPLOYEES:READ, HR_EMPLOYEES:WRITE, DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW, PRODUCTION:READ, PRODUCTION:WRITE, PRODUCTION:SCALE_WORK, PRODUCTION:SCALE_ASSIGN, PRODUCTION:QC_REVIEW.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -6562,7 +6642,7 @@
             {
               "name": "POST /api/hr/employee-profiles/:profileId/avatar",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_EMPLOYEES:WRITE.",
                 "method": "POST",
                 "header": [],
                 "url": {
@@ -6609,7 +6689,7 @@
             {
               "name": "PATCH /api/hr/employee-profiles/:profileId/restore",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_EMPLOYEES:WRITE.",
                 "method": "PATCH",
                 "header": [],
                 "url": {
@@ -6850,7 +6930,7 @@
             {
               "name": "GET /api/hr/holidays",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -6897,7 +6977,7 @@
             {
               "name": "POST /api/hr/holidays",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_CALENDAR:WRITE.",
                 "method": "POST",
                 "header": [
                   {
@@ -6940,7 +7020,7 @@
             {
               "name": "DELETE /api/hr/holidays/:id",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_CALENDAR:WRITE.",
                 "method": "DELETE",
                 "header": [],
                 "url": {
@@ -6976,7 +7056,7 @@
             {
               "name": "GET /api/hr/holidays/:id",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -7012,7 +7092,7 @@
             {
               "name": "PATCH /api/hr/holidays/:id",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_CALENDAR:WRITE.",
                 "method": "PATCH",
                 "header": [
                   {
@@ -7062,7 +7142,7 @@
             {
               "name": "POST /api/hr/holidays/bulk-import",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_CALENDAR:WRITE.",
                 "method": "POST",
                 "header": [
                   {
@@ -7106,7 +7186,7 @@
             {
               "name": "GET /api/hr/holidays/check",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -7142,7 +7222,7 @@
             {
               "name": "GET /api/hr/holidays/range",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -7182,7 +7262,7 @@
             {
               "name": "GET /api/hr/holidays/summary/:year",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -7219,7 +7299,7 @@
             {
               "name": "GET /api/hr/holidays/templates",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -7251,6 +7331,35 @@
         {
           "name": "Leave Balances",
           "item": [
+            {
+              "name": "GET /api/hr/leave-balances",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): HR_LEAVE:READ, HR_LEAVE:APPROVE.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/hr/leave-balances",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "hr",
+                    "leave-balances"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
             {
               "name": "GET /api/hr/leave-balances/:profileId/:year/:leaveType",
               "request": {
@@ -7300,7 +7409,7 @@
             {
               "name": "PUT /api/hr/leave-balances/:profileId/:year/:leaveType",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_LEAVE:APPROVE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_LEAVE:APPROVE.",
                 "method": "PUT",
                 "header": [
                   {
@@ -7360,7 +7469,7 @@
             {
               "name": "PATCH /api/hr/leave-balances/:profileId/:year/:leaveType/adjust",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_LEAVE:APPROVE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_LEAVE:APPROVE.",
                 "method": "PATCH",
                 "header": [
                   {
@@ -7421,7 +7530,7 @@
             {
               "name": "POST /api/hr/leave-balances/accrue",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_LEAVE:APPROVE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_LEAVE:APPROVE.",
                 "method": "POST",
                 "header": [
                   {
@@ -7465,7 +7574,7 @@
             {
               "name": "POST /api/hr/leave-balances/carry-over",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_LEAVE:APPROVE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_LEAVE:APPROVE.",
                 "method": "POST",
                 "header": [
                   {
@@ -7509,7 +7618,7 @@
             {
               "name": "GET /api/hr/leave-balances/me",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_LEAVE:WRITE.",
+                "description": "Bearer token required.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -7545,7 +7654,7 @@
             {
               "name": "POST /api/hr/leave-balances/reset",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_LEAVE:APPROVE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_LEAVE:APPROVE.",
                 "method": "POST",
                 "header": [
                   {
@@ -7637,7 +7746,7 @@
             {
               "name": "POST /api/hr/leave-requests",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_LEAVE:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_LEAVE:WRITE.",
                 "method": "POST",
                 "header": [
                   {
@@ -7680,7 +7789,7 @@
             {
               "name": "PATCH /api/hr/leave-requests/:requestId",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_LEAVE:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_LEAVE:WRITE.",
                 "method": "PATCH",
                 "header": [
                   {
@@ -7781,7 +7890,7 @@
             {
               "name": "POST /api/hr/leave-requests/:requestId/attachments",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_LEAVE:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_LEAVE:WRITE.",
                 "method": "POST",
                 "header": [
                   {
@@ -7832,7 +7941,7 @@
             {
               "name": "POST /api/hr/leave-requests/:requestId/cancel",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_LEAVE:WRITE, HR_LEAVE:APPROVE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_LEAVE:WRITE, HR_LEAVE:APPROVE.",
                 "method": "POST",
                 "header": [
                   {
@@ -7883,7 +7992,7 @@
             {
               "name": "POST /api/hr/leave-requests/:requestId/refund",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_LEAVE:APPROVE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_LEAVE:APPROVE.",
                 "method": "POST",
                 "header": [
                   {
@@ -7985,7 +8094,7 @@
             {
               "name": "GET /api/hr/leave-requests/me",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_LEAVE:WRITE.",
+                "description": "Bearer token required.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -8029,7 +8138,7 @@
             {
               "name": "POST /api/hr/leave-requests/preview",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_LEAVE:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_LEAVE:WRITE.",
                 "method": "POST",
                 "header": [
                   {
@@ -8125,7 +8234,7 @@
             {
               "name": "POST /api/hr/overtime-requests",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_OVERTIME:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_OVERTIME:WRITE.",
                 "method": "POST",
                 "header": [
                   {
@@ -8168,7 +8277,7 @@
             {
               "name": "PATCH /api/hr/overtime-requests/:requestId",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_OVERTIME:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_OVERTIME:WRITE.",
                 "method": "PATCH",
                 "header": [
                   {
@@ -8269,7 +8378,7 @@
             {
               "name": "POST /api/hr/overtime-requests/:requestId/cancel",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_OVERTIME:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_OVERTIME:WRITE.",
                 "method": "POST",
                 "header": [
                   {
@@ -8371,7 +8480,7 @@
             {
               "name": "GET /api/hr/overtime-requests/me",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_OVERTIME:WRITE.",
+                "description": "Bearer token required.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -8424,7 +8533,7 @@
             {
               "name": "GET /api/hr/payroll-adjustments",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:READ.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_PAYROLL:READ.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -8471,7 +8580,7 @@
             {
               "name": "POST /api/hr/payroll-adjustments",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_PAYROLL:WRITE.",
                 "method": "POST",
                 "header": [
                   {
@@ -8514,7 +8623,7 @@
             {
               "name": "DELETE /api/hr/payroll-adjustments/:id",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_PAYROLL:WRITE.",
                 "method": "DELETE",
                 "header": [
                   {
@@ -8564,7 +8673,7 @@
             {
               "name": "PATCH /api/hr/payroll-adjustments/:id",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_PAYROLL:WRITE.",
                 "method": "PATCH",
                 "header": [
                   {
@@ -8614,7 +8723,7 @@
             {
               "name": "POST /api/hr/payroll-adjustments/bulk",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_PAYROLL:WRITE.",
                 "method": "POST",
                 "header": [
                   {
@@ -8663,7 +8772,7 @@
             {
               "name": "GET /api/hr/payroll-settings",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:READ.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_PAYROLL:READ.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -8692,7 +8801,7 @@
             {
               "name": "PUT /api/hr/payroll-settings",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_PAYROLL:WRITE.",
                 "method": "PUT",
                 "header": [
                   {
@@ -8740,7 +8849,7 @@
             {
               "name": "GET /api/hr/payrolls",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:READ.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_PAYROLL:READ.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -8787,7 +8896,7 @@
             {
               "name": "GET /api/hr/payrolls/:id",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:READ.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_PAYROLL:READ.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -8841,7 +8950,7 @@
             {
               "name": "POST /api/hr/payrolls/:id/email",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_PAYROLL:WRITE.",
                 "method": "POST",
                 "header": [
                   {
@@ -8892,7 +9001,7 @@
             {
               "name": "POST /api/hr/payrolls/:id/finalize",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:FINALIZE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_PAYROLL:FINALIZE.",
                 "method": "POST",
                 "header": [
                   {
@@ -8943,7 +9052,7 @@
             {
               "name": "POST /api/hr/payrolls/:id/mark-paid",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:PAY.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_PAYROLL:PAY.",
                 "method": "POST",
                 "header": [
                   {
@@ -9042,7 +9151,7 @@
             {
               "name": "GET /api/hr/payrolls/results",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:READ.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_PAYROLL:READ.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -9090,7 +9199,7 @@
             {
               "name": "GET /api/hr/payrolls/results/:resultId",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:READ.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_PAYROLL:READ.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -9145,7 +9254,7 @@
             {
               "name": "GET /api/hr/payrolls/results/export",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:READ.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_PAYROLL:READ.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -9186,7 +9295,7 @@
             {
               "name": "POST /api/hr/payrolls/run",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_PAYROLL:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_PAYROLL:WRITE.",
                 "method": "POST",
                 "header": [
                   {
@@ -9235,7 +9344,7 @@
             {
               "name": "GET /api/hr/saturday-rotations",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:READ, HR_CALENDAR:WRITE, HR_SATURDAY_ROTATION:WRITE.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -9286,7 +9395,7 @@
             {
               "name": "POST /api/hr/saturday-rotations",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE, HR_SATURDAY_ROTATION:WRITE.",
                 "method": "POST",
                 "header": [
                   {
@@ -9329,7 +9438,7 @@
             {
               "name": "DELETE /api/hr/saturday-rotations/:id",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE, HR_SATURDAY_ROTATION:WRITE.",
                 "method": "DELETE",
                 "header": [],
                 "url": {
@@ -9365,7 +9474,7 @@
             {
               "name": "PATCH /api/hr/saturday-rotations/:id",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE, HR_SATURDAY_ROTATION:WRITE.",
                 "method": "PATCH",
                 "header": [
                   {
@@ -9415,7 +9524,7 @@
             {
               "name": "POST /api/hr/saturday-rotations/generate",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE, HR_SATURDAY_ROTATION:WRITE.",
                 "method": "POST",
                 "header": [
                   {
@@ -9459,7 +9568,7 @@
             {
               "name": "GET /api/hr/saturday-rotations/matrix",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:READ, HR_CALENDAR:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:READ, HR_CALENDAR:WRITE, HR_SATURDAY_ROTATION:WRITE.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -9503,7 +9612,7 @@
             {
               "name": "DELETE /api/hr/saturday-rotations/team/:teamId",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE.",
+                "description": "Bearer token required. Permissions (ANY): HR_CALENDAR:WRITE, HR_SATURDAY_ROTATION:WRITE.",
                 "method": "DELETE",
                 "header": [],
                 "url": {
@@ -9555,7 +9664,7 @@
             {
               "name": "GET /api/hr/shift-assignments",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_SCHEDULE:READ, HR_SCHEDULE:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_SCHEDULE:READ, HR_SCHEDULE:WRITE.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -9598,7 +9707,7 @@
             {
               "name": "POST /api/hr/shift-assignments",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_SCHEDULE:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_SCHEDULE:WRITE.",
                 "method": "POST",
                 "header": [
                   {
@@ -9641,7 +9750,7 @@
             {
               "name": "PATCH /api/hr/shift-assignments/:id",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_SCHEDULE:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_SCHEDULE:WRITE.",
                 "method": "PATCH",
                 "header": [
                   {
@@ -9696,7 +9805,7 @@
             {
               "name": "GET /api/hr/shifts",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_SCHEDULE:READ, HR_SCHEDULE:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_SCHEDULE:READ, HR_SCHEDULE:WRITE.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -9837,7 +9946,7 @@
             {
               "name": "POST /api/hr/staff-provisioning",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_EMPLOYEES:WRITE.",
                 "method": "POST",
                 "header": [
                   {
@@ -9880,7 +9989,7 @@
             {
               "name": "GET /api/hr/staff-provisioning/roles",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_EMPLOYEES:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_EMPLOYEES:WRITE.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -9915,7 +10024,7 @@
             {
               "name": "GET /api/hr/work-locations",
               "request": {
-                "description": "Bearer token required. Permissions (ANY): HR_SCHEDULE:READ, HR_SCHEDULE:WRITE.",
+                "description": "Bearer token required. Permissions (ANY_GLOBAL): HR_SCHEDULE:READ, HR_SCHEDULE:WRITE.",
                 "method": "GET",
                 "header": [],
                 "url": {
@@ -15728,6 +15837,50 @@
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"taskIds\": [\n    \"{{taskId}}\"\n  ],\n  \"assignedDesignUserId\": \"{{designerId}}\",\n  \"designNote\": \"Scale for the selected variant.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "PATCH /api/production/tasks/bulk-assign-cs",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_ASSIGN.",
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/production/tasks/bulk-assign-cs",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "production",
+                    "tasks",
+                    "bulk-assign-cs"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"taskIds\": [\n    \"{{taskId}}\"\n  ],\n  \"csAssigneeId\": \"{{designerId}}\",\n  \"csNote\": \"Confirm customer request.\"\n}",
                   "options": {
                     "raw": {
                       "language": "json"

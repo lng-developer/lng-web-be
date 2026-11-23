@@ -7,11 +7,19 @@ function requests(collection) {
 describe('HR Postman collection', () => {
   test('covers every registered HR route with usable mutation examples', () => {
     const items = requests(buildCollection());
-    expect(items).toHaveLength(100);
-    expect(new Set(items.map(({ name }) => name)).size).toBe(100);
+    expect(items).toHaveLength(102);
+    expect(new Set(items.map(({ name }) => name)).size).toBe(102);
 
     const checkIn = items.find(({ name }) => name === 'POST /api/hr/attendance/check-in');
     expect(JSON.parse(checkIn.request.body.raw)).toEqual({ occurredAt: '2026-08-06T01:00:00.000Z' });
+
+    const manual = items.find(({ name }) => name === 'POST /api/hr/attendance/manual');
+    expect(JSON.parse(manual.request.body.raw)).toMatchObject({
+      profileId: '{{profileId}}', workDateKey: '2026-08-06', status: 'PRESENT',
+      reason: 'Manual entry', workDayValue: 1,
+      checkInAt: '2026-08-06T01:00:00.000Z', checkOutAt: '2026-08-06T10:00:00.000Z',
+    });
+    expect(items.find(({ name }) => name === 'DELETE /api/hr/attendance/:attendanceId')).toBeDefined();
 
     const avatar = items.find(({ name }) => name === 'POST /api/hr/employee-profiles/me/avatar');
     expect(avatar.request.body.mode).toBe('formdata');

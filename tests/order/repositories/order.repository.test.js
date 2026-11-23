@@ -246,6 +246,7 @@ describe('order.repository list', () => {
       total: 7,
       page: 2,
       limit: 3,
+      totalItems: 7,
     });
     expect(Order.aggregate).toHaveBeenCalledTimes(1);
     expect(Order.countDocuments).not.toHaveBeenCalled();

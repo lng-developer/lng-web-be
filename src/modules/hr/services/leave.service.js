@@ -123,6 +123,14 @@ async function getRequiredSelfProfile(authContext = {}) {
 }
 
 async function actorSnapshot(authContext, reason = null) {
+  if (authContext?.system) {
+    return {
+      actorId: null,
+      actorName: 'SYSTEM',
+      reason,
+      occurredAt: new Date(),
+    };
+  }
   if (!authContext?.accountId) throw forbidden();
   const profile = await profileRepository.findByAccountId(authContext.accountId);
   let actorName = toId(profile?.accountId) === String(authContext.accountId) ? profile.fullName : null;
@@ -143,6 +151,7 @@ function hasGlobalPermission(authContext, permissions) {
 }
 
 function canAccessSnapshot(authContext, permission, snapshot) {
+  if (authContext?.system) return true;
   if (hasGlobalPermission(authContext, [permission])) return true;
   return authPublic.canAccessScope(authContext, permission, {
     scopeType: 'team',
@@ -568,6 +577,7 @@ async function assertCanManageBalance(profileId, authContext) {
 async function adjustBalance(profileId, year, leaveType, payload, authContext = {}) {
   const profile = await assertCanManageBalance(profileId, authContext);
   const actor = await actorSnapshot(authContext, payload.reason);
+  await repository.ensureBalance(profileId, year, leaveType);
   const balance = await repository.adjustBalance(profileId, year, leaveType, payload.units, {
     ...actor,
     action: 'ADJUST',

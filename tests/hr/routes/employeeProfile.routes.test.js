@@ -119,7 +119,7 @@ describe('employee profile routes', () => {
     );
   });
 
-  test('GET /employee-profiles/:profileId/avatar permits a Design reader', async () => {
+  test.each(['DESIGN:READ', 'PRODUCTION:READ', 'PRODUCTION:SCALE_WORK'])('GET avatar permits %s', async (permission) => {
     pipeline.mockImplementationOnce(async (_stream, response) => response.end('image'));
     service.withProfileAvatar.mockImplementation((_profileId, _auth, reader) => reader({
       mediaAsset: { mimeType: 'image/png', size: 5 },
@@ -129,13 +129,13 @@ describe('employee profile routes', () => {
     const response = await request(createServer(), {
       method: 'GET',
       path: '/employee-profiles/660000000000000000000004/avatar',
-      headers: { 'X-Auth-Context': JSON.stringify({ permissions: ['DESIGN:READ'] }) },
+      headers: { 'X-Auth-Context': JSON.stringify({ permissions: [permission] }) },
     });
 
     expect(response.statusCode).toBe(200);
     expect(service.withProfileAvatar).toHaveBeenCalledWith(
       '660000000000000000000004',
-      { permissions: ['DESIGN:READ'] },
+      { permissions: [permission] },
       expect.any(Function),
     );
   });

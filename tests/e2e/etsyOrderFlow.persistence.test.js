@@ -91,6 +91,25 @@ async function importRows(rows = [fixture.etsyRow()]) {
   return result;
 }
 
+test('Etsy import creates one listing and PSD task before mapping, including repeat imports and shared listings', async () => {
+  const rows = [fixture.etsyRow(), fixture.etsyRow({ 'Order ID': '9000000011', 'Transaction ID': '9000000012' })];
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const result = await importer.importEtsySoldOrderItems({
+      buffer: fixture.csvBuffer(rows), originalFilename: 'synthetic-etsy.csv', mimeType: 'text/csv',
+      shopId: String(shop._id), marketplaceCode: 'ETSY_US',
+    });
+    expect(result.failedCount).toBe(0);
+    const listings = await Listing.find().lean();
+    expect(listings).toHaveLength(1);
+    const tasks = await DesignTask.find({ taskType: 'PSD_TEMPLATE' }).lean();
+    expect(tasks).toHaveLength(1);
+    expect(String(tasks[0].listingId)).toBe(String(listings[0]._id));
+    const items = await Item.find().lean();
+    expect(items).toHaveLength(2);
+    expect(items.every((item) => String(item.listingId) === String(listings[0]._id))).toBe(true);
+  }
+});
+
 test('CSV import persists identity and personalization; repeated import keeps one order and listing', async () => {
   await importRows();
   const order = await Order.findOne({ externalOrderId: '9000000001' }).lean();
@@ -145,7 +164,7 @@ test('listing PSD request is idempotent, late main image reaches task, QC approv
   const listing = await Listing.findOne().lean();
   const { task, created } = await catalogService.requestListingPsd(String(listing._id), {}, auth);
   const repeated = await catalogService.requestListingPsd(String(listing._id), {}, auth);
-  expect(created).toBe(true);
+  expect(created).toBe(false);
   expect(repeated.created).toBe(false);
   expect(repeated.task.id).toBe(task.id);
   expect(await DesignTask.countDocuments()).toBe(1);
@@ -234,12 +253,12 @@ test('configured mapping produces a production task with customization; cancella
   expect((await Submission.findById(submission._id).lean()).status).toBe('DRAFT');
 });
 
-test('requesting PSD outside the authorized shop is rejected without creating a task', async () => {
+test('requesting PSD outside the authorized shop cannot access or duplicate the automatic task', async () => {
   await importRows();
   const listing = await Listing.findOne().lean();
   const wrongScope = { permissions: [], scopes: [{ scopeType: 'shop', scopeId: String(new mongoose.Types.ObjectId()), permissions: ['CATALOG:WRITE'] }] };
   await expect(catalogService.requestListingPsd(String(listing._id), {}, wrongScope)).rejects.toThrow(/forbidden/i);
-  expect(await DesignTask.countDocuments()).toBe(0);
+  expect(await DesignTask.countDocuments()).toBe(1);
 });
 
 test('Amazon import retains its own customization evidence alongside Etsy data', async () => {

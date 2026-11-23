@@ -4,7 +4,7 @@ const { hrLeaveTypes } = require('../constants/hr.constants');
 const integer = { validator: (value) => value === null || Number.isInteger(value), message: '{PATH} must be an integer' };
 
 const historySchema = new mongoose.Schema({
-  actorId: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', required: true },
+  actorId: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', default: null },
   actorName: { type: String, default: null, trim: true },
   requestId: { type: mongoose.Schema.Types.ObjectId, ref: 'HrLeaveRequest', default: null },
   action: { type: String, enum: ['SET', 'ADJUST', 'ACCRUE', 'RESET', 'CARRY_OVER', 'CONSUME', 'REFUND'], required: true },

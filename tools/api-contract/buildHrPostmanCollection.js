@@ -47,6 +47,7 @@ const bodyByRoute = {
   'PATCH /api/hr/saturday-rotations/:id': { employeeProfileIds: [oid('profileId')] },
   'POST /api/hr/attendance/check-in': { occurredAt: '2026-08-06T01:00:00.000Z' },
   'POST /api/hr/attendance/check-out': { occurredAt: '2026-08-06T10:00:00.000Z' },
+  'POST /api/hr/attendance/manual': { profileId: oid('profileId'), workDateKey: '2026-08-06', status: 'PRESENT', workDayValue: 1, checkInAt: '2026-08-06T01:00:00.000Z', checkOutAt: '2026-08-06T10:00:00.000Z', reason: 'Manual entry' },
   'PATCH /api/hr/attendance/:attendanceId': { checkInAt: '2026-08-06T01:00:00.000Z', reason: 'Correct imported time' },
   'PUT /api/hr/leave-balances/:profileId/:year/:leaveType': { entitledUnits: 24, adjustmentUnits: 0, reason: 'Annual entitlement' },
   'PATCH /api/hr/leave-balances/:profileId/:year/:leaveType/adjust': { units: 2, reason: 'Manual correction' },

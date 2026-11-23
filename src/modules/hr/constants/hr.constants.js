@@ -95,7 +95,15 @@ const hrPermissions = Object.freeze({
   INTEGRATIONS_MANAGE: 'HR_INTEGRATIONS:MANAGE',
 });
 
+const employeeAvatarReadPermissions = Object.freeze([
+  hrPermissions.EMPLOYEE_READ, hrPermissions.EMPLOYEE_WRITE,
+  'DESIGN:READ', 'DESIGN:WRITE', 'DESIGN:WORK', 'DESIGN:REVIEW',
+  'PRODUCTION:READ', 'PRODUCTION:WRITE', 'PRODUCTION:SCALE_WORK',
+  'PRODUCTION:SCALE_ASSIGN', 'PRODUCTION:QC_REVIEW',
+]);
+
 module.exports = {
+  employeeAvatarReadPermissions,
   hrEmployeeStatuses,
   hrEmploymentTypes,
   hrAttendanceStatuses,

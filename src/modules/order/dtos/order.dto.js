@@ -32,6 +32,7 @@ function toPagination(result = {}) {
     total: result.total,
     page: result.page,
     limit: result.limit,
+    ...(result.totalItems !== undefined ? { totalItems: result.totalItems } : {}),
   };
 }
 
@@ -573,6 +574,7 @@ function toOrderWorkbenchDto(result = {}) {
       items: (row.items || []).map((item) => toWorkbenchItem({ ...item, order: row.order })),
     })),
     pagination: toPagination(result),
+    ...(result.totalItems !== undefined ? { totalItems: result.totalItems } : {}),
   };
 }
 

@@ -114,7 +114,9 @@ function normalizeEtsyCustomization(rawCustomization = {}) {
   const pairs = parseVariationPairs(variations);
 
   const normalizeWhitespace = (text) => cleanValue(text).replace(/\s+/g, ' ');
-  const combined = pairs.map(pair => `${pair.label}: ${pair.value}`).join('\n');
+  const combined = pairs.map(pair => `${pair.label}: ${pair.value}`)
+    .filter(text => normalizeWhitespace(personalization).includes(normalizeWhitespace(text)))
+    .join('\n');
   const isCombinedCopy = pairs.length > 0 && normalizeWhitespace(personalization) === normalizeWhitespace(combined);
   const isTextCopy = pairs.some(pair => textLabels.has(pair.label.toLowerCase()) && normalizeWhitespace(pair.value) === normalizeWhitespace(personalization));
   if (personalization && !isCombinedCopy && !isTextCopy) {

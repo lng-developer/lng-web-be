@@ -108,7 +108,7 @@ describe('orderWorkbenchProjection.repository', () => {
 
     expect(OrderWorkbenchProjection.find).toHaveBeenCalledWith({ orderId: 'order-1' });
     expect(chain.skip).toHaveBeenCalledWith(3);
-    expect(result).toEqual({ items: [{ orderId: 'order-1' }], total: 7, page: 2, limit: 3 });
+    expect(result).toEqual({ items: [{ orderId: 'order-1' }], total: 7, page: 2, limit: 3, totalItems: 7 });
   });
 
   test('filters and counts New orders by orderedAt from the last 24 hours', async () => {
@@ -128,7 +128,8 @@ describe('orderWorkbenchProjection.repository', () => {
       orderedAt: { $gte: new Date('2026-09-04T12:00:00.000Z') },
       status: { $in: expect.arrayContaining(['IMPORTED', 'PROCESSING']) },
     });
-    const group = OrderWorkbenchProjection.aggregate.mock.calls[0][0].find((stage) => stage.$group).$group;
+    const countCall = OrderWorkbenchProjection.aggregate.mock.calls.find((call) => call[0].some((stage) => stage.$group && stage.$group.NEW_ORDER));
+    const group = countCall[0].find((stage) => stage.$group).$group;
     expect(group.NEW_ORDER).toEqual({
       $sum: {
         $cond: [
