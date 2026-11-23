@@ -1,5 +1,12 @@
 # Etsy order display fields — 2026-10-14
 
+## 2026-11-23 recipient contacts and typed personalization
+
+- A local replay of an operator-provided Etsy mission-control JSON confirmed that recipient phone exists in `fulfillment.to_address.phone`; `verified_address.suggested_address.phone` may be empty. No customer JSON is committed to the repository.
+- Optional CSV columns `Ship Phone`, `Buyer Email`, and `LNG Buyer ID` map to existing `shippingAddress.phoneMasked`, `buyer.emailMasked`, and `buyer.externalBuyerId`. These are the same contact fields consumed by the existing Fulfillment handoff. No schema changes are needed; legacy CSVs without these columns remain accepted.
+- The extension preserves Etsy explicitly typed Personalization entries in the Personalization column, allowing the existing customization gate to recognize them without treating ordinary size/color selections as customization.
+- Existing order data and existing Fulfillment copies are not changed by this code patch. A fresh import and a separately reconciled Fulfillment update are needed after deployment; do not assume replaying the old handoff will update an existing order.
+
 ## 2026-10-15 import presentation and projection repair
 
 - Etsy queued jobs record `importOrigin` from authenticated token type, never from a client claim. Existing jobs without origin remain labelled Etsy report; no historical origin is guessed. Stored source and marketplace identity remain unchanged.
