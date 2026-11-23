@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const asyncHandler = require('../../../middlewares/asyncHandler');
 const authPublic = require('../../auth/public');
-const { hrPermissions, hrTimePermissions } = require('../constants/hr.constants');
+const { hrPermissions, hrTimePermissions, employeeAvatarReadPermissions } = require('../constants/hr.constants');
 const employeeProfileController = require('../controllers/employeeProfile.controller');
 const staffProvisioningController = require('../controllers/staffProvisioning.controller');
 const scheduleController = require('../controllers/schedule.controller');
@@ -32,12 +32,7 @@ const requireEmployeeRead = authPublic.authorizeAnyGlobalPermission(
   hrPermissions.EMPLOYEE_WRITE,
 );
 const requireEmployeeAvatarRead = authPublic.authorizeAnyGlobalPermission(
-  hrPermissions.EMPLOYEE_READ,
-  hrPermissions.EMPLOYEE_WRITE,
-  'DESIGN:READ',
-  'DESIGN:WRITE',
-  'DESIGN:WORK',
-  'DESIGN:REVIEW',
+  ...employeeAvatarReadPermissions,
 );
 const requireEmployeeDirectoryRead = authPublic.authorizeAnyGlobalPermission(
   hrPermissions.EMPLOYEE_READ,

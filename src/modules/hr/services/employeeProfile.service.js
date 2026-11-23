@@ -11,7 +11,7 @@ const organizationPublic = require('../../organization/public');
 const mediaPublic = require('../../media/public');
 const { organizationStatuses } = require('../../organization/constants');
 const logger = require('../../../shared/utils/logger');
-const { hrPermissions, hrTimePermissions } = require('../constants/hr.constants');
+const { hrPermissions, hrTimePermissions, employeeAvatarReadPermissions } = require('../constants/hr.constants');
 const {
   toEmployeePersonalProfileDto,
   toEmployeeProfileDetailDto,
@@ -582,7 +582,9 @@ async function withProfileAvatar(profileId, authContext = {}, callback) {
   if (!current || current.isDeleted || !current.avatarAssetId) {
     throw new AppError('Employee avatar not found', httpStatus.NOT_FOUND, true, errorCodes.RESOURCE_NOT_FOUND);
   }
-  assertCanAccessProfile(authContext, current, [hrPermissions.EMPLOYEE_READ, hrPermissions.EMPLOYEE_WRITE]);
+  if (!hasGlobalEmployeePermission(authContext, employeeAvatarReadPermissions)) {
+    assertCanAccessProfile(authContext, current, [hrPermissions.EMPLOYEE_READ, hrPermissions.EMPLOYEE_WRITE]);
+  }
   return mediaPublic.withAssetLocalReadFile(current.avatarAssetId, callback);
 }
 

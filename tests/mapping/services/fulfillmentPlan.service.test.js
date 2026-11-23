@@ -3018,6 +3018,12 @@ describe('fulfillmentPlan.service', () => {
     expect(result).toHaveLength(2);
   });
 
+  test.each(['NEED_PRODUCTION', 'TRACKING_PENDING', 'SHIPPED', 'CANCELLED'])('mapping side effects do not rewind %s', async (status) => {
+    orderPublic.findItemById.mockResolvedValue({ ...item, status });
+    await service.applyFulfillmentSideEffects({ orderItemId, orderId: item.orderId, markReady: true });
+    expect(orderPublic.markFulfillmentReady).not.toHaveBeenCalled();
+  });
+
   test('preview passes normalizationRules to cost center scoring for size matching', async () => {
     mappingRuleService.listActiveNormalizationRulesForContext.mockResolvedValueOnce([
       {
