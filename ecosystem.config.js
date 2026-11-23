@@ -5,6 +5,7 @@ module.exports = {
     cwd: __dirname,
     exec_mode: 'fork',
     instances: 1,
+    env: { RUNTIME_ROLE: 'combined' },
     autorestart: true,
     min_uptime: 10_000,
     max_restarts: 5,

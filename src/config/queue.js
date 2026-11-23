@@ -6,6 +6,28 @@ const DEFAULT_JOB_OPTIONS = {
   removeOnComplete: 100,
   removeOnFail: 500,
 };
+let producerConnection;
+
+async function connectQueueProducers(redis) {
+  const client = redis.duplicate({
+    lazyConnect: true,
+    enableOfflineQueue: false,
+    maxRetriesPerRequest: 1,
+    commandTimeout: 2000,
+  });
+  client.on('error', (error) => logger.warn('background_queue_producer_error', { errorCode: error.code }));
+  try {
+    await client.connect();
+  } catch (error) {
+    client.disconnect();
+    throw error;
+  }
+  producerConnection = client;
+  return () => {
+    producerConnection = undefined;
+    client.disconnect();
+  };
+}
 
 function createQueueConnection() {
   return {
@@ -16,8 +38,11 @@ function createQueueConnection() {
 
 function createQueue(name, options = {}) {
   const { defaultJobOptions, ...restOptions } = options;
+  const useProducerConnection = producerConnection && !restOptions.connection;
   return new Queue(name, {
-    connection: createQueueConnection(),
+    connection: useProducerConnection ? producerConnection : createQueueConnection(),
+    // The runtime connects this client first and workers verify the Redis version.
+    ...(useProducerConnection ? { skipWaitingForReady: true, skipVersionCheck: true } : {}),
     defaultJobOptions: {
       ...DEFAULT_JOB_OPTIONS,
       ...defaultJobOptions,
@@ -61,5 +86,6 @@ module.exports = {
   createWorker,
   createQueueEvents,
   createQueueConnection,
+  connectQueueProducers,
   DEFAULT_JOB_OPTIONS,
 };

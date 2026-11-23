@@ -9,7 +9,7 @@ jest.mock('bullmq', () => ({
 const { Queue } = require('bullmq');
 jest.mock('../../src/shared/utils/logger', () => ({ info: jest.fn(), warn: jest.fn() }));
 const logger = require('../../src/shared/utils/logger');
-const { createQueue, createWorker } = require('../../src/config/queue');
+const { createQueue, createWorker, connectQueueProducers } = require('../../src/config/queue');
 
 describe('queue config', () => {
   beforeEach(() => {
@@ -40,6 +40,30 @@ describe('queue config', () => {
         removeOnFail: 500,
       }),
     }));
+  });
+
+  test('split producers use a connected fail-fast client independently of workers', async () => {
+    const client = { on: jest.fn(), connect: jest.fn(), disconnect: jest.fn() };
+    const redis = { duplicate: jest.fn().mockReturnValue(client) };
+    const close = await connectQueueProducers(redis);
+    try {
+      expect(redis.duplicate).toHaveBeenCalledWith(expect.objectContaining({
+        enableOfflineQueue: false,
+        maxRetriesPerRequest: 1,
+      }));
+      expect(client.connect).toHaveBeenCalledTimes(1);
+      createQueue('split-producer');
+      expect(Queue).toHaveBeenCalledWith('split-producer', expect.objectContaining({
+        connection: client,
+        skipWaitingForReady: true,
+      }));
+      const worker = createWorker('split-worker', jest.fn());
+      expect(worker.opts.connection).not.toBe(client);
+      expect(worker.opts.connection.maxRetriesPerRequest).toBeNull();
+    } finally {
+      close();
+    }
+    expect(client.disconnect).toHaveBeenCalledTimes(1);
   });
 
   test('logs a bounded completion record without job payload or result', async () => {

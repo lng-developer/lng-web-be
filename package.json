@@ -6,6 +6,8 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
+    "start:worker": "node src/workers/run.js",
+    "start:scheduler": "node src/schedulers/run.js",
     "dev": "nodemon src/server.js",
     "smoke:startup": "node tools/scripts/smoke/loadApp.js",
     "seed:auth": "npm run seed:rbac && npm run seed:admin",
@@ -70,6 +72,7 @@
     "indexes:extension-commands": "node src/modules/integration/extensionCommand/scripts/ensureExtensionCommandIndexes.js",
     "indexes:catalog": "node src/modules/catalog/scripts/ensureCatalogIndexes.js",
     "indexes:finance-import": "node src/modules/finance/scripts/ensureFinanceImportIndexes.js",
+    "indexes:background-flow": "node tools/scripts/maintenance/ensureBackgroundFlowIndexes.js",
     "recover:post-import-mapping": "node tools/scripts/maintenance/recoverPostImportMappings.js",
     "repair:production-variant-links": "node src/modules/production/scripts/repairListingVariantLinks.js",
     "setup:legacy:build": "node tools/scripts/setup/buildLegacySetupSeeds.js",
