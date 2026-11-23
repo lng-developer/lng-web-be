@@ -257,7 +257,7 @@ describe('orderImportService', () => {
     );
   });
 
-  test('skips auto PSD request when imported Amazon listing already has PSD', async () => {
+  test.each(['AMAZON', 'ETSY'])('skips auto PSD request when imported %s listing already has PSD', async (salesChannelCode) => {
     designPublic.createPsdTemplateTask.mockClear();
     orderRepository.findByExternalIdentity.mockResolvedValue(null);
     orderRepository.create.mockResolvedValue({ _id: 'order-2', shopId: 'shop-1' });
@@ -271,12 +271,38 @@ describe('orderImportService', () => {
 
     await orderImportService.importExternalOrder({
       ...oneItemDto,
+      salesChannelCode,
+      marketplaceCode: `${salesChannelCode}_US`,
       items: [{
         externalItemId: 'line-2', quantity: 1, sku: 'SKU-2', asin: 'B0H7QZQX6H', title: 'Amazon shirt with PSD',
       }],
     });
 
     expect(designPublic.createPsdTemplateTask).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    [{ externalListingId: '123456', sku: '' }, '123456'],
+    [{ externalListingId: null, sku: 'ETSY-SKU' }, null],
+  ])('creates an Etsy listing and requests PSD with identity %j', async (identity, etsyListingId) => {
+    orderRepository.findByExternalIdentity.mockResolvedValue(null);
+    orderRepository.create.mockResolvedValue({ _id: 'order-etsy', shopId: 'shop-1' });
+    orderItemRepository.findByExternalIdentity.mockResolvedValue(null);
+    orderItemRepository.create.mockResolvedValue({ _id: 'item-etsy', orderId: 'order-etsy', ...identity });
+    catalogPublic.findOrCreateDraftListingForOrderItem.mockResolvedValue({ _id: 'listing-etsy' });
+    orderItemRepository.updateListingId.mockResolvedValue({ _id: 'item-etsy', orderId: 'order-etsy', listingId: 'listing-etsy' });
+    await orderImportService.importExternalOrder({
+      ...oneItemDto, source: 'MANUAL_EXCEL', salesChannelCode: 'ETSY', marketplaceCode: 'ETSY_US',
+      items: [{ externalItemId: 'line-etsy', quantity: 1, title: 'Etsy ornament', ...identity }],
+    });
+    expect(catalogPublic.findOrCreateDraftListingForOrderItem).toHaveBeenCalledWith(
+      expect.objectContaining({ salesChannelCode: 'ETSY', etsyListingId, sku: identity.sku, title: 'Etsy ornament' }),
+      { system: true, source: 'ORDER_IMPORT' },
+    );
+    expect(designPublic.createPsdTemplateTask).toHaveBeenCalledWith(
+      expect.objectContaining({ listingId: 'listing-etsy', orderId: 'order-etsy', orderItemId: 'item-etsy' }),
+      { system: true, source: 'ETSY_ORDER_IMPORT' },
+    );
   });
 
   test('writes the resolved seller to each imported workbench item', async () => {
