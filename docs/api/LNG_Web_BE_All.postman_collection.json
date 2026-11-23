@@ -15846,6 +15846,50 @@
               }
             },
             {
+              "name": "PATCH /api/production/tasks/bulk-assign-cs",
+              "request": {
+                "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE, PRODUCTION:SCALE_ASSIGN.",
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/production/tasks/bulk-assign-cs",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "production",
+                    "tasks",
+                    "bulk-assign-cs"
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"taskIds\": [\n    \"{{taskId}}\"\n  ],\n  \"csAssigneeId\": \"{{designerId}}\",\n  \"csNote\": \"Confirm customer request.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
               "name": "POST /api/production/tasks/bulk-push-vendor",
               "request": {
                 "description": "Bearer token required. Permissions (ANY): PRODUCTION:WRITE.",

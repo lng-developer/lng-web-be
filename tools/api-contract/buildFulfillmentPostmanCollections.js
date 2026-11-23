@@ -29,6 +29,7 @@ const bodyByRoute = {
   'PATCH /api/design/submission-scores/:scoreId/override': { points: 8, scoreLevel: 'STANDARD', overrideReason: 'Manual review correction.' },
   'PATCH /api/design/tasks/:taskId/submissions/:submissionId/assets/:assetId/score/void': { voidReason: 'Submission asset was replaced.' },
   'PATCH /api/production/tasks/bulk-assign': { taskIds: [oid('taskId')], assignedDesignUserId: oid('designerId'), designNote: 'Scale for the selected variant.' },
+  'PATCH /api/production/tasks/bulk-assign-cs': { taskIds: [oid('taskId')], csAssigneeId: oid('designerId'), csNote: 'Confirm customer request.' },
   'POST /api/production/tasks/bulk-push-vendor': { taskIds: [oid('taskId')], vendorSubmissionIdsByTaskId: {} },
   'POST /api/production/tasks/recheck-psd-blocked': { limit: 50 },
   'PATCH /api/production/tasks/:taskId/assign': { assignedDesignUserId: oid('designerId'), designNote: 'Prepare production artwork.' },
