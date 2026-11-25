@@ -337,12 +337,30 @@ function mapCountRows(rows = []) {
   }, {});
 }
 
+function urgencyPipeline(filter, skip, limit) {
+  return [
+    { $match: filter },
+    { $set: {
+      queueClosed: { $cond: [{ $in: ['$status', ['SENT_TO_VENDOR', 'CANCELLED']] }, 1, 0] },
+      queueDeadline: { $ifNull: ['$orderSnapshot.shipByDate', new Date('9999-12-31T00:00:00Z')] },
+      queueOrderedAt: { $ifNull: ['$orderSnapshot.orderedAt', '$createdAt'] },
+    } },
+    { $sort: { queueClosed: 1, queueDeadline: 1, queueOrderedAt: 1, _id: 1 } },
+    { $skip: skip },
+    { $limit: limit },
+    { $unset: ['queueClosed', 'queueDeadline', 'queueOrderedAt'] },
+  ];
+}
+
 async function list(query = {}) {
   const filter = buildFilter(query);
 
   const { page, limit } = normalizePagination(query, { defaultLimit: 50, maxLimit: 100 });
   const [items, total] = await Promise.all([
-    ProductionTask.find(filter)
+    query.sort === 'urgency'
+      ? ProductionTask.aggregate([...urgencyPipeline(filter, getPaginationOffset({ page, limit }), limit),
+        { $project: Object.fromEntries(LIST_SELECT.split(' ').map(field => [field, 1])) }])
+      : ProductionTask.find(filter)
       .select(LIST_SELECT)
       .sort(parseSort(query.sort))
       .skip(getPaginationOffset({ page, limit }))
@@ -501,6 +519,10 @@ async function summarizeQueueCounts(query = {}) {
             }, 1, 0],
           },
         },
+        hasUnassigned: { $max: { $cond: [{ $and: [
+          { $eq: [{ $ifNull: ['$assignedDesignUserId', null] }, null] },
+          { $in: ['$status', ['NEED_SCALE', 'QC_REJECTED']] },
+        ] }, 1, 0] } },
         hasNeedScale: {
           $max: {
             $cond: [{
@@ -561,6 +583,7 @@ async function summarizeQueueCounts(query = {}) {
         total: { $sum: 1 },
         blocked: { $sum: '$hasBlocked' },
         scaleQueue: { $sum: '$hasScaleQueue' },
+        unassigned: { $sum: '$hasUnassigned' },
         needScale: { $sum: '$hasNeedScale' },
         qcRejected: { $sum: '$hasQcRejected' },
         qcPending: { $sum: '$hasQcPending' },
@@ -576,6 +599,7 @@ async function summarizeQueueCounts(query = {}) {
     total: result.total || 0,
     blocked: result.blocked || 0,
     scaleQueue: result.scaleQueue || 0,
+    unassigned: result.unassigned || 0,
     needScale: result.needScale || 0,
     qcRejected: result.qcRejected || 0,
     qcPending: result.qcPending || 0,
@@ -588,6 +612,7 @@ async function summarizeQueueCounts(query = {}) {
 }
 
 async function listForExport(query = {}) {
+  if (query.sort === 'urgency') return ProductionTask.aggregate(urgencyPipeline(buildFilter(query), 0, Math.min(Number(query.limit || 1000), 5000)));
   return ProductionTask.find(buildFilter(query))
     .sort(parseSort(query.sort))
     .limit(Math.min(Number(query.limit || 1000), 5000))

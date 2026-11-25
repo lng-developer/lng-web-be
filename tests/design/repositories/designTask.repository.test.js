@@ -145,3 +145,20 @@ describe('designTask.repository', () => {
     expect(pipeline.some((stage) => stage.$set?.taskReference)).toBe(false);
   });
 });
+
+test('urgent design queue uses explicit priority rank then age before pagination', async () => {
+  mockAggregate.mockResolvedValue([]);
+  const model = require('../../../src/modules/design/models/designTask.model');
+  model.countDocuments = jest.fn().mockResolvedValue(0);
+  await repository.list({ sortBy: 'urgency', page: 2, limit: 10 });
+  const pipeline = mockAggregate.mock.calls.at(-1)[0];
+  expect(pipeline.find(s => s.$set).$set.queuePriority.$indexOfArray[0]).toEqual(['URGENT', 'HIGH', 'NORMAL', 'LOW']);
+  expect(pipeline.find(s => s.$sort).$sort).toEqual({ queueClosed: 1, queuePriority: 1, createdAt: 1, _id: 1 });
+  expect(pipeline.findIndex(s => s.$sort)).toBeLessThan(pipeline.findIndex(s => s.$skip));
+});
+
+test('unassigned filter cannot override an own-designer access restriction', () => {
+  expect(repository.buildFilter({ assignedDesignerId: 'own', unassigned: true })).toEqual({ _id: null });
+  expect(repository.buildFilter({ assignedDesignerIds: ['team'], unassigned: true })).toEqual({ _id: null });
+  expect(repository.buildFilter({ assignedDesignerIds: ['team'], includeUnassignedDesigner: true, unassigned: true })).toEqual({ assignedDesignerId: null });
+});
