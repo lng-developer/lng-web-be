@@ -6,6 +6,7 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env'), quiet: true });
 
 const schema = Joi.object({
   NODE_ENV: Joi.string().valid('development', 'test', 'production').default('development'),
+  BACKGROUND_JOBS_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
   PORT: Joi.number().port().default(3000),
   HOST: Joi.string().hostname().default('127.0.0.1'),
   LOG_LEVEL: Joi.string().valid('debug', 'info', 'warn', 'error', 'silent').default('info'),
@@ -84,6 +85,7 @@ if (error) {
 
 module.exports = {
   env: value.NODE_ENV,
+  backgroundJobsEnabled: value.BACKGROUND_JOBS_ENABLED,
   port: value.PORT,
   host: value.HOST,
   log: {

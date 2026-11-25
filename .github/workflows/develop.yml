@@ -10,10 +10,18 @@ on:
       - develop
       - main
   workflow_dispatch:
+    inputs:
+      deploy_develop:
+        description: Deploy this tested revision to the develop server
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
 
 concurrency:
   group: deploy-lng-web-be-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   release-source:
@@ -28,7 +36,7 @@ jobs:
 
   core-test:
     name: Core test ${{ matrix.shard }}/2
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'develop') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/develop') || (github.event_name == 'pull_request' && github.base_ref == 'develop') }}
     runs-on: ubuntu-latest
     env:
       NODE_OPTIONS: --experimental-vm-modules
@@ -63,7 +71,7 @@ jobs:
 
   windows-powershell-test:
     name: Windows PowerShell test
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'develop') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/develop') || (github.event_name == 'pull_request' && github.base_ref == 'develop') }}
     runs-on: windows-latest
     env:
       NODE_OPTIONS: --experimental-vm-modules
@@ -79,7 +87,7 @@ jobs:
 
   startup-smoke:
     name: Startup smoke
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'develop') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/develop') || (github.event_name == 'pull_request' && github.base_ref == 'develop') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -89,6 +97,46 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run smoke:startup
+
+  package-develop:
+    needs: [core-test, windows-powershell-test, startup-smoke]
+    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/develop') || (github.event_name == 'workflow_dispatch' && inputs.deploy_develop && github.ref != 'refs/heads/main') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: git archive --format=tar HEAD -o source.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-develop-${{ github.sha }}
+          path: source.tar
+          retention-days: 3
+
+  deploy-develop:
+    needs: package-develop
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 15
+    concurrency:
+      group: lng-web-be-develop-server
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: backend-develop-${{ github.sha }}
+          path: deploy-artifact
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install -g npm@11.6.2
+      - name: Deploy isolated API-only develop release
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          script=$(mktemp)
+          trap 'rm -f "$script"' EXIT
+          tar -xOf deploy-artifact/source.tar tools/scripts/deploy/develop.sh > "$script"
+          bash "$script" "$PWD/deploy-artifact/source.tar"
 
   deploy:
     name: Deploy to VPS
