@@ -2,8 +2,8 @@
 
 BE and FE have separate develop deployment jobs; production jobs remain main-only.
 
-- Pull requests run on GitHub-hosted runners. Self-hosted runners only deploy successful artifacts from a develop push only, never a PR or manual-dispatch event.
-- A develop push verifies the exact resulting commit in hosted CI, then deploys without running test suites on the application server. This also covers direct pushes where branch-protection settings cannot be verified.
+- Pull requests run on GitHub-hosted runners. Self-hosted runners only deploy successful artifacts after a develop push, never a PR or manual-dispatch event.
+- PR CI runs the suites and records the tested Git tree in the artifact name. A develop push runs only a hosted provenance gate, then deploys that exact artifact; it does not rerun tests or rebuild FE. The merged commit tree must equal the tested tree.
 - Manual dispatch runs verification only. Develop deployment requires a push to develop after PR merge.
 - Manual UI-test-only FE runs cannot deploy. Manual main runs cannot deploy to develop.
 - Existing runners must have standard labels `self-hosted`, `Linux`, `X64`; scripts additionally require hostname `lng`.
@@ -17,3 +17,22 @@ BE and FE have separate develop deployment jobs; production jobs remain main-onl
 - Production promotion remains a reviewed PR from develop to main, after user UAT; do not merge automatically.
 
 Verification: BE background startup regression, server syntax, startup smoke, architecture contracts; FE lint/build/config tests; hosted full suites before any deploy; runner verifies PM2 cwd, health stability (BE) and served index hash (FE).
+
+## Reusing PR CI
+
+The gate requires a merged same-repository PR targeting develop, the latest matching
+successful pull_request run of this workflow, all expected test jobs successful,
+and a non-expired artifact for the merged Git tree. Artifact IDs and run IDs come
+from GitHub API metadata. Only the hosted gate has pull-request read access; the
+self-hosted deploy job downloads the verified ID with actions:read.
+
+Artifacts are retained for 14 days. Direct pushes, forks, stale base trees, missing
+CI and expired artifacts fail closed. Update/retest the PR against current develop
+before merging. For an expired artifact after merge, rerun the original PR workflow
+if its tested tree is still identical, then rerun the failed develop push workflow.
+Manual dispatch is not an accepted deployment evidence source. There is no fallback
+that silently reruns tests or builds after merge. A superseded develop push is rejected.
+
+The first merge of this workflow must have green PR CI with the new tree-named artifact.
+Main retains its production-mode build because its environment differs from develop.
+Download behavior follows [actions/download-artifact](https://github.com/actions/download-artifact).
