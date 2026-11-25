@@ -54,3 +54,17 @@ test('a paused application cannot overwrite the replacement worker or commit a p
   })).rejects.toThrow('interrupt transaction');
   expect((await shipments.findById(record._id)).trackingNumber).toBe('current');
 });
+
+test('provider dispatch and monitoring distinguish leases, due and retry state', async () => {
+  const now = new Date();
+  const ids = [new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId()];
+  await polls.discover([ids[0]], now, 'LNG_GROUP');
+  await polls.discover([ids[1]], now, 'MANGOTEE');
+  expect((await polls.due(50, now, 'LNG_GROUP')).map(r => String(r._id))).toEqual([String(ids[0])]);
+  await polls.claim(ids[0], 'active', now);
+  await polls.claim(ids[1], 'retry', now);
+  await polls.finish(ids[1], 'retry', 'RATE_LIMITED', new Date(+now + 60000), now, 1);
+  const stats = await polls.summarizeByProvider(now);
+  expect(stats.find(r => r._id === 'LNG_GROUP')).toMatchObject({ processing: 1, waiting: 0 });
+  expect(stats.find(r => r._id === 'MANGOTEE')).toMatchObject({ scheduled: 1, errors: 1, waiting: 0 });
+});

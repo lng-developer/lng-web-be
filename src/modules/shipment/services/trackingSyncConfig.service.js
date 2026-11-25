@@ -60,7 +60,7 @@ async function recordRun(result, authContext, timing = {}) {
   const now = new Date();
   const defaults = environmentDefaults();
   const summary = {
-    ...(result?.queued !== undefined && { queued: result.queued }),
+    ...(result?.queued !== undefined && { queued: result.queued, failedProviders: result.failedProviders || [] }),
     checked: Number(result?.checked) || 0,
     applied: Number(result?.applied) || 0,
     skipped: Number(result?.skipped) || 0,
@@ -78,3 +78,17 @@ async function recordRun(result, authContext, timing = {}) {
 }
 
 module.exports = { get, recordRun, update };
+
+async function getWithMonitoring(authContext = {}) {
+  const settings = await get();
+  const config = require('../../../config');
+  const queueEnabled = Boolean(config.shipment.trackingQueueEnabled);
+  if (!queueEnabled || !authContext.permissions?.includes(require('../constants/shipment.constants').shipmentPermissions.WRITE)) return { ...settings, queueEnabled };
+  try {
+    const rows = await require('../repositories/vendorTrackingPoll.repository').summarizeByProvider();
+    return { ...settings, queueEnabled, monitoring: require('../dtos/trackingSyncConfig.dto').toTrackingMonitoringDto(rows) };
+  } catch {
+    return { ...settings, queueEnabled, monitoring: { available: false, providers: [] } };
+  }
+}
+module.exports.getWithMonitoring = getWithMonitoring;
