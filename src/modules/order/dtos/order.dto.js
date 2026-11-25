@@ -41,6 +41,8 @@ function toOrderDto(order) {
     return null;
   }
 
+  const validation = order.externalData?.addressValidation;
+  const normalized = validation?.normalizedAddress;
   return {
     id: toId(order._id || order.id),
     shopId: toId(order.shopId),
@@ -69,6 +71,15 @@ function toOrderDto(order) {
     replacementReason: order.replacementReason || null,
     isReplacement: Boolean(order.replacementOfOrderId || order.replacementOfOrderItemId),
     addressValidationStatus: order.addressValidationStatus,
+    addressValidation: validation ? {
+      provider: validation.provider || null,
+      reason: validation.reason || null,
+      checkedAt: validation.checkedAt || null,
+      cached: Boolean(validation.cached),
+      normalizedAddress: normalized ? Object.fromEntries([
+        'addressLine1', 'addressLine2', 'city', 'stateOrProvince', 'stateOrProvinceCode', 'postalCode', 'countryCode',
+      ].map((key) => [key, normalized[key] || null])) : null,
+    } : null,
     status: order.status,
     importedAt: order.importedAt,
     lastImportedAt: order.lastImportedAt,
