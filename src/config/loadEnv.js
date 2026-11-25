@@ -12,3 +12,6 @@ if (appEnv !== 'test') {
   const result = dotenv.config({ path: envPath, quiet: true });
   if (result.error) throw new Error(`Cannot load ${envPath}`, { cause: result.error });
 }
+
+process.env.APP_ENV = appEnv;
+require('../shared/utils/outboundPolicy').install();

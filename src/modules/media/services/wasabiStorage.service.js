@@ -11,10 +11,12 @@ const {
 } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const config = require('../../../config');
+const { assertOutboundAllowed } = require('../../../shared/utils/outboundPolicy');
 
 let client;
 
 function settings() {
+  assertOutboundAllowed();
   const value = config.media.wasabi;
   if (!value.endpoint || !value.region || !value.bucket || !value.accessKeyId || !value.secretAccessKey) {
     const error = new Error('Wasabi configuration is incomplete');

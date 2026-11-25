@@ -1,3 +1,4 @@
+require('./config/loadEnv');
 const createApp = require('./app');
 const config = require('./config');
 const { connectDatabase, disconnectDatabase } = require('./config/database');
@@ -59,20 +60,22 @@ async function bootstrap() {
   const orderPublic = require('./modules/order/public');
   const hrPublic = require('./modules/hr/public');
   if (config.backgroundJobsEnabled) {
+    startMongoIndexUsageSnapshotScheduler();
+    orderPublic.startOrderTrackingDeadlineScheduler();
+    hrPublic.startMonthlyLeaveAccrualScheduler();
+  }
+  if (config.backgroundJobsEnabled && config.outboundEnabled) {
     startVendorTrackingRecheckScheduler();
     startVendorSubmissionRecoveryScheduler();
     startExtensionOrderScheduleScheduler();
-    startMongoIndexUsageSnapshotScheduler();
     startAmazonAdsEmailImportScheduler();
-    orderPublic.startOrderTrackingDeadlineScheduler();
-    hrPublic.startMonthlyLeaveAccrualScheduler();
   }
   const server = app.listen(config.port, config.host, () => {
     logger.info('server_started', { host: config.host, port: config.port });
   });
   const chatSocket = attachChatSocket(server);
   const integrationPublic = require('./modules/integration/public');
-  if (config.backgroundJobsEnabled) {
+  if (config.backgroundJobsEnabled && config.outboundEnabled) {
     integrationPublic.teamsChat.attachTeamsOutboundListener();
     integrationPublic.teamsChat.startTeamsSubscriptionScheduler();
     integrationPublic.teamsChat.startTeamsOutboundOutboxScheduler();

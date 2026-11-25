@@ -1,4 +1,5 @@
 const AppError = require('../../../../shared/errors/appError');
+const { assertOutboundAllowed } = require('../../../../shared/utils/outboundPolicy');
 const httpStatus = require('../../../../shared/constants/httpStatus');
 const errorCodes = require('../../../../shared/constants/errorCodes');
 const { generateRandomToken, hashString } = require('../../../../shared/utils/crypto');
@@ -174,6 +175,7 @@ async function queueCurrentAdsImport(input, auth) {
 }
 
 async function claimNext(input, auth) {
+  assertOutboundAllowed();
   const agent = await getCurrentAgent(auth, input);
   const now = new Date();
   if (agent.provider === 'ETSY') await repository.releaseExpired(agent._id, now, 'ETSY');
@@ -184,6 +186,7 @@ async function claimNext(input, auth) {
 }
 
 async function startCommand(commandId, input, auth) {
+  assertOutboundAllowed();
   const agent = await getCurrentAgent(auth, input);
   const command = await repository.updateClaimed({ commandId, agentId: agent._id, leaseTokenHash: hashString(input.leaseToken), statuses: [extensionCommandStatuses.CLAIMED], patch: { status: extensionCommandStatuses.RUNNING, startedAt: new Date(), leaseExpiresAt: new Date(Date.now() + (agent.provider === 'ETSY' ? LEASE_MS : ACTIVE_LEASE_MS)) } });
   if (!command) throw conflict('Command is no longer claimable');
@@ -196,6 +199,7 @@ async function listCurrentCommands(input, auth) {
 }
 
 async function renewCommand(commandId, input, auth) {
+  assertOutboundAllowed();
   const agent = await getCurrentAgent(auth, input);
   const etsy = agent.provider === 'ETSY';
   if (etsy && input.importJobId) await validateEtsyJob(commandId, input.importJobId, agent, auth);

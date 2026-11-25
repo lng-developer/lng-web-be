@@ -28,3 +28,26 @@ Vite proxy forwards to localhost:3000. `dev:local` retains its existing localdev
 Only public browser configuration belongs in `VITE_*`; never put credentials there.
 Vite `.env.local` and mode-specific `.local` overrides still apply on local machines.
 Changing frontend configuration requires a rebuild.
+
+## Develop outbound isolation
+
+Development requires `OUTBOUND_MODE=blocked` (also the default). Production and
+tests default to `live`; production behavior is unchanged. Setting development to
+`live` fails startup. The loader installs the guard before application clients.
+
+- HTTP/HTTPS/fetch and external TCP (including SMTP/SQL) are blocked. Only the
+  configured MongoDB hosts (Atlas SRV domain on port 27017) and Redis host/port
+  may connect. There is no general localhost, proxy or vendor allowlist.
+- Vendor tracking/recovery, extension dispatch, Teams, ads email and SQL attendance
+  schedulers remain off even when `BACKGROUND_JOBS_ENABLED=true`. Internal workers
+  can still process the isolated database; transport protection applies to them too.
+- Extension claim/start/renew operations and Wasabi signing are rejected before granting
+  browser-side access. Blocked actions return `OUTBOUND_BLOCKED`, never fake success.
+- Develop CI pins blocked outbound and verifies it before deployment. Rollback will
+  stop the API rather than restore a release without the isolation guard.
+
+Background jobs remain disabled until a separate test session explicitly enables
+them. This is a Node application guard, not an OS firewall: shell programs, other
+PM2 applications and previously issued browser commands/signed URLs are outside its
+scope. Do not point production-connected browser extensions at develop. New sandbox
+integrations require separate credentials/endpoints and a reviewed policy change.

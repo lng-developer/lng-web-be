@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-async function boot(backgroundJobsEnabled) {
+async function boot(backgroundJobsEnabled, outboundEnabled = true) {
   const started = [];
   const listen = jest.fn(() => ({ close: jest.fn() }));
   const connectRedis = jest.fn().mockResolvedValue();
@@ -15,7 +15,7 @@ async function boot(backgroundJobsEnabled) {
   vm.runInNewContext(fs.readFileSync(path.resolve(__dirname, '../src/server.js'), 'utf8'), {
     require: (name) => {
       if (name === './app') return () => ({ listen });
-      if (name === './config') return { backgroundJobsEnabled, redis: { enabled: true }, port: 3000 };
+      if (name === './config') return { backgroundJobsEnabled, outboundEnabled, redis: { enabled: true }, port: 3000 };
       if (name === './config/database') return { connectDatabase: async () => {} };
       if (name === './config/redis') return { connectRedis };
       if (name === './shared/utils/logger') return { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
@@ -44,4 +44,15 @@ test('normal mode retains background startup', async () => {
     'startExtensionOrderScheduleScheduler', 'attachTeamsOutboundListener',
     'startMonthlyLeaveAccrualScheduler',
   ]));
+});
+
+test('blocked outbound keeps external schedulers off even with background jobs enabled', async () => {
+  const { started, listen } = await boot(true, false);
+  expect(listen).toHaveBeenCalledTimes(1);
+  expect(started).toContain('startFinanceSnapshotWorker');
+  expect(started).not.toEqual(expect.arrayContaining(['startVendorTrackingRecheckScheduler']));
+  for (const name of ['startVendorSubmissionRecoveryScheduler', 'startExtensionOrderScheduleScheduler',
+    'startAmazonAdsEmailImportScheduler', 'attachTeamsOutboundListener', 'startSqlAttendanceScheduler']) {
+    expect(started).not.toContain(name);
+  }
 });

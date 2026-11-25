@@ -14,11 +14,13 @@ tar -xf "${1:?source archive required}" -C "$release"
 ln -s "$env_file" "$release/.env.development"
 cd "$release"
 npm ci --omit=dev
-APP_ENV=development NODE_ENV=production BACKGROUND_JOBS_ENABLED=false node - <<'NODE'
+APP_ENV=development NODE_ENV=production OUTBOUND_MODE=blocked BACKGROUND_JOBS_ENABLED=false node - <<'NODE'
 const config = require('./src/config');
+const assert = require('assert');
+assert.throws(() => require('https').request('https://example.invalid/'), { code: 'OUTBOUND_BLOCKED' });
 const uri = new URL(config.database.uri);
 if (uri.pathname !== '/lng_web_be_develop' || config.redis.db !== 15
-    || config.backgroundJobsEnabled !== false) {
+    || config.backgroundJobsEnabled !== false || config.outboundEnabled !== false) {
   throw new Error('Refusing deployment outside isolated develop database/Redis/API-only mode');
 }
 NODE
@@ -29,7 +31,7 @@ fs.writeFileSync('ecosystem.develop.json', JSON.stringify({ apps: [{
   name: 'lng-web-be', cwd: process.cwd(), script: 'src/server.js', args: [],
   interpreter: process.env.DEPLOY_NODE, instances: 1, exec_mode: 'fork',
   min_uptime: 10000, max_restarts: 5, kill_timeout: 10000,
-  env: { APP_ENV: 'development', NODE_ENV: 'production', BACKGROUND_JOBS_ENABLED: 'false',
+  env: { APP_ENV: 'development', NODE_ENV: 'production', OUTBOUND_MODE: 'blocked', BACKGROUND_JOBS_ENABLED: 'false',
     TEAMS_SYNC_ENABLED: 'false', TEAMS_OUTBOX_ENABLED: 'false', SQL_ATTENDANCE_ENABLED: 'false',
     AMAZON_ADS_GMAIL_ENABLED: 'false' },
 }]}));
@@ -38,7 +40,7 @@ previous=$(readlink -f "$base/current" || true)
 rollback() {
   status=$?
   if [ "$status" -ne 0 ]; then
-    if [ -n "$previous" ] && [ -f "$previous/ecosystem.develop.json" ]; then
+    if [ -n "$previous" ] && [ -f "$previous/ecosystem.develop.json" ] && [ -f "$previous/src/shared/utils/outboundPolicy.js" ]; then
       pm2 delete lng-web-be || true
       pm2 start "$previous/ecosystem.develop.json"
     else
@@ -58,7 +60,8 @@ const apps = JSON.parse(require('child_process').execFileSync('pm2', ['jlist'], 
 const app = apps.find(item => item.name === 'lng-web-be');
 if (app?.pm2_env.pm_cwd !== process.cwd()
     || app.pm2_env.pm_exec_path !== require('path').join(process.cwd(), 'src/server.js')
-    || app.pm2_env.BACKGROUND_JOBS_ENABLED !== 'false') {
+    || app.pm2_env.BACKGROUND_JOBS_ENABLED !== 'false'
+    || app.pm2_env.OUTBOUND_MODE !== 'blocked') {
   throw new Error('PM2 did not activate the intended API-only release');
 }
 NODE

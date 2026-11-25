@@ -83,6 +83,7 @@ if (error) {
 module.exports = {
   env: value.NODE_ENV,
   backgroundJobsEnabled: value.BACKGROUND_JOBS_ENABLED,
+  outboundEnabled: !require('../shared/utils/outboundPolicy').isOutboundBlocked(),
   port: value.PORT,
   host: value.HOST,
   log: {
