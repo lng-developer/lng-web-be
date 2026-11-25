@@ -123,5 +123,6 @@ financeSnapshotSchema.index({ shopId: 1, orderedAt: -1 });
 financeSnapshotSchema.index({ orderId: 1, calculatedAt: -1 });
 financeSnapshotSchema.index({ sellerEmployeeCode: 1, calculatedAt: -1 });
 financeSnapshotSchema.index({ teamId: 1, calculatedAt: -1 });
+financeSnapshotSchema.index({ calculatedAt: -1, _id: -1 });
 
 module.exports = mongoose.model('FinanceSnapshot', financeSnapshotSchema);

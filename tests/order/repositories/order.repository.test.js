@@ -19,6 +19,12 @@ function listItemsPipeline() {
 }
 
 describe('order.repository list', () => {
+  test('uses an exact order ID match before list joins', async () => {
+    await repository.list({ orderId: ' 113-7301293-4168246 ' });
+    expect(listItemsPipeline()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ $match: expect.objectContaining({ externalOrderId: '113-7301293-4168246' }) }),
+    ]));
+  });
   beforeEach(() => {
     jest.clearAllMocks();
     Order.aggregate.mockImplementation(async (pipeline = []) => {

@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
 const Order = require('../models/order.model');
+const { externalOrderIdFilter } = require('./externalOrderIdFilter');
 const {
   activeOrderStatuses,
   addressValidationStatuses,
@@ -96,7 +97,7 @@ function buildFilter({
   if (status) filter.status = status;
   if (salesChannelCode) filter.salesChannelCode = salesChannelCode;
   if (marketplaceCode) filter.marketplaceCode = marketplaceCode;
-  if (orderId) filter.externalOrderId = { $regex: escapeRegex(orderId), $options: 'i' };
+  if (orderId) filter.externalOrderId = externalOrderIdFilter(orderId);
   if (seller) filter.externalAccountId = seller;
   if (assignedStaffIds?.length) filter.assignedStaffIds = { $in: assignedStaffIds.map(toObjectId) };
   if (costCenterStatus) filter.costCenterStatus = costCenterStatus;

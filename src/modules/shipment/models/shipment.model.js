@@ -122,5 +122,6 @@ shipmentSchema.index(
 );
 shipmentSchema.index({ shopId: 1, status: 1, updatedAt: -1 });
 shipmentSchema.index({ vendorSubmissionId: 1, lastCheckedAt: 1 });
+shipmentSchema.index({ updatedAt: -1, _id: -1 });
 
 module.exports = mongoose.model('Shipment', shipmentSchema);

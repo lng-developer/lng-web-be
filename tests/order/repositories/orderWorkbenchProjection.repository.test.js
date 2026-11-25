@@ -11,6 +11,10 @@ const OrderWorkbenchProjection = require('../../../src/modules/order/models/orde
 const repository = require('../../../src/modules/order/repositories/orderWorkbenchProjection.repository');
 
 describe('orderWorkbenchProjection.repository', () => {
+  test('uses the same full-ID equality and partial-ID contains semantics as the source list', () => {
+    expect(repository.buildFilter({ orderId: ' 113-7301293-4168246 ' }).externalOrderId).toBe('113-7301293-4168246');
+    expect(repository.buildFilter({ orderId: '113' }).externalOrderId).toEqual({ $regex: '113', $options: 'i' });
+  });
   test('base refresh atomically merges existing item enrichments instead of resetting them', async () => {
     await repository.upsertBase({ orderId: 'o', shop: null, case: null, hasCurrentPsd: false, items: [{ orderItemId: 'i', item: { sku: 'NEW' } }] }, { preserveEnrichment: true });
     const update = OrderWorkbenchProjection.findOneAndUpdate.mock.calls[0][1];
