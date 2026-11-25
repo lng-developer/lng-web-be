@@ -246,5 +246,6 @@ const productionTaskSchema = new mongoose.Schema(
 productionTaskSchema.index({ shopId: 1, status: 1, updatedAt: -1 });
 productionTaskSchema.index({ status: 1, updatedAt: -1 });
 productionTaskSchema.index({ qcStatus: 1, updatedAt: -1 });
+productionTaskSchema.index({ updatedAt: -1 });
 
 module.exports = mongoose.model('ProductionTask', productionTaskSchema);
