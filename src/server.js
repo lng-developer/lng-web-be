@@ -1,3 +1,4 @@
+require('./config/loadEnv');
 const createApp = require('./app');
 const config = require('./config');
 const { connectDatabase, disconnectDatabase } = require('./config/database');
@@ -43,35 +44,43 @@ async function bootstrap() {
 
   if (config.redis.enabled) {
     await connectRedis();
-    importWorkers = startExternalOrderImportWorkers();
-    importWorkers.push(startFulfillmentSideEffectWorker());
-    importWorkers.push(startFinanceSnapshotWorker());
-    importWorkers.push(startFinanceImportWorker());
-    importWorkers.push(startOrderRecheckJobWorker());
-    startPostImportMappingRecoveryScheduler();
+    if (config.backgroundJobsEnabled) {
+      importWorkers = startExternalOrderImportWorkers();
+      importWorkers.push(startFulfillmentSideEffectWorker());
+      importWorkers.push(startFinanceSnapshotWorker());
+      importWorkers.push(startFinanceImportWorker());
+      importWorkers.push(startOrderRecheckJobWorker());
+      startPostImportMappingRecoveryScheduler();
+    }
   } else {
     logger.warn('redis_connection_disabled');
   }
 
   const app = createApp();
-  startVendorTrackingRecheckScheduler();
-  startVendorSubmissionRecoveryScheduler();
-  startExtensionOrderScheduleScheduler();
-  startMongoIndexUsageSnapshotScheduler();
-  startAmazonAdsEmailImportScheduler();
   const orderPublic = require('./modules/order/public');
-  orderPublic.startOrderTrackingDeadlineScheduler();
   const hrPublic = require('./modules/hr/public');
-  hrPublic.startMonthlyLeaveAccrualScheduler();
+  if (config.backgroundJobsEnabled) {
+    startMongoIndexUsageSnapshotScheduler();
+    orderPublic.startOrderTrackingDeadlineScheduler();
+    hrPublic.startMonthlyLeaveAccrualScheduler();
+  }
+  if (config.backgroundJobsEnabled && config.outboundEnabled) {
+    startVendorTrackingRecheckScheduler();
+    startVendorSubmissionRecoveryScheduler();
+    startExtensionOrderScheduleScheduler();
+    startAmazonAdsEmailImportScheduler();
+  }
   const server = app.listen(config.port, config.host, () => {
     logger.info('server_started', { host: config.host, port: config.port });
   });
   const chatSocket = attachChatSocket(server);
   const integrationPublic = require('./modules/integration/public');
-  integrationPublic.teamsChat.attachTeamsOutboundListener();
-  integrationPublic.teamsChat.startTeamsSubscriptionScheduler();
-  integrationPublic.teamsChat.startTeamsOutboundOutboxScheduler();
-  integrationPublic.sqlAttendance.startSqlAttendanceScheduler();
+  if (config.backgroundJobsEnabled && config.outboundEnabled) {
+    integrationPublic.teamsChat.attachTeamsOutboundListener();
+    integrationPublic.teamsChat.startTeamsSubscriptionScheduler();
+    integrationPublic.teamsChat.startTeamsOutboundOutboxScheduler();
+    integrationPublic.sqlAttendance.startSqlAttendanceScheduler();
+  }
 
   async function shutdown(signal) {
     logger.info('server_shutdown_started', { signal });

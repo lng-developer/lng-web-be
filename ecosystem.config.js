@@ -3,6 +3,7 @@ module.exports = {
     name: 'lng-web-be',
     script: 'src/server.js',
     cwd: __dirname,
+    env: { APP_ENV: 'production', NODE_ENV: 'production' },
     exec_mode: 'fork',
     instances: 1,
     autorestart: true,
