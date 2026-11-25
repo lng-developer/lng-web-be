@@ -1,7 +1,4 @@
-const path = require('path');
-const dotenv = require('dotenv');
-
-dotenv.config({ path: path.resolve(process.cwd(), '.env'), quiet: true });
+process.env.APP_ENV = 'test';
 
 const defaults = {
   NODE_ENV: 'test',

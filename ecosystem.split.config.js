@@ -9,8 +9,8 @@ const split = {
 
 module.exports = {
   apps: [
-    { ...split, env: { RUNTIME_ROLE: 'api' } },
-    { ...split, name: 'lng-web-be-worker', script: 'src/workers/run.js', env: { RUNTIME_ROLE: 'worker' } },
-    { ...split, name: 'lng-web-be-scheduler', script: 'src/schedulers/run.js', env: { RUNTIME_ROLE: 'scheduler' } },
+    { ...split, env: { ...combined.env, RUNTIME_ROLE: 'api' } },
+    { ...split, name: 'lng-web-be-worker', script: 'src/workers/run.js', env: { ...combined.env, RUNTIME_ROLE: 'worker' } },
+    { ...split, name: 'lng-web-be-scheduler', script: 'src/schedulers/run.js', env: { ...combined.env, RUNTIME_ROLE: 'scheduler' } },
   ],
 };

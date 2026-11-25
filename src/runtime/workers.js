@@ -6,6 +6,7 @@ const { startOrderRecheckJobWorker } = require('../modules/order/workers/orderRe
 const { startExternalOrderImportWorkers } = require('../modules/integration/externalOrderImport/workers');
 
 function startWorkers(registerWorker) {
+  if (!config.backgroundJobsEnabled) return [];
   const workers = startExternalOrderImportWorkers();
   workers.forEach(registerWorker);
   const startWorkers = [
@@ -14,7 +15,7 @@ function startWorkers(registerWorker) {
     startFinanceImportWorker,
     startOrderRecheckJobWorker,
   ];
-  if (config.shipment.trackingQueueEnabled) {
+  if (config.outboundEnabled && config.shipment.trackingQueueEnabled) {
     const { startVendorTrackingWorker } = require('../modules/shipment/workers/vendorTracking.worker');
     startWorkers.push(startVendorTrackingWorker);
   }

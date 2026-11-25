@@ -55,7 +55,7 @@ async function bootstrap() {
       logger.warn('redis_connection_disabled');
     }
 
-    if (config.redis.enabled && (role === 'combined' || role === 'worker')) {
+    if (config.backgroundJobsEnabled && config.redis.enabled && (role === 'combined' || role === 'worker')) {
       const { startWorkers } = require('./runtime/workers');
       const workers = startWorkers((worker) => {
         stopIntake.push(() => worker.close());
@@ -66,7 +66,7 @@ async function bootstrap() {
       await Promise.all(workers.map((worker) => worker.waitUntilReady()));
     }
 
-    if (role === 'combined' || role === 'scheduler') {
+    if (config.backgroundJobsEnabled && (role === 'combined' || role === 'scheduler')) {
       const { startSchedulers } = require('./runtime/schedulers');
       await startSchedulers((stop) => stopIntake.push(stop));
     }
@@ -88,8 +88,10 @@ async function bootstrap() {
         });
       });
       chatSocket = attachChatSocket(server);
-      stopIntake.push(teamsChat.detachTeamsOutboundListener);
-      teamsChat.attachTeamsOutboundListener();
+      if (config.backgroundJobsEnabled && config.outboundEnabled) {
+        stopIntake.push(teamsChat.detachTeamsOutboundListener);
+        teamsChat.attachTeamsOutboundListener();
+      }
       logger.info('server_started', { host: config.host, port: config.port });
     }
 

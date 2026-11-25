@@ -25,21 +25,26 @@ const {
 } = require('../modules/integration/amazonAdsEmail/services/amazonAdsEmailImportScheduler.service');
 
 async function startSchedulers(registerStop) {
+  if (!config.backgroundJobsEnabled) return;
   const orderPublic = require('../modules/order/public');
   const hrPublic = require('../modules/hr/public');
   const { teamsChat, sqlAttendance } = require('../modules/integration/public');
   const schedulers = [
-    [startVendorTrackingRecheckScheduler, stopVendorTrackingRecheckScheduler],
-    [startVendorSubmissionRecoveryScheduler, stopVendorSubmissionRecoveryScheduler],
-    [startExtensionOrderScheduleScheduler, stopExtensionOrderScheduleScheduler],
     [startMongoIndexUsageSnapshotScheduler, stopMongoIndexUsageSnapshotScheduler],
-    [startAmazonAdsEmailImportScheduler, stopAmazonAdsEmailImportScheduler],
     [orderPublic.startOrderTrackingDeadlineScheduler, orderPublic.stopOrderTrackingDeadlineScheduler],
     [hrPublic.startMonthlyLeaveAccrualScheduler, hrPublic.stopMonthlyLeaveAccrualScheduler],
-    [teamsChat.startTeamsSubscriptionScheduler, teamsChat.stopTeamsSubscriptionScheduler],
-    [teamsChat.startTeamsOutboundOutboxScheduler, teamsChat.stopTeamsOutboundOutboxScheduler],
-    [sqlAttendance.startSqlAttendanceScheduler, sqlAttendance.stopSqlAttendanceScheduler],
   ];
+  if (config.outboundEnabled) {
+    schedulers.push(
+      [startVendorTrackingRecheckScheduler, stopVendorTrackingRecheckScheduler],
+      [startVendorSubmissionRecoveryScheduler, stopVendorSubmissionRecoveryScheduler],
+      [startExtensionOrderScheduleScheduler, stopExtensionOrderScheduleScheduler],
+      [startAmazonAdsEmailImportScheduler, stopAmazonAdsEmailImportScheduler],
+      [teamsChat.startTeamsSubscriptionScheduler, teamsChat.stopTeamsSubscriptionScheduler],
+      [teamsChat.startTeamsOutboundOutboxScheduler, teamsChat.stopTeamsOutboundOutboxScheduler],
+      [sqlAttendance.startSqlAttendanceScheduler, sqlAttendance.stopSqlAttendanceScheduler],
+    );
+  }
   if (config.redis.enabled) {
     schedulers.push([startPostImportMappingRecoveryScheduler, stopPostImportMappingRecoveryScheduler]);
   }

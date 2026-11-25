@@ -8,7 +8,7 @@ async function processSqlAttendanceJob(job, dependencies = {}) {
 }
 
 async function start() {
-  require('dotenv').config();
+  require('../../../../config/loadEnv');
   const { connectDatabase, disconnectDatabase } = require('../../../../config/database');
   const { createWorker } = require('../../../../config/queue');
   const logger = require('../../../../shared/utils/logger');

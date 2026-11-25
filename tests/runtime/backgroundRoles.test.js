@@ -61,6 +61,7 @@ function boot(role, overrides = {}) {
   jest.resetModules();
   mockConfig = {
     runtime: { role },
+    backgroundJobsEnabled: true, outboundEnabled: true,
     redis: { enabled: true },
     mapping: { durableSideEffectsEnabled: true },
     finance: { durableRecalculationEnabled: true },
@@ -158,4 +159,27 @@ test('shutdown stops intake once and retains connections while work drains', asy
   await closed;
   expect(mockDisconnectDatabase).toHaveBeenCalledTimes(1);
   expect(mockDisconnectRedis).toHaveBeenCalledTimes(1);
+});
+
+
+test.each(['combined', 'worker', 'scheduler'])('%s respects disabled background jobs', async (role) => {
+  const { shutdown } = await boot(role, { backgroundJobsEnabled: false, outboundEnabled: false });
+  expect(mockStartWorker).not.toHaveBeenCalled();
+  expect(mockStartScheduler).not.toHaveBeenCalled();
+  expect(mockAttachListener).not.toHaveBeenCalled();
+  await shutdown();
+});
+
+test('blocked outbound does not attach Teams listener', async () => {
+  const { shutdown } = await boot('combined', { outboundEnabled: false });
+  expect(mockAttachListener).not.toHaveBeenCalled();
+  await shutdown();
+});
+
+test('PM2 profiles preserve production environment selection', () => {
+  const combined = require('../../ecosystem.config').apps[0];
+  for (const app of [combined, ...require('../../ecosystem.split.config').apps]) {
+    expect(app.env.APP_ENV).toBe('production');
+    expect(app.env.NODE_ENV).toBe('production');
+  }
 });
