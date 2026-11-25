@@ -53,7 +53,7 @@ async function processWorkerJob(job) {
 }
 
 async function start() {
-  require('dotenv').config();
+  require('../../../config/loadEnv');
   const { connectDatabase, disconnectDatabase } = require('../../../config/database');
   await connectDatabase();
   const concurrency = Math.max(1, Number.parseInt(process.env.HR_PAYROLL_EMAIL_CONCURRENCY || '1', 10) || 1);

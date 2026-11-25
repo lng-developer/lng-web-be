@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('../../../src/config/loadEnv');
 
 const { fetchTrackingByExternalOrderId } = require('../../../src/modules/shipment/services/vendorTrackingAdapterRegistry.service');
 

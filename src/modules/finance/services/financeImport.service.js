@@ -1,4 +1,5 @@
 const AppError = require('../../../shared/errors/appError');
+const config = require('../../../config');
 const crypto = require('crypto');
 const fs = require('fs');
 const mongoose = require('mongoose');
@@ -544,6 +545,15 @@ function duplicateImportResult(batch) {
 
 async function scheduleSnapshotRecalculations(batchId, context, summary) {
   const orderItemIds = context.dryRun ? [] : [...(summary.affectedOrderItemIds || [])];
+  if (config.finance?.durableRecalculationEnabled && orderItemIds.length) {
+    return mongoose.connection.transaction(async (session) => {
+      const batch = await repository.initializeImportBatchRecalculation(batchId, orderItemIds.length, { session });
+      if (!batch) return;
+      for (const orderItemId of orderItemIds) {
+        await enqueueSnapshotRecalculation({ orderItemId, reason: 'FINANCE_IMPORT', importBatchId: batchId }, { session });
+      }
+    });
+  }
   await repository.initializeImportBatchRecalculation(batchId, orderItemIds.length);
   if (!orderItemIds.length) return;
   const results = await Promise.all(orderItemIds.map((orderItemId) => enqueueSnapshotRecalculation({
@@ -551,7 +561,7 @@ async function scheduleSnapshotRecalculations(batchId, context, summary) {
     reason: 'FINANCE_IMPORT',
     importBatchId: batchId,
   })));
-  await Promise.all(results.map((queued, index) => queued.queued
+  await Promise.all(results.map((queued, index) => queued.queued || queued.persisted
     ? null
     : repository.markImportBatchRecalculationFailed(
       batchId,
@@ -812,23 +822,32 @@ async function relinkFinanceRowsForOrderItem(payload) {
 async function allocateRefund(refundId, allocations, authContext, httpContext) {
   assertGlobalAccess(financePermissions.WRITE, authContext);
   assertValidObjectId(refundId, 'refundId');
-  const refund = await repository.findRefundById(refundId);
-  if (!refund) throw appError('Refund not found', httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
-  const merged = [...(refund.allocations || []), ...allocations].reduce((all, entry) => {
-    const current = all.find((value) => String(value.orderItemId) === String(entry.orderItemId));
-    if (current) current.amount += entry.amount;
-    else all.push({ orderItemId: entry.orderItemId, amount: entry.amount });
-    return all;
-  }, []);
-  const total = merged.reduce((sum, entry) => sum + entry.amount, 0);
-  if (total > refund.totalRefundAmount) throw appError('Allocation exceeds refund amount', httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR);
-  const items = await Promise.all(allocations.map((entry) => orderPublic.findItemById(entry.orderItemId)));
-  if (items.some((item) => !item || String(item.shopId) !== String(refund.shopId) || item.salesChannelCode !== refund.salesChannelCode || item.marketplaceCode !== refund.marketplaceCode || (refund.externalOrderId && item.externalOrderId !== refund.externalOrderId))) {
-    throw appError('Allocation item does not match refund order', httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR);
+  async function applyAllocation(session) {
+    const options = session ? { session } : undefined;
+    const refund = await repository.findRefundById(refundId, options);
+    if (!refund) throw appError('Refund not found', httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
+    const merged = [...(refund.allocations || []), ...allocations].reduce((all, entry) => {
+      const current = all.find((value) => String(value.orderItemId) === String(entry.orderItemId));
+      if (current) current.amount += entry.amount;
+      else all.push({ orderItemId: entry.orderItemId, amount: entry.amount });
+      return all;
+    }, []);
+    const total = merged.reduce((sum, entry) => sum + entry.amount, 0);
+    if (total > refund.totalRefundAmount) throw appError('Allocation exceeds refund amount', httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR);
+    const items = await Promise.all(allocations.map((entry) => orderPublic.findItemById(entry.orderItemId)));
+    if (items.some((item) => !item || String(item.shopId) !== String(refund.shopId) || item.salesChannelCode !== refund.salesChannelCode || item.marketplaceCode !== refund.marketplaceCode || (refund.externalOrderId && item.externalOrderId !== refund.externalOrderId))) {
+      throw appError('Allocation item does not match refund order', httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR);
+    }
+    const saved = await repository.setRefundAllocations(refundId, merged, options);
+    for (const entry of allocations) {
+      await enqueueSnapshotRecalculation({ orderItemId: entry.orderItemId, reason: 'REFUND_ALLOCATION' }, options);
+    }
+    await auditPublic.record({ actorType: authContext.accountId ? 'ACCOUNT' : 'SYSTEM', actorAccountId: authContext.accountId || null, actorSnapshot: {}, action: 'FINANCE_REFUND_ALLOCATED', entityType: 'REFUND_RECORD', entityId: String(refundId), scopeType: 'SHOP', scopeId: String(refund.shopId), outcome: 'SUCCEEDED', source: httpContext ? 'HTTP' : 'SYSTEM', requestId: httpContext?.requestId || null, ipAddress: httpContext?.ipAddress || null, userAgent: httpContext?.userAgent || null, changes: null, metadata: { allocationCount: allocations.length, allocatedAmount: total }, deduplicationKey: `finance-refund-allocation:${refundId}:${JSON.stringify(allocations)}` }, options || {});
+    return { saved, total };
   }
-  const saved = await repository.setRefundAllocations(refundId, merged);
-  await Promise.all(allocations.map((entry) => enqueueSnapshotRecalculation({ orderItemId: entry.orderItemId, reason: 'REFUND_ALLOCATION' })));
-  await auditPublic.record({ actorType: authContext.accountId ? 'ACCOUNT' : 'SYSTEM', actorAccountId: authContext.accountId || null, actorSnapshot: {}, action: 'FINANCE_REFUND_ALLOCATED', entityType: 'REFUND_RECORD', entityId: String(refundId), scopeType: 'SHOP', scopeId: String(refund.shopId), outcome: 'SUCCEEDED', source: 'MANUAL', requestId: httpContext?.requestId || null, ipAddress: httpContext?.ipAddress || null, userAgent: httpContext?.userAgent || null, changes: null, metadata: { allocationCount: allocations.length, allocatedAmount: total }, deduplicationKey: `finance-refund-allocation:${refundId}:${JSON.stringify(allocations)}` }, {});
+  const { saved, total } = config.finance?.durableRecalculationEnabled
+    ? await mongoose.connection.transaction(applyAllocation)
+    : await applyAllocation();
   return { id: String(saved._id), totalRefundAmount: saved.totalRefundAmount, allocatedAmount: total, remainingAmount: saved.totalRefundAmount - total, allocations: saved.allocations || [] };
 }
 async function listUnallocatedRefunds(query, authContext) {

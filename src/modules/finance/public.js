@@ -11,6 +11,7 @@ const publicPort = {
   recalculateOrders: service.recalculateOrders,
   recalculateOrderItem: service.recalculateOrderItem,
   updateActualVendorCost: service.updateActualVendorCost,
+  requestRecalculation: enqueueSnapshotRecalculation,
   requestSnapshotRecalculation: enqueueSnapshotRecalculation,
   reconcileSnapshots,
   summarizeBySeller: service.summarizeBySeller,

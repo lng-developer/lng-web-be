@@ -25,6 +25,7 @@ const publicPort = {
   findByExternalIdentity: orderRepository.findByExternalIdentity,
   findOrderByFinanceIdentity: orderRepository.findByFinanceIdentity,
   findItemById: orderItemRepository.findById,
+  pageItemIds: orderItemRepository.pageIds,
   findItemIds: orderItemRepository.findIds,
   findItemsByIds: orderItemRepository.findByIds,
   findItemByFinanceIdentity: orderItemRepository.findByFinanceIdentity,

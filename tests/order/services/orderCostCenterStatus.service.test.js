@@ -40,6 +40,29 @@ describe('orderCostCenterStatus.service', () => {
     orderRepository.updatePsdStatus.mockResolvedValue({ _id: orderId });
   });
 
+  test('same ten-item fixture uses one shared context and projection refresh after coalescing', async () => {
+    const items = Array.from({ length: 10 }, (_, i) => ({ _id: `item-${i}`, listingId: 'listing' }));
+    orderItemRepository.listAllByOrder.mockResolvedValue(items);
+    mappingPublic.listFulfillmentPlansForOrderItems.mockResolvedValue(items.map((item) => ({
+      orderItemId: item._id, vendorCostCenter: { id: 'cc' }, listingId: 'listing',
+    })));
+    catalogPublic.getListingSummariesByIds.mockResolvedValue([{ id: 'listing', defaultPsdTemplateAssetId: 'psd' }]);
+    for (const _item of items) {
+      await service.updateCostCenterStatusForOrder(orderId);
+      await service.updatePsdStatusForOrder(orderId);
+    }
+    expect(orderItemRepository.listAllByOrder).toHaveBeenCalledTimes(20);
+    expect(mappingPublic.listFulfillmentPlansForOrderItems).toHaveBeenCalledTimes(20);
+    expect(orderWorkbenchProjectionService.updateOrderWorkbenchOrder).toHaveBeenCalledTimes(20);
+    jest.clearAllMocks();
+    await service.refreshFulfillmentStatusesForOrder(orderId);
+    expect(orderItemRepository.listAllByOrder).toHaveBeenCalledTimes(1);
+    expect(mappingPublic.listFulfillmentPlansForOrderItems).toHaveBeenCalledTimes(1);
+    expect(orderWorkbenchProjectionService.updateOrderWorkbenchOrder).toHaveBeenCalledTimes(1);
+    expect(orderRepository.updateCostCenterStatus).toHaveBeenCalledWith(orderId, 'PRESENT');
+    expect(orderRepository.updatePsdStatus).toHaveBeenCalledWith(orderId, 'PRESENT');
+  });
+
   test('marks order PRESENT when every item has a vendor cost center plan', async () => {
     orderItemRepository.listAllByOrder.mockResolvedValueOnce([{ _id: itemA }, { _id: itemB }]);
     mappingPublic.listFulfillmentPlansForOrderItems.mockResolvedValueOnce([

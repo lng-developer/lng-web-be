@@ -78,8 +78,9 @@ async function findActiveImportBatch({ shopId, sourceType }) {
   }).lean();
 }
 
-async function initializeImportBatchRecalculation(batchId, total) {
-  return FinanceImportBatch.findOneAndUpdate({ _id: batchId }, {
+async function initializeImportBatchRecalculation(batchId, total, options) {
+  const filter = { _id: batchId, ...(options?.session ? { recalculationStatus: 'NOT_REQUIRED' } : {}) };
+  return FinanceImportBatch.findOneAndUpdate(filter, {
     $set: {
       recalculationStatus: total > 0 ? 'PROCESSING' : 'NOT_REQUIRED',
       recalculationTotal: total,
@@ -87,25 +88,27 @@ async function initializeImportBatchRecalculation(batchId, total) {
       recalculationFailed: 0,
       recalculationErrors: [],
     },
-  }, { returnDocument: 'after', runValidators: true }).lean();
+  }, { returnDocument: 'after', runValidators: true, ...options }).lean();
 }
 
-async function markImportBatchRecalculationCompleted(batchId, orderItemId) {
-  const batch = await FinanceImportBatch.findOneAndUpdate({ _id: batchId }, {
+async function markImportBatchRecalculationCompleted(batchId, orderItemId, options) {
+  const batch = await FinanceImportBatch.findOneAndUpdate({ _id: batchId, recalculationFinishedItemIds: { $ne: String(orderItemId) } }, {
+    $addToSet: { recalculationFinishedItemIds: String(orderItemId) },
     $inc: { recalculationCompleted: 1 },
-  }, { returnDocument: 'after', runValidators: true }).lean();
-  return finalizeImportBatchRecalculation(batch);
+  }, { returnDocument: 'after', runValidators: true, ...options }).lean();
+  return finalizeImportBatchRecalculation(batch, options);
 }
 
-async function markImportBatchRecalculationFailed(batchId, orderItemId, error) {
-  const batch = await FinanceImportBatch.findOneAndUpdate({ _id: batchId }, {
+async function markImportBatchRecalculationFailed(batchId, orderItemId, error, options) {
+  const batch = await FinanceImportBatch.findOneAndUpdate({ _id: batchId, recalculationFinishedItemIds: { $ne: String(orderItemId) } }, {
+    $addToSet: { recalculationFinishedItemIds: String(orderItemId) },
     $inc: { recalculationFailed: 1 },
     $push: { recalculationErrors: { orderItemId: String(orderItemId), message: error?.message || String(error) } },
-  }, { returnDocument: 'after', runValidators: true }).lean();
-  return finalizeImportBatchRecalculation(batch);
+  }, { returnDocument: 'after', runValidators: true, ...options }).lean();
+  return finalizeImportBatchRecalculation(batch, options);
 }
 
-async function finalizeImportBatchRecalculation(batch) {
+async function finalizeImportBatchRecalculation(batch, options) {
   if (!batch || batch.recalculationStatus === 'NOT_REQUIRED') return batch;
   const processed = (batch.recalculationCompleted || 0) + (batch.recalculationFailed || 0);
   if (processed < (batch.recalculationTotal || 0)) return batch;
@@ -114,7 +117,7 @@ async function finalizeImportBatchRecalculation(batch) {
     recalculationStatus: 'PROCESSING',
   }, {
     $set: { recalculationStatus: batch.recalculationFailed ? 'PARTIAL_FAILED' : 'COMPLETED' },
-  }, { returnDocument: 'after', runValidators: true }).lean();
+  }, { returnDocument: 'after', runValidators: true, ...options }).lean();
 }
 
 async function claimQueuedImportBatch(batchId) {
@@ -577,8 +580,8 @@ async function upsertRefundRecord(payload) {
   }, payload, Boolean(payload.rawReference?.dedupKey));
 }
 
-async function findRefundById(refundId) {
-  return RefundRecord.findById(refundId).lean();
+async function findRefundById(refundId, options) {
+  return RefundRecord.findById(refundId, null, options).lean();
 }
 
 async function setRefundAllocations(refundId, allocations, { session } = {}) {
@@ -627,6 +630,27 @@ async function listUnassignedSellerAdsRows(query = {}) {
     AdsSpendDaily.countDocuments(filter),
   ]);
   return toPaginatedResult({ items, total, page, limit });
+}
+
+async function latestFinancialInputTimes(orderItemIds) {
+  const ids = orderItemIds.map(toObjectId);
+  const [fees, refunds] = await Promise.all([
+    MarketplaceFeeLine.aggregate([
+      { $match: { orderItemId: { $in: ids } } },
+      { $group: { _id: '$orderItemId', updatedAt: { $max: '$updatedAt' } } },
+    ]),
+    RefundRecord.aggregate([
+      { $match: { $or: [{ orderItemId: { $in: ids } }, { 'allocations.orderItemId': { $in: ids } }] } },
+      { $project: { updatedAt: 1, affectedItems: { $cond: [
+        { $gt: [{ $size: { $ifNull: ['$allocations', []] } }, 0] },
+        { $setIntersection: ['$allocations.orderItemId', ids] },
+        ['$orderItemId'],
+      ] } } },
+      { $unwind: '$affectedItems' },
+      { $group: { _id: '$affectedItems', updatedAt: { $max: '$updatedAt' } } },
+    ]),
+  ]);
+  return [...fees, ...refunds].map((row) => ({ orderItemId: row._id, updatedAt: row.updatedAt }));
 }
 
 async function sumFeesByOrderItem(orderItemId) {
@@ -693,6 +717,7 @@ module.exports = {
   listUnassignedSellerAdsRows,
   markImportBatchRecalculationCompleted,
   markImportBatchRecalculationFailed,
+  latestFinancialInputTimes,
   sumFeesByOrderItem,
   sumRefundsByOrderItem,
   upsertAdsSpend,

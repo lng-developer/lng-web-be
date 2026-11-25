@@ -40,4 +40,22 @@ describe('amazonAdsEmailImportScheduler.service', () => {
     scheduler.start();
     expect(setInterval).not.toHaveBeenCalled();
   });
+
+  test('stop cancels the timer and waits for the in-flight import', async () => {
+    let finish;
+    const runOnce = jest.fn(() => new Promise((resolve) => { finish = resolve; }));
+    const clearInterval = jest.fn();
+    const scheduler = createAmazonAdsEmailImportScheduler({ enabled: true, pollIntervalMs: 300000 }, {
+      runOnce, setInterval: () => 'timer', clearInterval, logger: { info: jest.fn(), warn: jest.fn() },
+    });
+    scheduler.start();
+    const done = jest.fn();
+    const stopping = Promise.resolve(scheduler.stop()).then(done);
+    expect(clearInterval).toHaveBeenCalledWith('timer');
+    await Promise.resolve();
+    expect(done).not.toHaveBeenCalled();
+    finish();
+    await stopping;
+    expect(done).toHaveBeenCalledTimes(1);
+  });
 });

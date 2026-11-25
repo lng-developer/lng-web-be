@@ -9,7 +9,7 @@ async function processAnnouncementJob() {
 }
 
 async function start() {
-  require('dotenv').config();
+  require('../../../config/loadEnv');
   const { connectDatabase, disconnectDatabase } = require('../../../config/database');
   await connectDatabase();
   const queue = createQueue(QUEUE_NAME);

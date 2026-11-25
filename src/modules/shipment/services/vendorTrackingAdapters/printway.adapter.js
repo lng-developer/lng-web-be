@@ -68,7 +68,7 @@ module.exports = Object.freeze({
     const normalizedBase = base.endsWith('/v3') ? base : `${base}/v3`;
     const url = new URL(`${normalizedBase}/order/list`);
     const result = await requestJson(url, {
-      method: 'POST', token, body: buildPrintwayOrderListBody(externalOrderId, options),
+      method: 'POST', token, ...(options.signal && { signal: options.signal }), body: buildPrintwayOrderListBody(externalOrderId, options),
     });
     if (result.statusCode < 200 || result.statusCode >= 300 || result.json?.success === false) {
       const error = new Error('PRINTWAY tracking request failed');

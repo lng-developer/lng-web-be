@@ -1,9 +1,11 @@
+const { createScheduledRunTracker } = require('../../../shared/utils/scheduledRunTracker');
 const logger = require('../../../shared/utils/logger');
 const vendorSubmissionPublic = require('../public');
 const { withDistributedLock } = require('../../../shared/utils/distributedLock');
 
 let timer = null;
 let running = false;
+const runs = createScheduledRunTracker();
 
 function isEnabled() {
   return String(process.env.VENDOR_SUBMISSION_RECOVERY_ENABLED || '').toLowerCase() === 'true';
@@ -41,16 +43,17 @@ async function runOnce() {
 
 function startVendorSubmissionRecoveryScheduler() {
   if (!isEnabled() || timer) return null;
-  timer = setInterval(runOnce, intervalMs());
+  timer = setInterval(() => runs.track(runOnce()), intervalMs());
   timer.unref?.();
   logger.info('vendor_submission_recovery_scheduler_started', { intervalMs: intervalMs(), limit: limit() });
   return timer;
 }
 
 function stopVendorSubmissionRecoveryScheduler() {
-  if (!timer) return;
+  if (!timer) return runs.drain();
   clearInterval(timer);
   timer = null;
+  return runs.drain();
 }
 
 module.exports = { runOnce, startVendorSubmissionRecoveryScheduler, stopVendorSubmissionRecoveryScheduler };

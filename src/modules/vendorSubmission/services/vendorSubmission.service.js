@@ -425,6 +425,12 @@ async function listSubmittedForTracking(query = {}, authContext) {
   }));
 }
 
+function listTrackingDiscoveryPage(query, authContext) {
+  if (!authContext?.system) throw forbidden();
+  const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 100);
+  return repository.listTrackingDiscoveryPage({ provider: query.provider, afterId: query.afterId, limit });
+}
+
 async function assertCanReadSubmission(submission, authContext) {
   const ids = await orderPublic.personalSellerItemIds?.(authContext, vendorSubmissionPermissions.READ);
   if (ids !== undefined) {
@@ -1380,6 +1386,7 @@ module.exports = {
   getSubmission,
   listSubmissions,
   listSubmittedForTracking,
+  listTrackingDiscoveryPage,
   listLatestByProductionTaskIds,
   markFailed,
   markSubmitted,

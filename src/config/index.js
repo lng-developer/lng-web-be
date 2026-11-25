@@ -1,11 +1,14 @@
-const path = require('path');
-const dotenv = require('dotenv');
+require('./loadEnv');
 const Joi = require('joi');
 
-dotenv.config({ path: path.resolve(process.cwd(), '.env'), quiet: true });
 
 const schema = Joi.object({
   NODE_ENV: Joi.string().valid('development', 'test', 'production').default('development'),
+  BACKGROUND_JOBS_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
+  RUNTIME_ROLE: Joi.string().valid('combined', 'api', 'worker', 'scheduler').default('combined'),
+  VENDOR_TRACKING_QUEUE_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+  FINANCE_DURABLE_RECALCULATION_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+  MAPPING_DURABLE_SIDE_EFFECTS_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
   PORT: Joi.number().port().default(3000),
   HOST: Joi.string().hostname().default('127.0.0.1'),
   LOG_LEVEL: Joi.string().valid('debug', 'info', 'warn', 'error', 'silent').default('info'),
@@ -84,6 +87,11 @@ if (error) {
 
 module.exports = {
   env: value.NODE_ENV,
+  backgroundJobsEnabled: value.BACKGROUND_JOBS_ENABLED,
+  outboundEnabled: !require('../shared/utils/outboundPolicy').isOutboundBlocked(),
+  runtime: { role: value.RUNTIME_ROLE },
+  shipment: { trackingQueueEnabled: value.VENDOR_TRACKING_QUEUE_ENABLED },
+  mapping: { durableSideEffectsEnabled: value.MAPPING_DURABLE_SIDE_EFFECTS_ENABLED },
   port: value.PORT,
   host: value.HOST,
   log: {
@@ -144,6 +152,7 @@ module.exports = {
     pollIntervalMs: value.AMAZON_ADS_GMAIL_POLL_INTERVAL_MS,
   },
   finance: {
+    durableRecalculationEnabled: value.FINANCE_DURABLE_RECALCULATION_ENABLED,
     lngFulfillmentFeeAmount: value.LNG_FULFILLMENT_FEE_AMOUNT,
   },
   teams: {

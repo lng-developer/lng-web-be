@@ -1020,6 +1020,26 @@ describe('fulfillmentPlan.service', () => {
     expect(orderPublic.updatePsdStatusForOrder).toHaveBeenCalledWith(orderId);
   });
 
+  test.each(['READY', 'BLOCKED'])('durable %s mapping leaves order projections to workers during queue outage', async (status) => {
+    const config = require('../../../src/config');
+    const queue = require('../../../src/modules/mapping/services/fulfillmentSideEffectQueue.service');
+    config.mapping.durableSideEffectsEnabled = true;
+    const enqueue = jest.spyOn(queue, 'enqueueFulfillmentSideEffects').mockResolvedValue({ queued: false, durable: true });
+    try {
+      if (status === 'BLOCKED') vendorPublic.listActiveVendorCostCenterMatchProbesByProductIds.mockResolvedValue([]);
+      const result = await service.recheckFulfillmentPlan(orderItemId, {}, { permissions: ['MAPPING:WRITE'] });
+      expect(result.status).toBe(status);
+      expect(enqueue).toHaveBeenCalled();
+      expect(orderPublic.refreshFulfillmentStatusesForOrder).not.toHaveBeenCalled();
+      expect(orderPublic.updateCostCenterStatusForOrder).not.toHaveBeenCalled();
+      expect(orderPublic.updatePsdStatusForOrder).not.toHaveBeenCalled();
+      expect(productionPublic.createOrRecheckTaskForOrderItem).not.toHaveBeenCalled();
+    } finally {
+      config.mapping.durableSideEffectsEnabled = false;
+      enqueue.mockRestore();
+    }
+  });
+
   test('compact preview returns counts and autoMatch without candidate lists', async () => {
     const result = await service.previewFulfillmentPlan(orderItemId, { includeCandidates: false }, { permissions: ['MAPPING:READ'] });
 
