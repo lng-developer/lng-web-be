@@ -52,7 +52,7 @@ function buildPayload(submission = {}, { idempotencyKey } = {}) {
     : [buildMangoTeeItem(snapshot)];
 
   return {
-    order_id: String(firstValue(item.externalOrderId, snapshot.externalOrderId, submission.orderItemId, submission.id) || ''),
+    order_id: String(firstValue(snapshot.vendorClientOrderId, snapshot.mangoteeExternalOrderId, item.externalOrderId, snapshot.externalOrderId, submission.orderItemId, submission.id) || ''),
     facility: firstValue(snapshot.facility, snapshot.facilityCode, costCenter.facility) || null,
     items,
     first_name: name.first_name,
