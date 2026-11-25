@@ -43,10 +43,16 @@ const redisAvailable = spawnSync('redis-server', ['--version'], { windowsHide: t
     await expect(withClientGuard('VENDOR', clientGuardKey({ apiKey: 'c' }), jest.fn())).rejects.toMatchObject({ trackingBusy: true });
     releaseA(); releaseB();
     await Promise.all([slow, other]);
+    await expect(withClientGuard('VENDOR', clientGuardKey({ apiKey: 'a' }), jest.fn())).rejects.toMatchObject({ trackingBusy: true });
+    await expect(withClientGuard('VENDOR', clientGuardKey({ apiKey: 'b' }), async () => 'paced', { waitMs: 2000 })).resolves.toBe('paced');
     const limited = Object.assign(new Error('429'), { vendorHttpStatus: 429, retryAfter: '90' });
     await expect(withClientGuard('VENDOR', clientGuardKey({ apiKey: 'a' }), async () => { throw limited; })).rejects.toBe(limited);
     await expect(withClientGuard('VENDOR', clientGuardKey({ apiKey: 'a' }), jest.fn())).rejects.toMatchObject({ trackingBusy: true });
-    await expect(withClientGuard('VENDOR', clientGuardKey({ apiKey: 'b' }), async () => 'ok')).resolves.toBe('ok');
+    await expect(withClientGuard('VENDOR', clientGuardKey({ apiKey: 'b' }), async () => 'ok', { waitMs: 2000 })).resolves.toBe('ok');
     getter.mockRestore();
   });
+});
+
+test('rotating access tokens retain the stable vendor admission identity', () => {
+  expect(clientGuardKey({ vendorId: 'vendor', accessToken: 'old' })).toBe(clientGuardKey({ vendorId: 'vendor', accessToken: 'new' }));
 });

@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const config = require('../../../config');
 const redisConfig = require('../../../config/redis');
 
 // One atomic admission across API and worker processes. Expiry recovers crashed owners.
@@ -38,13 +39,20 @@ function clientGuardKey(credential) {
   return crypto.createHash('sha256').update(String(identity)).digest('hex');
 }
 
-async function withClientGuard(provider, digest, action) {
+async function withClientGuard(provider, digest, action, { waitMs = 0 } = {}) {
   const prefix = 'tracking:{vendor-poll}';
   const keys = [`${prefix}:${provider}:${digest}`, `${prefix}:slot:1`, `${prefix}:slot:2`];
   const token = crypto.randomUUID();
   const redis = redisConfig.getRedisClient();
   if (redis.status && redis.status !== 'ready') throw new Error('Vendor tracking guard unavailable');
-  const slot = await redis.eval(acquire, 3, ...keys, token, 120000);
+  const deadline = Date.now() + waitMs;
+  let slot = await redis.eval(acquire, 3, ...keys, token, 120000);
+  while (slot <= 0 && Date.now() < deadline) {
+    const pause = slot < 0 ? -slot : 100;
+    if (Date.now() + pause > deadline) break;
+    await new Promise(resolve => setTimeout(resolve, pause));
+    slot = await redis.eval(acquire, 3, ...keys, token, 120000);
+  }
   if (slot <= 0) {
     const err = new Error('Vendor tracking client is busy');
     err.trackingBusy = true;
@@ -54,12 +62,12 @@ async function withClientGuard(provider, digest, action) {
   const renewGuard = () => redis.eval(renew, 2, keys[0], keys[slot - 1], token, 120000);
   const timer = setInterval(() => { renewGuard().catch(() => {}); }, 30000);
   timer.unref?.();
-  let cooldown = 0;
+  let cooldown = config.shipment?.minIntervalMs || 1000;
   try {
     return await action(renewGuard);
   } catch (err) {
     if (err.vendorHttpStatus === 429) {
-      cooldown = retryAfterMs(err.retryAfter) || 60000;
+      cooldown = Math.max(cooldown, retryAfterMs(err.retryAfter) || 60000);
       err.retryMs = cooldown;
     }
     throw err;

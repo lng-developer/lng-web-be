@@ -22,8 +22,10 @@ function startWorkers(registerWorker) {
   for (const start of startWorkers) {
     const worker = start();
     if (!worker) continue;
-    workers.push(worker);
-    registerWorker(worker);
+    for (const entry of [worker].flat()) {
+      workers.push(entry);
+      registerWorker(entry);
+    }
   }
   return workers;
 }
