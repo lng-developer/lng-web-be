@@ -31,7 +31,7 @@ jobs:
 
   core-test:
     name: Core test ${{ matrix.shard }}/2
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/develop') || (github.event_name == 'pull_request' && github.base_ref == 'develop') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'develop') }}
     runs-on: ubuntu-latest
     env:
       NODE_OPTIONS: --experimental-vm-modules
@@ -66,7 +66,7 @@ jobs:
 
   windows-powershell-test:
     name: Windows PowerShell test
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/develop') || (github.event_name == 'pull_request' && github.base_ref == 'develop') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'develop') }}
     runs-on: windows-latest
     env:
       NODE_OPTIONS: --experimental-vm-modules
@@ -82,7 +82,7 @@ jobs:
 
   startup-smoke:
     name: Startup smoke
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/develop') || (github.event_name == 'pull_request' && github.base_ref == 'develop') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'develop') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -91,26 +91,59 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: node --test .github/scripts/verify-pr-ci.check.cjs
       - run: npm run smoke:startup
 
-  package-develop:
+  package-pr:
     needs: [core-test, windows-powershell-test, startup-smoke]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' }}
+    if: ${{ github.event_name == 'pull_request' && github.base_ref == 'develop' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - id: source
+        run: echo "tree=$(git rev-parse HEAD^{tree})" >> "$GITHUB_OUTPUT"
       - run: git archive --format=tar HEAD -o source.tar
       - uses: actions/upload-artifact@v4
         with:
-          name: backend-develop-${{ github.sha }}
+          name: backend-develop-${{ steps.source.outputs.tree }}
           path: source.tar
-          retention-days: 3
+          retention-days: 14
+          overwrite: true
+
+  verify-pr-ci:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    outputs:
+      run-id: ${{ steps.verify.outputs.run-id }}
+      artifact-id: ${{ steps.verify.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/github-script@v7
+        id: verify
+        with:
+          script: |
+            const verify = require('./.github/scripts/verify-pr-ci.cjs');
+            const result = await verify({ github, context,
+              workflow: 'develop.yml', artifactPrefix: 'backend-develop',
+              requiredJobs: ["Core test 0/2","Core test 1/2","Windows PowerShell test","Startup smoke","package-pr"] });
+            core.setOutput('run-id', result.runId);
+            core.setOutput('artifact-id', result.artifactId);
+            core.info(`Using PR #${result.prNumber}, run ${result.runId}, tree ${result.tree}`);
 
   deploy-develop:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' }}
-    needs: package-develop
+    needs: verify-pr-ci
+    permissions:
+      contents: read
+      actions: read
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 15
     concurrency:
@@ -119,7 +152,10 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: backend-develop-${{ github.sha }}
+          merge-multiple: true
+          artifact-ids: ${{ needs.verify-pr-ci.outputs.artifact-id }}
+          run-id: ${{ needs.verify-pr-ci.outputs.run-id }}
+          github-token: ${{ github.token }}
           path: ${{ runner.temp }}/be-develop-${{ github.run_id }}-${{ github.run_attempt }}
       - uses: actions/setup-node@v4
         with:
