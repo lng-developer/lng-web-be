@@ -384,6 +384,7 @@ function mutableListingPatch(patch = {}) {
     'productImageUrl',
     'previewImageUrl',
     'defaultPsdTemplateAssetId',
+    'designType',
     'baseCostAmount',
     'currency',
     'status',

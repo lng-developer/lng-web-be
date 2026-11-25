@@ -30,6 +30,7 @@ function toListingDto(listing, {
       employeeCode: listing.seller.employeeCode || null,
       name: listing.seller.name || null,
     } : null,
+    designType: listing.designType || null,
     defaultPsdTemplateAssetId: toId(listing.defaultPsdTemplateAssetId),
     variantCount,
     psdReadyCount,

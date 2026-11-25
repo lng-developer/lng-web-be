@@ -708,8 +708,9 @@ function baseFileCheck({
   };
 }
 
-function buildFileChecks({ listing, template, customization }) {
-  const images = customerImages(customization);
+function buildFileChecks({ listing, template, customization, requireCustomerImage = false }) {
+  const images = customerImages(customization).filter((image) => !requireCustomerImage
+    || !normalizedInputKeys(image).some((key) => genericImageInputKeys.has(key)));
   const psdReadiness = listing?.psdReadiness || null;
   const psdAssetId = psdReadiness && Object.hasOwn(psdReadiness, 'effectivePsdAssetId')
     ? psdReadiness.effectivePsdAssetId
@@ -746,6 +747,22 @@ function buildFileChecks({ listing, template, customization }) {
     }));
   });
 
+  if (requireCustomerImage && !checks.some((check) => (
+    check.sourceType === productionSourceTypes.CUSTOMER_IMAGE && check.required
+  ))) {
+    const check = checks.find((entry) => entry.sourceType === productionSourceTypes.CUSTOMER_IMAGE);
+    const image = images[0];
+    const requiredImage = baseFileCheck({
+      slotKey: check?.slotKey || 'CUSTOMER_IMAGE',
+      slotLabel: check?.slotLabel || 'Customer image',
+      sourceType: productionSourceTypes.CUSTOMER_IMAGE,
+      inputAssetId: image?.assetId || null,
+      ...check,
+      required: true,
+    });
+    if (check) Object.assign(check, requiredImage);
+    else checks.push(requiredImage);
+  }
   return checks;
 }
 
@@ -1526,14 +1543,24 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
   const customization = item.customizationRawSummary?.hasCustomization === false
     ? null
     : await customizationPublic.getOrderItemCustomizationView(orderItemId, authContext);
-  const derivedFileChecks = buildFileChecks({
-    listing: listing ? { ...listing, psdReadiness } : listing,
-    template,
-    customization,
-  });
   const operation = await withProductionOperation(async (session) => {
     const current = await repository.findByOrderItem(orderItemId, { session });
-    const fileChecks = preserveExistingScaledOutputs(derivedFileChecks, current?.fileChecks);
+    const listingDesignType = current ? null : listing?.designType;
+    const requireCustomerImage = (current?.designTypeSource === 'LISTING'
+      ? current.designType : listingDesignType) === 'CUSTOM_IMAGE';
+    const derivedFileChecks = buildFileChecks({
+      listing: listing ? { ...listing, psdReadiness } : listing,
+      template,
+      customization,
+      requireCustomerImage,
+    });
+    // Replace the empty fallback slot once a real template supplies print positions.
+    const existingFileChecks = requireCustomerImage && template?.artworkSlots?.length
+      ? (current?.fileChecks || []).filter((check) => !(check.slotKey === 'CUSTOMER_IMAGE'
+        && check.sourceType === productionSourceTypes.CUSTOMER_IMAGE
+        && !check.inputAssetId && !check.outputAssetId))
+      : current?.fileChecks;
+    const fileChecks = preserveExistingScaledOutputs(derivedFileChecks, existingFileChecks);
     const aggregate = aggregateStatus(fileChecks, orderCaseBlockers(order));
     const {
       fileChecks: initialFileChecks,
@@ -1543,7 +1570,10 @@ async function createOrRecheckTaskForOrderItem(orderItemId, authContext) {
       blockers: initialBlockers,
       ...readinessSnapshots
     } = snapshotPayload({ item, order, plan, listing, template, customization, fileChecks, aggregate });
-    if (current?.designTypeSource !== 'MANUAL') {
+    if (listingDesignType) {
+      readinessSnapshots.designType = listingDesignType;
+      readinessSnapshots.designTypeSource = 'LISTING';
+    } else if (!['MANUAL', 'LISTING'].includes(current?.designTypeSource)) {
       // Extracted ZIP previews are not evidence of a buyer-uploaded image.
       const buyerImages = customerImageInputs(customization).filter((image) => (
         !normalizedInputKeys(image).some((key) => genericImageInputKeys.has(key))
