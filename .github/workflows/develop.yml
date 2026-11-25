@@ -172,6 +172,7 @@ jobs:
           ssh "$ECOMATRIX_USER@$ECOMATRIX_HOST" "DEPLOY_SHA=$DEPLOY_SHA bash -s" <<'REMOTE'
           set -euo pipefail
           cd /srv/lng-web-be
+          export APP_ENV=production
 
           previous_sha=$(git rev-parse HEAD)
           rollback() {
@@ -189,7 +190,7 @@ jobs:
           git fetch --depth=1 origin main
           git cat-file -e "$DEPLOY_SHA^{commit}"
           git checkout --detach --force "$DEPLOY_SHA"
-          git clean -ffd -e .env
+          git clean -ffd -e .env -e .env.production
           npm ci --omit=dev
           npm run smoke:startup
           npm run indexes:finance-import

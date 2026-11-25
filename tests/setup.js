@@ -1,3 +1,4 @@
+process.env.APP_ENV = 'test';
 process.env.REDIS_ENABLED = 'false';
 if (!process.env.NODE_ENV) {
   process.env.NODE_ENV = 'test';

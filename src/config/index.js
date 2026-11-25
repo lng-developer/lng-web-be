@@ -1,8 +1,5 @@
-const path = require('path');
-const dotenv = require('dotenv');
+require('./loadEnv');
 const Joi = require('joi');
-
-dotenv.config({ path: path.resolve(process.cwd(), '.env'), quiet: true });
 
 const schema = Joi.object({
   NODE_ENV: Joi.string().valid('development', 'test', 'production').default('development'),

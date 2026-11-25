@@ -5,16 +5,16 @@ test "$(hostname)" = lng
 [[ "${DEPLOY_SHA:?}" =~ ^[0-9a-f]{40}$ ]]
 test "$(node -p 'process.versions.node.split(".")[0]')" = 24
 base=/home/lng/apps/lng-web-be-develop
-env_file=/home/lng/apps/lng-web-be/.env
+env_file=/home/lng/apps/lng-web-be/.env.development
 release="$base/releases/$DEPLOY_SHA-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:-1}"
 test -f "$env_file"
 test ! -e "$release"
 mkdir -p "$release"
 tar -xf "${1:?source archive required}" -C "$release"
-ln -s "$env_file" "$release/.env"
+ln -s "$env_file" "$release/.env.development"
 cd "$release"
 npm ci --omit=dev
-NODE_ENV=production BACKGROUND_JOBS_ENABLED=false node - <<'NODE'
+APP_ENV=development NODE_ENV=production BACKGROUND_JOBS_ENABLED=false node - <<'NODE'
 const config = require('./src/config');
 const uri = new URL(config.database.uri);
 if (uri.pathname !== '/lng_web_be_develop' || config.redis.db !== 15
@@ -29,7 +29,7 @@ fs.writeFileSync('ecosystem.develop.json', JSON.stringify({ apps: [{
   name: 'lng-web-be', cwd: process.cwd(), script: 'src/server.js', args: [],
   interpreter: process.env.DEPLOY_NODE, instances: 1, exec_mode: 'fork',
   min_uptime: 10000, max_restarts: 5, kill_timeout: 10000,
-  env: { NODE_ENV: 'production', BACKGROUND_JOBS_ENABLED: 'false',
+  env: { APP_ENV: 'development', NODE_ENV: 'production', BACKGROUND_JOBS_ENABLED: 'false',
     TEAMS_SYNC_ENABLED: 'false', TEAMS_OUTBOX_ENABLED: 'false', SQL_ATTENDANCE_ENABLED: 'false',
     AMAZON_ADS_GMAIL_ENABLED: 'false' },
 }]}));
