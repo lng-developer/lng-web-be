@@ -13,6 +13,7 @@ const mediaPublic = require('../../media/public');
 const vendorPublic = require('../../vendor/public');
 const financePublic = require('../../finance/public');
 const submitRegistry = require('./submitAdapters/registry');
+const vendorOrderId = require('./vendorOrderId.service');
 const {
   vendorSubmissionPermissions,
   vendorSubmissionStatuses,
@@ -985,12 +986,12 @@ async function cancel(submissionId, payload = {}, authContext) {
   if (submission.status === vendorSubmissionStatuses.CANCELLED) {
     return toVendorSubmissionDto(submission, { detail: true });
   }
-  if (submission.status === vendorSubmissionStatuses.SUBMITTED) {
-    throw conflict('Submitted vendor submission cannot be cancelled', { status: submission.status });
+  if (![vendorSubmissionStatuses.DRAFT, vendorSubmissionStatuses.READY, vendorSubmissionStatuses.FAILED].includes(submission.status)) {
+    throw conflict('Vendor submission must be reconciled before cancellation', { status: submission.status });
   }
 
   const reason = payload.cancelReason ? String(payload.cancelReason).trim() : null;
-  const updated = await repository.updateById(submissionId, {
+  const updated = await repository.transitionStatus(submissionId, [submission.status], {
     status: vendorSubmissionStatuses.CANCELLED,
     cancelledBy: authContext?.accountId || null,
     cancelledAt: new Date(),
@@ -1002,6 +1003,7 @@ async function cancel(submissionId, payload = {}, authContext) {
       reason,
     ),
   });
+  if (!updated) throw conflict('Vendor submission state changed before cancellation');
   await recordSubmissionOperation({
     action: 'VENDOR_SUBMISSION_CANCELLED', submission: updated, authContext,
     changes: {
@@ -1062,7 +1064,7 @@ async function syncBundledSiblingSubmissionsOnSuccess(primarySubmission, submitR
 
   if (!bundledSubmissionIds.length) return;
 
-  const vendorCost = extractVendorCost(adapter.provider, submitResult.response);
+  const vendorCost = submitResult.response ? extractVendorCost(adapter.provider, submitResult.response) : null;
 
   for (const siblingId of bundledSubmissionIds) {
     try {
@@ -1081,8 +1083,11 @@ async function syncBundledSiblingSubmissionsOnSuccess(primarySubmission, submitR
             status: vendorSubmissionStatuses.SUBMITTED,
             provider: adapter.provider,
             vendorExternalOrderId: submitResult.externalId || null,
+            ...(primarySubmission.payloadSnapshot?.vendorClientOrderId ? {
+              payloadSnapshot: { ...sibling.payloadSnapshot, vendorClientOrderId: primarySubmission.payloadSnapshot.vendorClientOrderId },
+            } : {}),
             submittedResponse: stripUnsafe(submitResult.response || null),
-            vendorCost,
+            ...(vendorCost ? { vendorCost } : {}),
             submittedBy: authContext?.accountId || null,
             submittedAt: new Date(),
             statusHistory: appendStatusHistory(
@@ -1241,16 +1246,30 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
   }
 
   let submitResult;
+  let dispatchStarted = false;
   try {
+    if (['MANGOTEE', 'PRINTWAY'].includes(provider)) {
+      const vendorClientOrderId = await vendorOrderId.allocate(claimed, provider, vendorId);
+      const reserved = await repository.transitionStatus(submissionId, [vendorSubmissionStatuses.SUBMITTING], {
+        payloadSnapshot: { ...claimed.payloadSnapshot, vendorClientOrderId },
+      });
+      if (!reserved) throw conflict('Vendor submission changed before dispatch');
+      claimed = reserved;
+    }
     const readySubmission = await refreshSubmissionVendorUrls(claimed);
     const submitPayload = adapter.buildPayload(readySubmission, { idempotencyKey: operationKey });
     adapter.validatePayload(submitPayload);
     const credential = await vendorPublic.getVendorIntegrationCredential(vendorId, provider);
     if (!credential) throw validationError('Vendor credentials are not configured');
     await orderPublic.assertMarketplaceAllowsFulfillment(claimed.orderId, claimed.orderItemId);
+    dispatchStarted = true;
     submitResult = await adapter.submitPayload(submitPayload, { credential, idempotencyKey: operationKey });
   } catch (error) {
-    if (error?.details?.response || error?.statusCode === 400) {
+    const vendorHttpStatus = Number(error?.details?.statusCode);
+    const ambiguousResponse = ['MANGOTEE', 'PRINTWAY'].includes(provider)
+      && (vendorHttpStatus >= 500 || vendorHttpStatus === 408);
+    const knownUnsent = ['MANGOTEE', 'PRINTWAY'].includes(provider) && !dispatchStarted;
+    if (knownUnsent || (!ambiguousResponse && (error?.details?.response || error?.statusCode === 400))) {
       const failed = await repository.transitionStatus(submissionId, [vendorSubmissionStatuses.SUBMITTING], {
         status: vendorSubmissionStatuses.FAILED,
         provider: adapter.provider,
@@ -1269,7 +1288,7 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
           },
           metadata: { provider: adapter.provider },
         });
-        await syncBundledSiblingSubmissionsOnFailure(claimed, error, adapter, authContext);
+        if (!knownUnsent) await syncBundledSiblingSubmissionsOnFailure(claimed, error, adapter, authContext);
       }
     } else {
       const needsReview = await repository.transitionStatus(submissionId, [vendorSubmissionStatuses.SUBMITTING], {
@@ -1338,7 +1357,14 @@ async function reconcile(submissionId, payload = {}, authContext) {
     changes: { status: { from: submission.status, to: nextStatus } },
     metadata: { outcome: payload.outcome },
   });
-  if (remoteFound) await repairProductionHandoff(updated, authContext);
+  if (remoteFound) {
+    await repairProductionHandoff(updated, authContext);
+    if (['MANGOTEE', 'PRINTWAY'].includes(updated.provider)) {
+      await syncBundledSiblingSubmissionsOnSuccess(updated, {
+        externalId: updated.vendorExternalOrderId,
+      }, { provider: updated.provider }, authContext);
+    }
+  }
   return toVendorSubmissionDto(updated, { detail: true });
 }
 

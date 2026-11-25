@@ -27,6 +27,8 @@ jest.mock('../../../src/modules/shipment/public', () => ({
   ensureFromVendorSubmission: jest.fn(),
 }));
 
+jest.mock('../../../src/modules/finance/public', () => ({ updateActualVendorCost: jest.fn() }));
+
 jest.mock('../../../src/modules/notification/public', () => ({
   notify: jest.fn(),
 }));
@@ -55,6 +57,9 @@ jest.mock('../../../src/modules/vendorSubmission/repositories/vendorSubmission.r
 jest.mock('../../../src/modules/vendorSubmission/services/submitAdapters/registry', () => ({
   getAdapter: jest.fn(),
 }));
+
+jest.mock('../../../src/modules/vendorSubmission/services/vendorOrderId.service', () => ({ allocate: jest.fn() }));
+const vendorOrderId = require('../../../src/modules/vendorSubmission/services/vendorOrderId.service');
 
 const productionPublic = require('../../../src/modules/production/public');
 const authPublic = require('../../../src/modules/auth/public');
@@ -637,7 +642,7 @@ describe('vendorSubmission.service', () => {
       accountId: actorId,
     });
 
-    expect(repository.updateById).toHaveBeenCalledWith(submissionId, expect.objectContaining({
+    expect(repository.transitionStatus).toHaveBeenCalledWith(submissionId, ['READY'], expect.objectContaining({
       status: 'CANCELLED',
       cancelledBy: actorId,
       cancelReason: 'Duplicate',
@@ -664,7 +669,7 @@ describe('vendorSubmission.service', () => {
       accountId: actorId,
     });
 
-    expect(repository.updateById).toHaveBeenCalledWith(submissionId, expect.objectContaining({
+    expect(repository.transitionStatus).toHaveBeenCalledWith(submissionId, ['READY'], expect.objectContaining({
       cancelReason: reason,
       statusHistory: [expect.objectContaining({ reason })],
     }));
@@ -682,7 +687,7 @@ describe('vendorSubmission.service', () => {
       accountId: actorId,
     });
 
-    expect(repository.updateById).toHaveBeenCalledWith(submissionId, expect.objectContaining({
+    expect(repository.transitionStatus).toHaveBeenCalledWith(submissionId, ['READY'], expect.objectContaining({
       cancelReason: reason,
       statusHistory: [expect.objectContaining({ reason })],
     }));
@@ -729,6 +734,93 @@ describe('vendorSubmission.service', () => {
     })).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });
 
     expect(repository.claimReadyForSubmit).not.toHaveBeenCalled();
+  });
+
+  test.each(['MANGOTEE', 'PRINTWAY'])('%s persists its client ID before dispatch and retains it on timeout', async (provider) => {
+    vendorPublic.getVendorIntegrationAssignment.mockResolvedValue({ providerKey: provider, status: 'CONNECTED' });
+    vendorOrderId.allocate.mockResolvedValue('113-ORDER-R3');
+    const adapter = {
+      provider,
+      buildPayload: jest.fn((row) => ({ order_id: row.payloadSnapshot.vendorClientOrderId })),
+      validatePayload: jest.fn(),
+      submitPayload: jest.fn(async (payload) => {
+        expect(payload.order_id).toBe('113-ORDER-R3');
+        expect(repository.transitionStatus).toHaveBeenCalledWith(submissionId, ['SUBMITTING'], {
+          payloadSnapshot: expect.objectContaining({ vendorClientOrderId: '113-ORDER-R3' }),
+        });
+        throw new Error('socket hang up');
+      }),
+    };
+    submitRegistry.getAdapter.mockReturnValue(adapter);
+    await expect(service.submitToVendor(submissionId, { dryRun: false }, { system: true })).rejects.toThrow('socket hang up');
+    expect(vendorOrderId.allocate).toHaveBeenCalledTimes(1);
+    expect(repository.transitionStatus).toHaveBeenLastCalledWith(submissionId, ['SUBMITTING'], expect.objectContaining({ status: 'NEEDS_REVIEW' }));
+    repository.findById.mockResolvedValue({ ...submission, status: 'NEEDS_REVIEW' });
+    await expect(service.retry(submissionId, {}, { system: true })).rejects.toMatchObject({ statusCode: 409 });
+    expect(adapter.submitPayload).toHaveBeenCalledTimes(1);
+  });
+
+  test.each(['MANGOTEE', 'PRINTWAY'])('%s dry run does not reserve an ID', async (provider) => {
+    vendorPublic.getVendorIntegrationAssignment.mockResolvedValue({ providerKey: provider, status: 'CONNECTED' });
+    submitRegistry.getAdapter.mockReturnValue({ provider, buildPayload: jest.fn(() => ({ order_id: '113-ORDER' })), validatePayload: jest.fn() });
+    await service.submitToVendor(submissionId, {}, { system: true });
+    expect(vendorOrderId.allocate).not.toHaveBeenCalled();
+    expect(repository.claimReadyForSubmit).not.toHaveBeenCalled();
+  });
+
+  test('never sends if the allocated client ID cannot be persisted', async () => {
+    vendorPublic.getVendorIntegrationAssignment.mockResolvedValue({ providerKey: 'MANGOTEE', status: 'CONNECTED' });
+    vendorOrderId.allocate.mockResolvedValue('113-ORDER-R2');
+    repository.transitionStatus.mockRejectedValueOnce(new Error('database unavailable'));
+    const adapter = { provider: 'MANGOTEE', submitPayload: jest.fn() };
+    submitRegistry.getAdapter.mockReturnValue(adapter);
+    await expect(service.submitToVendor(submissionId, { dryRun: false }, { system: true })).rejects.toThrow('database unavailable');
+    expect(adapter.submitPayload).not.toHaveBeenCalled();
+  });
+
+  test('a blocked sibling remains known-unsent and does not change the unresolved primary', async () => {
+    vendorPublic.getVendorIntegrationAssignment.mockResolvedValue({ providerKey: 'MANGOTEE', status: 'CONNECTED' });
+    vendorOrderId.allocate.mockRejectedValue(Object.assign(new Error('primary needs reconciliation'), { statusCode: 409 }));
+    const adapter = { provider: 'MANGOTEE', submitPayload: jest.fn() };
+    submitRegistry.getAdapter.mockReturnValue(adapter);
+    await expect(service.submitToVendor(submissionId, { dryRun: false }, { system: true })).rejects.toThrow('primary needs reconciliation');
+    expect(repository.transitionStatus).toHaveBeenCalledTimes(1);
+    expect(repository.transitionStatus).toHaveBeenCalledWith(submissionId, ['SUBMITTING'], expect.objectContaining({ status: 'FAILED' }));
+    expect(adapter.submitPayload).not.toHaveBeenCalled();
+  });
+
+  test('remote-found reconciliation marks bundle siblings submitted with the same client ID', async () => {
+    const siblingId = '660000000000000000120088';
+    const primary = { ...submission, provider: 'MANGOTEE', status: 'NEEDS_REVIEW', payloadSnapshot: {
+      ...submission.payloadSnapshot, vendorClientOrderId: '113-ORDER-R2', bundledSubmissionIds: [submissionId, siblingId],
+    } };
+    repository.findById.mockResolvedValueOnce(primary).mockResolvedValueOnce({ ...submission, _id: siblingId });
+    repository.transitionStatus.mockImplementation(async (id, _from, patch) => ({ ...(id === submissionId ? primary : submission), _id: id, ...patch }));
+    await service.reconcile(submissionId, { outcome: 'REMOTE_FOUND', vendorExternalOrderId: '113-ORDER-R2' }, { system: true });
+    expect(repository.transitionStatus).toHaveBeenCalledWith(siblingId, expect.any(Array), expect.objectContaining({
+      status: 'SUBMITTED', vendorExternalOrderId: '113-ORDER-R2', payloadSnapshot: expect.objectContaining({ vendorClientOrderId: '113-ORDER-R2' }),
+    }));
+  });
+
+  test.each(['MANGOTEE', 'PRINTWAY'])('%s gateway timeout requires reconciliation instead of a new retry ID', async (provider) => {
+    vendorPublic.getVendorIntegrationAssignment.mockResolvedValue({ providerKey: provider, status: 'CONNECTED' });
+    vendorOrderId.allocate.mockResolvedValue('113-ORDER-R2');
+    const error = Object.assign(new Error('gateway timeout'), { details: { statusCode: 504, response: { message: 'timeout' } } });
+    submitRegistry.getAdapter.mockReturnValue({ provider, buildPayload: jest.fn(() => ({ order_id: '113-ORDER-R2' })), validatePayload: jest.fn(), submitPayload: jest.fn().mockRejectedValue(error) });
+    await expect(service.submitToVendor(submissionId, { dryRun: false }, { system: true })).rejects.toThrow('gateway timeout');
+    expect(repository.transitionStatus).toHaveBeenLastCalledWith(submissionId, ['SUBMITTING'], expect.objectContaining({ status: 'NEEDS_REVIEW' }));
+  });
+
+  test.each(['SUBMITTING', 'NEEDS_REVIEW'])('cannot cancel %s to bypass reconciliation and create a new ID', async (status) => {
+    repository.findById.mockResolvedValue({ ...submission, status });
+    await expect(service.cancel(submissionId, {}, { system: true })).rejects.toMatchObject({ statusCode: 409 });
+    expect(repository.transitionStatus).not.toHaveBeenCalled();
+  });
+
+  test('cancellation loses safely to a concurrent submission claim', async () => {
+    repository.transitionStatus.mockResolvedValueOnce(null);
+    await expect(service.cancel(submissionId, {}, { system: true })).rejects.toMatchObject({ statusCode: 409 });
+    expect(auditPublic.record).not.toHaveBeenCalled();
   });
 
   test('does not dispatch a submission when the vendor has no integration', async () => {

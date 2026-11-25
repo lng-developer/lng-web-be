@@ -59,7 +59,7 @@ function buildPayload(submission = {}, { idempotencyKey } = {}) {
     : [buildPrintwayItem(snapshot)];
 
   return {
-    order_id: String(firstValue(idempotencyKey, item.externalOrderId, snapshot.externalOrderId, submission.orderItemId, submission.id) || ''),
+    order_id: String(firstValue(snapshot.vendorClientOrderId, item.externalOrderId, snapshot.externalOrderId, idempotencyKey, submission.orderItemId, submission.id) || ''),
     store_code: snapshot.storeCode || '',
     tiktok_order_type: 'seller',
     shipping_email: firstValue(address.email, snapshot.orderSnapshot?.buyer?.emailMasked) || '',

@@ -8,6 +8,15 @@ const {
 } = require('../../../src/modules/order/dtos/order.dto');
 
 describe('order.dto', () => {
+  test('exposes safe validation details without raw provider data', () => {
+    const dto = toOrderDto({ externalData: { addressValidation: {
+      provider: 'smarty', reason: 'postal-match,unknown-secondary', cached: true,
+      analysis: { secret: 'hidden' }, normalizedAddress: { stateOrProvince: 'VA', stateOrProvinceCode: 'VA', addressLine1: '317 E Main St Fl 1', secret: 'hidden' },
+    } } });
+    expect(dto.addressValidation).toMatchObject({ provider: 'smarty', cached: true, normalizedAddress: { stateOrProvinceCode: 'VA' } });
+    expect(JSON.stringify(dto)).not.toContain('hidden');
+    expect(toOrderDto({}).addressValidation).toBeNull();
+  });
   test('old projections can use the order channel and catalog Etsy identity', () => {
     const result = toOrderWorkbenchDto({ items: [{ order: { salesChannelCode: 'ETSY' }, items: [{ item: { externalItemId: 'tx' }, listing: { etsyListingId: '123' } }] }] });
     expect(result.items[0].items[0].item).toMatchObject({ salesChannelCode: 'ETSY', externalListingId: '123' });
