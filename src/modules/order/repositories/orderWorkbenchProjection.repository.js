@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const OrderWorkbenchProjection = require('../models/orderWorkbenchProjection.model');
+const { externalOrderIdFilter } = require('./externalOrderIdFilter');
 const { getPaginationOffset, toPaginatedResult } = require('../../../shared/utils/pagination');
 const {
   activeOrderStatuses, addressValidationStatuses, caseStatuses, costCenterStatuses, orderItemStatuses, orderListTabs, orderStatuses, paymentStatuses,
@@ -54,7 +55,7 @@ function buildFilter(query = {}) {
   });
   if (query.shopIds?.length) filter.shopId = { $in: query.shopIds };
   if (query.assignedStaffIds?.length) filter.assignedStaffIds = { $in: query.assignedStaffIds };
-  if (query.orderId) filter.externalOrderId = { $regex: escapeRegex(query.orderId), $options: 'i' };
+  if (query.orderId) filter.externalOrderId = externalOrderIdFilter(query.orderId);
   [['dateFrom', 'dateTo', 'orderedAt'], ['createdAtFrom', 'createdAtTo', 'sourceCreatedAt'], ['shipByDateFrom', 'shipByDateTo', 'shipByDate']]
     .forEach(([from, to, field]) => {
       if (!query[from] && !query[to]) return;
