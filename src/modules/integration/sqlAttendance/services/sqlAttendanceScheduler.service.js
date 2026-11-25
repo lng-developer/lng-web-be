@@ -1,3 +1,4 @@
+const { createScheduledRunTracker } = require('../../../../shared/utils/scheduledRunTracker');
 const logger = require('../../../../shared/utils/logger');
 const { syncPage } = require('./sqlAttendanceImport.service');
 
@@ -8,6 +9,7 @@ function createSqlAttendanceScheduler(dependencies = {}) {
   const log = dependencies.logger || logger;
   let timer = null;
   let running = false;
+  const runs = createScheduledRunTracker();
 
   async function run() {
     if (running) return null;
@@ -36,16 +38,17 @@ function createSqlAttendanceScheduler(dependencies = {}) {
       Number.parseInt(process.env.SQL_ATTENDANCE_POLL_INTERVAL_MS || '300000', 10) || 300000,
       30000,
     );
-    timer = schedule(run, pollIntervalMs);
+    timer = schedule(() => runs.track(run()), pollIntervalMs);
     timer.unref?.();
     log.info('sql_attendance_scheduler_started', { intervalMs: pollIntervalMs });
     return timer;
   }
 
   function stop() {
-    if (!timer) return;
+    if (!timer) return runs.drain();
     cancel(timer);
     timer = null;
+    return runs.drain();
   }
 
   return { run, start, stop };

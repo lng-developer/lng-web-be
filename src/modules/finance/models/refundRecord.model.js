@@ -39,6 +39,7 @@ const refundRecordSchema = new mongoose.Schema({
   rawReference: { type: mongoose.Schema.Types.Mixed, default: null },
 }, { timestamps: true });
 
+refundRecordSchema.index({ 'allocations.orderItemId': 1 }, { name: 'finance_refund_allocation_item_idx', sparse: true });
 refundRecordSchema.index({ orderId: 1, refundedAt: -1 });
 refundRecordSchema.index({ orderItemId: 1, refundedAt: -1 });
 refundRecordSchema.index({ shopId: 1, salesChannelCode: 1, marketplaceCode: 1, refundedAt: -1 });

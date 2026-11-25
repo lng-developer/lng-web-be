@@ -1,3 +1,4 @@
+const { createScheduledRunTracker } = require('../../../../shared/utils/scheduledRunTracker');
 const config = require('../../../../config');
 const logger = require('../../../../shared/utils/logger');
 const emailImportService = require('./amazonAdsEmailImport.service');
@@ -10,6 +11,7 @@ function createAmazonAdsEmailImportScheduler(settings = config.amazonAdsGmail, d
   const log = dependencies.logger || logger;
   let timer = null;
   let running = false;
+  const runs = createScheduledRunTracker();
 
   async function run() {
     if (running) return null;
@@ -29,17 +31,18 @@ function createAmazonAdsEmailImportScheduler(settings = config.amazonAdsGmail, d
 
   function start() {
     if (!settings.enabled || timer) return null;
-    timer = schedule(run, settings.pollIntervalMs);
+    timer = schedule(() => runs.track(run()), settings.pollIntervalMs);
     timer.unref?.();
-    void run();
+    runs.track(run());
     log.info('amazon_ads_gmail_import_scheduler_started', { intervalMs: settings.pollIntervalMs });
     return timer;
   }
 
   function stop() {
-    if (!timer) return;
+    if (!timer) return runs.drain();
     cancel(timer);
     timer = null;
+    return runs.drain();
   }
 
   return { run, start, stop };

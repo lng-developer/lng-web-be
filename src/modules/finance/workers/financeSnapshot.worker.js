@@ -5,6 +5,16 @@ const financeImportRepository = require('../repositories/financeImport.repositor
 
 async function processSnapshotJob(job) {
   const { orderItemId, importBatchId } = job.data;
+  if (job.data.requestedVersion) {
+    try {
+      return await financeSnapshotService.processRecalculationRequest(orderItemId);
+    } catch (error) {
+      if (job.attemptsMade >= (job.opts.attempts || 1) - 1) {
+        await financeSnapshotService.recordFailedRequest(orderItemId, job.data.requestedVersion, error);
+      }
+      throw error;
+    }
+  }
   try {
     const result = await financeSnapshotService.recalculateOrderItem(
       orderItemId,

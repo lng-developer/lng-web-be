@@ -1,3 +1,4 @@
+const { createScheduledRunTracker } = require('../../../../shared/utils/scheduledRunTracker');
 const logger = require('../../../../shared/utils/logger');
 const rawRecordRepository = require('../repositories/externalOrderRawRecord.repository');
 const { processPostImportMapping } = require('./postImportMappingProcessor.service');
@@ -9,6 +10,7 @@ const BATCH_LIMIT = 50;
 
 let timer = null;
 let running = false;
+const runs = createScheduledRunTracker();
 
 function toPayload(rawRecord) {
   return {
@@ -57,18 +59,19 @@ async function runOnce({ staleAfterMs = STALE_AFTER_MS, limit = BATCH_LIMIT } = 
 
 function startPostImportMappingRecoveryScheduler() {
   if (timer) return timer;
-  runOnce({ staleAfterMs: 0 }).catch((error) => logger.warn('external_order_post_import_recovery_startup_failed', { error }));
+  runs.track(runOnce({ staleAfterMs: 0 }).catch((error) => logger.warn('external_order_post_import_recovery_startup_failed', { error })));
   timer = setInterval(() => {
-    runOnce().catch((error) => logger.warn('external_order_post_import_recovery_failed', { error }));
+    return runs.track(runOnce().catch((error) => logger.warn('external_order_post_import_recovery_failed', { error })));
   }, RECOVERY_INTERVAL_MS);
   timer.unref?.();
   return timer;
 }
 
 function stopPostImportMappingRecoveryScheduler() {
-  if (!timer) return;
+  if (!timer) return runs.drain();
   clearInterval(timer);
   timer = null;
+  return runs.drain();
 }
 
 module.exports = {

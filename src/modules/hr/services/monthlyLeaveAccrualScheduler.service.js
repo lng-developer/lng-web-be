@@ -1,9 +1,12 @@
+const { createScheduledRunTracker } = require('../../../shared/utils/scheduledRunTracker');
 const logger = require('../../../shared/utils/logger');
 const { withDistributedLock } = require('../../../shared/utils/distributedLock');
 const leaveService = require('./leave.service');
 
 let timer = null;
+let startupTimer;
 let running = false;
+const runs = createScheduledRunTracker();
 
 // Check once an hour
 const CHECK_INTERVAL_MS = 60 * 60 * 1000;
@@ -67,13 +70,15 @@ function startMonthlyLeaveAccrualScheduler() {
   if (timer) return timer;
 
   // Run once after 5s startup delay to catch up if needed
-  setTimeout(() => {
-    runOnce().catch((error) => logger.warn('monthly_leave_accrual_initial_run_failed', { error: error.message || error }));
-  }, 5000).unref?.();
+  startupTimer = setTimeout(() => {
+    startupTimer = null;
+    return runs.track(runOnce().catch((error) => logger.warn('monthly_leave_accrual_initial_run_failed', { error: error.message || error })));
+  }, 5000);
+  startupTimer.unref?.();
 
   // Check periodically every hour
   timer = setInterval(() => {
-    runOnce().catch((error) => logger.warn('monthly_leave_accrual_periodic_run_failed', { error: error.message || error }));
+    return runs.track(runOnce().catch((error) => logger.warn('monthly_leave_accrual_periodic_run_failed', { error: error.message || error })));
   }, CHECK_INTERVAL_MS);
   timer.unref?.();
 
@@ -84,9 +89,12 @@ function startMonthlyLeaveAccrualScheduler() {
 }
 
 function stopMonthlyLeaveAccrualScheduler() {
-  if (!timer) return;
+  clearTimeout(startupTimer);
+  startupTimer = null;
+  if (!timer) return runs.drain();
   clearInterval(timer);
   timer = null;
+  return runs.drain();
 }
 
 module.exports = {

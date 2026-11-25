@@ -1,9 +1,11 @@
+const { createScheduledRunTracker } = require('../../../shared/utils/scheduledRunTracker');
 const logger = require('../../../shared/utils/logger');
 const snapshotService = require('./mongoIndexUsageSnapshot.service');
 const { withDistributedLock } = require('../../../shared/utils/distributedLock');
 
 let timer = null;
 let running = false;
+const runs = createScheduledRunTracker();
 
 function isEnabled() {
   return String(process.env.MONGO_INDEX_USAGE_SNAPSHOT_ENABLED || 'true').toLowerCase() !== 'false';
@@ -33,17 +35,18 @@ async function runOnce() {
 
 function startMongoIndexUsageSnapshotScheduler() {
   if (!isEnabled() || timer) return null;
-  runOnce();
-  timer = setInterval(runOnce, intervalMs());
+  runs.track(runOnce());
+  timer = setInterval(() => runs.track(runOnce()), intervalMs());
   timer.unref?.();
   logger.info('mongo_index_usage_snapshot_scheduler_started', { intervalMs: intervalMs() });
   return timer;
 }
 
 function stopMongoIndexUsageSnapshotScheduler() {
-  if (!timer) return;
+  if (!timer) return runs.drain();
   clearInterval(timer);
   timer = null;
+  return runs.drain();
 }
 
 module.exports = {

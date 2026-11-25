@@ -28,6 +28,9 @@ const {
   toShipmentSummaryDto,
 } = require('../dtos/shipment.dto');
 
+const config = require('../../../config');
+const { clientGuardKey, withClientGuard } = require('./vendorTrackingGuard.service');
+
 const SHOP_SCOPE_TYPE = 'shop';
 
 function appError(message, statusCode, code, details) {
@@ -219,12 +222,12 @@ async function loadShipment(shipmentId) {
   return shipment;
 }
 
-async function notifyOrderOwnerOfException(shipment) {
+async function notifyOrderOwnerOfException(shipment, poll) {
   const shipmentId = String(shipment._id || shipment.id);
   try {
     const order = await orderPublic.findById(shipment.orderId);
     const recipients = [...new Set((order?.assignedStaffIds || []).filter(Boolean).map(String))];
-    const version = shipment.updatedAt ? new Date(shipment.updatedAt).toISOString() : 'unknown';
+    const version = poll ? 'EXCEPTION' : shipment.updatedAt ? new Date(shipment.updatedAt).toISOString() : 'unknown';
     await Promise.all(recipients.map((recipientAccountId) => notificationPublic.notify({
       recipientAccountId,
       type: 'SHIPMENT_EXCEPTION',
@@ -261,8 +264,15 @@ async function appendShipmentTimeline(shipment, eventType, authContext, metadata
   return orderPublic.appendTimeline(timeline);
 }
 
-async function repairTrackingSideEffects(shipment, carrier, trackingNumber, authContext) {
-  await orderPublic.transitionItemStatus(shipment.orderItemId, 'SHIPPED', { source: 'SHIPMENT' });
+function transitionShipmentItem(shipment, status, poll) {
+  const transition = session => orderPublic.transitionItemStatus(shipment.orderItemId, status, {
+    source: 'SHIPMENT', ...(session && { session }),
+  });
+  return poll ? poll.write(transition) : transition();
+}
+
+async function repairTrackingSideEffects(shipment, carrier, trackingNumber, authContext, poll) {
+  await transitionShipmentItem(shipment, 'SHIPPED', poll);
   return appendShipmentTimeline(
     shipment,
     'TRACKING_AVAILABLE',
@@ -277,13 +287,13 @@ async function repairTrackingSideEffects(shipment, carrier, trackingNumber, auth
   );
 }
 
-async function repairTrackingPendingTransition(shipment) {
+async function repairTrackingPendingTransition(shipment, poll) {
   if (shipment.status === shipmentStatuses.TRACKING_PENDING) {
-    await orderPublic.transitionItemStatus(shipment.orderItemId, 'TRACKING_PENDING', { source: 'SHIPMENT' });
+    await transitionShipmentItem(shipment, 'TRACKING_PENDING', poll);
   }
 }
 
-async function markOrderDeliveredWhenComplete(shipment, deliveredAt) {
+async function markOrderDeliveredWhenComplete(shipment, deliveredAt, poll) {
   const items = await orderPublic.listItemsByOrder(shipment.orderId);
   const activeItemIds = items
     .filter((item) => item.status !== 'CANCELLED')
@@ -298,7 +308,9 @@ async function markOrderDeliveredWhenComplete(shipment, deliveredAt) {
   ));
 
   if (allDelivered) {
-    await orderPublic.markOrderDelivered(shipment.orderId, deliveredAt, { source: 'SHIPMENT' });
+    await orderPublic.markOrderDelivered(shipment.orderId, deliveredAt, {
+      source: 'SHIPMENT', ...(poll && { idempotencyKey: `ORDER_DELIVERED:${shipment.orderId}` }),
+    });
   }
 }
 
@@ -366,7 +378,11 @@ async function getShipmentByOrderItem(orderItemId, authContext) {
   return toShipmentDto(shipment);
 }
 
-async function createFromVendorSubmission(vendorSubmissionId, authContext) {
+function writeShipment(poll, mutate, ...args) {
+  return poll ? poll.write(session => mutate(...args, session)) : mutate(...args);
+}
+
+async function createFromVendorSubmission(vendorSubmissionId, authContext, poll) {
   assertValidObjectId(vendorSubmissionId, 'vendorSubmissionId');
   const submission = await vendorSubmissionPublic.getById(vendorSubmissionId);
   if (!submission) throw notFound('Vendor submission not found');
@@ -377,7 +393,7 @@ async function createFromVendorSubmission(vendorSubmissionId, authContext) {
 
   const existing = await repository.findActiveByVendorSubmission(vendorSubmissionId);
   if (existing) {
-    await repairTrackingPendingTransition(existing);
+    await repairTrackingPendingTransition(existing, poll);
     return toShipmentDto(existing);
   }
 
@@ -401,18 +417,18 @@ async function createFromVendorSubmission(vendorSubmissionId, authContext) {
   };
 
   try {
-    const shipment = await repository.create(payload);
+    const shipment = await writeShipment(poll, repository.create, payload);
     await recordShipmentOperation({
       action: 'SHIPMENT_CREATED', shipment, authContext,
       metadata: { vendorSubmissionId: String(vendorSubmissionId), provider: shipment.provider || null },
     });
-    await repairTrackingPendingTransition(shipment);
+    await repairTrackingPendingTransition(shipment, poll);
     return toShipmentDto(shipment);
   } catch (error) {
     if (isDuplicateKey(error)) {
       const duplicate = await repository.findActiveByVendorSubmission(vendorSubmissionId);
       if (duplicate) {
-        await repairTrackingPendingTransition(duplicate);
+        await repairTrackingPendingTransition(duplicate, poll);
         return toShipmentDto(duplicate);
       }
       throw conflict('Shipment already exists for vendor submission');
@@ -421,7 +437,7 @@ async function createFromVendorSubmission(vendorSubmissionId, authContext) {
   }
 }
 
-async function updateTracking(shipmentId, payload = {}, authContext) {
+async function updateTracking(shipmentId, payload = {}, authContext, poll) {
   const carrier = String(payload.carrier || '').trim();
   const trackingNumber = String(payload.trackingNumber || '').trim();
   const trackingUrl = payload.trackingUrl ? String(payload.trackingUrl).trim() : null;
@@ -441,7 +457,7 @@ async function updateTracking(shipmentId, payload = {}, authContext) {
   }
   if (shipment.status === shipmentStatuses.DELIVERED) {
     if (shipment.carrier === carrier && shipment.trackingNumber === trackingNumber) {
-      await repairTrackingSideEffects(shipment, carrier, trackingNumber, authContext);
+      await repairTrackingSideEffects(shipment, carrier, trackingNumber, authContext, poll);
       return toShipmentDto(shipment);
     }
     throw conflict('Delivered shipment tracking cannot be changed', { status: shipment.status });
@@ -455,7 +471,7 @@ async function updateTracking(shipmentId, payload = {}, authContext) {
     && shipment.trackingNumber === trackingNumber
     && (shipment.trackingUrl || null) === trackingUrl
   ) {
-    await repairTrackingSideEffects(shipment, carrier, trackingNumber, authContext);
+    await repairTrackingSideEffects(shipment, carrier, trackingNumber, authContext, poll);
     return toShipmentDto(shipment);
   }
 function getPstTodayEnd() {
@@ -510,7 +526,7 @@ async function resolveSafeShipDate(shipment, vendorShippedAt) {
   }
   const vendorShippedAt = payload.shippedAt ? new Date(payload.shippedAt) : null;
   const shippedAt = await resolveSafeShipDate(shipment, vendorShippedAt);
-  const updated = await repository.updateTrackingIfNotDelivered(shipmentId, {
+  const updated = await writeShipment(poll, repository.updateTrackingIfNotDelivered, shipmentId, {
     carrier,
     trackingNumber,
     trackingUrl,
@@ -533,7 +549,7 @@ async function resolveSafeShipDate(shipment, vendorShippedAt) {
       && current.carrier === carrier
       && current.trackingNumber === trackingNumber
     ) {
-      await repairTrackingSideEffects(current, carrier, trackingNumber, authContext);
+      await repairTrackingSideEffects(current, carrier, trackingNumber, authContext, poll);
       return toShipmentDto(current);
     }
     throw conflict('Shipment tracking cannot be changed', { status: current.status });
@@ -543,11 +559,11 @@ async function resolveSafeShipDate(shipment, vendorShippedAt) {
     changes: { status: { from: shipment.status, to: shipmentStatuses.SHIPPED } },
     metadata: { carrier },
   });
-  await repairTrackingSideEffects(updated, carrier, trackingNumber, authContext);
+  await repairTrackingSideEffects(updated, carrier, trackingNumber, authContext, poll);
   return toShipmentDto(updated);
 }
 
-async function updateStatus(shipmentId, payload = {}, authContext) {
+async function updateStatus(shipmentId, payload = {}, authContext, poll) {
   const status = String(payload.status || '').trim().toUpperCase();
   if (![
     shipmentStatuses.DELIVERED,
@@ -577,7 +593,7 @@ async function updateStatus(shipmentId, payload = {}, authContext) {
   if (status === shipmentStatuses.DELIVERED) {
     patch.deliveredAt = shipment.deliveredAt || new Date();
   }
-  const updated = await repository.updateStatusIfCurrent(shipmentId, shipment.status, patch);
+  const updated = await writeShipment(poll, repository.updateStatusIfCurrent, shipmentId, shipment.status, patch);
   if (!updated) {
     const current = await repository.findById(shipmentId);
     if (!current) throw notFound('Shipment not found');
@@ -591,9 +607,16 @@ async function updateStatus(shipmentId, payload = {}, authContext) {
       reasonProvided: auditReasonProvided(payload.note),
     },
   });
+  await applyStatusEffects(updated, authContext, poll);
+  return toShipmentDto(updated);
+}
+
+async function applyStatusEffects(updated, authContext, poll) {
+  const status = updated.status;
   if (status === shipmentStatuses.DELIVERED) {
-    await markOrderDeliveredWhenComplete(updated, patch.deliveredAt);
-    await appendShipmentTimeline(updated, 'SHIPMENT_CONFIRMED', authContext);
+    await markOrderDeliveredWhenComplete(updated, updated.deliveredAt, poll);
+    const key = poll ? `SHIPMENT_STATUS:${updated._id || updated.id}:${status}` : null;
+    await appendShipmentTimeline(updated, 'SHIPMENT_CONFIRMED', authContext, {}, key);
   }
   if ([shipmentStatuses.EXCEPTION, shipmentStatuses.RETURNED].includes(status)) {
     await appendShipmentTimeline(
@@ -604,7 +627,7 @@ async function updateStatus(shipmentId, payload = {}, authContext) {
       `SHIPMENT_STATUS:${updated._id || updated.id}:${status}`,
     );
     if (status === shipmentStatuses.EXCEPTION) {
-      await notifyOrderOwnerOfException(updated);
+      await notifyOrderOwnerOfException(updated, poll);
     }
   }
   if (status === shipmentStatuses.CANCELLED) {
@@ -612,25 +635,26 @@ async function updateStatus(shipmentId, payload = {}, authContext) {
       updated,
       'SHIPMENT_CANCELLED',
       authContext,
-      { reason: payload.note || 'Vendor shipment cancelled' },
+      { reason: updated.note || 'Vendor shipment cancelled' },
       `SHIPMENT_STATUS:${updated._id || updated.id}:${status}`,
-    ).catch(() => {});
+    ).catch(error => { if (poll) throw error; });
     if (updated.vendorSubmissionId) {
       try {
         await vendorSubmissionPublic.cancelAfterExternalCancellation(
           String(updated.vendorSubmissionId),
-          { cancelReason: payload.note || `Vendor ${updated.provider || 'vendor'} cancelled production` },
+          { cancelReason: updated.note || `Vendor ${updated.provider || 'vendor'} cancelled production` },
           authContext,
         );
       } catch (err) {
+        if (poll) throw err;
         logger.warn('vendor_submission_cancel_failed', { vendorSubmissionId: updated.vendorSubmissionId, error: err });
       }
     }
   }
-  return toShipmentDto(updated);
 }
 
-async function fetchVendorTracking(identity, options = {}) {
+async function fetchVendorTracking(identity, options, apply) {
+  let applicationError;
   const { provider, vendorId, vendorExternalOrderId, orderExternalOrderId } = identity;
   try {
     const integration = await vendorPublic.getVendorIntegrationAssignment(vendorId);
@@ -654,21 +678,38 @@ async function fetchVendorTracking(identity, options = {}) {
     }
     const credential = await vendorPublic.getVendorIntegrationCredential(vendorId, provider);
     if (!credential) throw validationError('Vendor tracking credentials are not configured', { provider, vendorId });
-    return await adapter.fetchTrackingByExternalOrderId(vendorExternalOrderId, {
-      ...options,
-      credential,
-      orderExternalOrderId,
-    });
+    const guardKey = config.shipment?.trackingQueueEnabled ? clientGuardKey(credential) : undefined;
+    const fetch = async (renewGuard) => {
+      const tracking = await adapter.fetchTrackingByExternalOrderId(vendorExternalOrderId, {
+        ...options,
+        credential,
+        orderExternalOrderId,
+        ...(config.shipment?.trackingQueueEnabled ? { signal: AbortSignal.timeout(45000) } : {}),
+      });
+      if (renewGuard && !await renewGuard()) throw conflict('Vendor tracking guard expired');
+      try {
+        return await apply(tracking, guardKey);
+      } catch (error) {
+        applicationError = error;
+        throw error;
+      }
+    };
+    return await (config.shipment?.trackingQueueEnabled ? withClientGuard(provider, guardKey, fetch) : fetch());
   } catch (error) {
-    throw conflict('Vendor tracking request failed', {
+    if (error === applicationError) throw error;
+    const wrapped = conflict('Vendor tracking request failed', {
       provider,
       statusCode: error.vendorHttpStatus || null,
       message: error.vendorMessage || error.message,
     });
+    wrapped.trackingBusy = error.trackingBusy;
+    wrapped.retryMs = error.retryMs;
+    wrapped.invalidTrackingReference = error.code === errorCodes.VALIDATION_ERROR;
+    throw wrapped;
   }
 }
 
-async function applyTrackingUpdate(vendorSubmissionId, update = {}, authContext) {
+async function applyTrackingUpdate(vendorSubmissionId, update = {}, authContext, poll) {
   let existing = await repository.findActiveByVendorSubmission(vendorSubmissionId);
   const nextStatus = normalizeShipmentStatus(update.shipmentStatus);
   const trackingNumber = String(update.trackingNumber || '').trim();
@@ -690,7 +731,7 @@ async function applyTrackingUpdate(vendorSubmissionId, update = {}, authContext)
   }
 
   if (!existing && nextStatus === shipmentStatuses.CANCELLED) {
-    existing = await createFromVendorSubmission(vendorSubmissionId, authContext);
+    existing = await createFromVendorSubmission(vendorSubmissionId, authContext, poll);
   }
 
   if (nextStatus && existing) {
@@ -709,7 +750,7 @@ async function applyTrackingUpdate(vendorSubmissionId, update = {}, authContext)
         shipment: await updateStatus(existing._id || existing.id, {
           status: nextStatus,
           note: statusNote,
-        }, authContext),
+        }, authContext, poll),
       };
     }
   }
@@ -723,14 +764,14 @@ async function applyTrackingUpdate(vendorSubmissionId, update = {}, authContext)
       };
     }
     if (!existing) {
-      const repaired = await createFromVendorSubmission(vendorSubmissionId, authContext);
+      const repaired = await createFromVendorSubmission(vendorSubmissionId, authContext, poll);
       return { applied: false, reason: 'TRACKING_NOT_FOUND', shipment: repaired };
     }
     return { applied: false, reason: 'TRACKING_NOT_FOUND', shipment: toShipmentDto(existing) };
   }
 
   if (!existing) {
-    existing = await createFromVendorSubmission(vendorSubmissionId, authContext);
+    existing = await createFromVendorSubmission(vendorSubmissionId, authContext, poll);
   }
   let shipment = await updateTracking(existing._id || existing.id, {
     carrier,
@@ -738,14 +779,14 @@ async function applyTrackingUpdate(vendorSubmissionId, update = {}, authContext)
     trackingUrl,
     shippedAt: update.shippedAt || null,
     note: update.note || null,
-  }, authContext);
+  }, authContext, poll);
   if (nextStatus && nextStatus !== shipmentStatuses.SHIPPED && shipment.status !== nextStatus) {
-    shipment = await updateStatus(shipment.id, { status: nextStatus }, authContext);
+    shipment = await updateStatus(shipment.id, { status: nextStatus }, authContext, poll);
   }
   return { applied: true, shipment };
 }
 
-async function recheckVendorTracking(payload = {}, authContext) {
+async function recheckVendorTracking(payload = {}, authContext, poll) {
   if (!payload.vendorSubmissionId) {
     if (authContext && !authContext.system && !hasPermission(authContext, shipmentPermissions.WRITE)) {
       throw forbidden();
@@ -756,23 +797,75 @@ async function recheckVendorTracking(payload = {}, authContext) {
   const submission = await vendorSubmissionPublic.getById(payload.vendorSubmissionId);
   if (!submission) throw notFound('Vendor submission not found');
   assertCanAccessShop(submission.shopId, shipmentPermissions.WRITE, authContext);
+  const pending = poll?.pending;
+  if (poll && !pending) {
+    const existing = await repository.findByOrderItem(submission.orderItemId);
+    if (submission.status !== 'SUBMITTED' || shouldSkipShipment(existing)) {
+      return { vendorSubmissionId: payload.vendorSubmissionId, provider: submission.provider,
+        externalOrderId: submission.vendorExternalOrderId, tracking: null, applied: false,
+        reason: 'NO_LONGER_ELIGIBLE', shipment: existing ? toShipmentDto(existing) : null };
+    }
+  }
   const identity = assertMatchingTrackingIdentity(deriveTrackingIdentity(submission), payload);
   const { provider, vendorExternalOrderId: externalOrderId } = identity;
-  try {
-    const tracking = await fetchVendorTracking(identity, {
-      dateFrom: asDateOrNull(payload.dateFrom),
-      dateTo: asDateOrNull(payload.dateTo),
-    });
+  const identityKey = crypto.createHash('sha256').update(JSON.stringify(identity)).digest('hex');
+  async function apply(tracking, guardKey) {
+    let observed;
+    if (poll) {
+      const fresh = await vendorSubmissionPublic.getById(payload.vendorSubmissionId);
+      if ((!pending || pending.shipmentStatus !== shipmentStatuses.CANCELLED) && fresh?.status !== 'SUBMITTED') {
+        return { reason: 'NO_LONGER_ELIGIBLE' };
+      }
+      if (!pending) observed = await repository.findByOrderItem(submission.orderItemId);
+      if (!pending && shouldSkipShipment(observed)) {
+        return { reason: 'NO_LONGER_ELIGIBLE' };
+      }
+      const latest = deriveTrackingIdentity(fresh);
+      if ((pending && pending.identity !== identityKey) || Object.keys(identity).some(key => latest[key] !== identity[key])) return { reason: 'IDENTITY_CHANGED' };
+      if (!await poll.renew()) return { reason: 'LEASE_LOST' };
+    }
     const shipmentStatus = normalizeShipmentStatus(
       tracking.shipmentStatus || tracking.vendorStatus || tracking.rawStatus,
     );
     const normalizedTracking = { ...tracking, shipmentStatus };
+    if (poll && !pending) {
+      const shippedAt = asDateOrNull(tracking.shippedAt);
+      const saved = await poll.remember({
+        identity: identityKey, guardKey, observed: trackingFingerprint(observed || {}),
+        provider, shipmentStatus, trackingNumber: tracking.trackingNumber,
+        carrier: tracking.carrier, trackingUrl: tracking.trackingUrl,
+        shippedAt: shippedAt && Number.isFinite(shippedAt.getTime()) ? shippedAt : null,
+      });
+      if (!saved) return { reason: 'LEASE_LOST' };
+    }
+    if (pending) {
+      const current = await repository.findActiveByVendorSubmission(payload.vendorSubmissionId);
+      if (current) {
+        await syncWorkbenchShipment(current);
+        if (current.status === shipmentStatuses.SHIPPED && current.trackingNumber) {
+          await repairTrackingSideEffects(current, current.carrier, current.trackingNumber, authContext, poll);
+          const matchesUpdate = pending.trackingNumber && current.trackingNumber === pending.trackingNumber
+            && current.carrier === (pending.carrier || provider)
+            && (current.trackingUrl || null) === (pending.trackingUrl || null);
+          if (!matchesUpdate && pending.observed !== trackingFingerprint(current)) {
+            return { reason: 'NO_LONGER_ELIGIBLE' };
+          }
+        } else if (current.status === shipmentStatuses.TRACKING_PENDING) {
+          await repairTrackingPendingTransition(current, poll);
+        } else if (current.status === pending.shipmentStatus) {
+          await applyStatusEffects(current, authContext, poll);
+        } else if (!terminalShipmentStatuses.has(current.status) && pending.observed !== trackingFingerprint(current)) {
+          return { reason: 'SHIPMENT_CHANGED' };
+        }
+        if (terminalShipmentStatuses.has(current.status)) return { reason: 'NO_LONGER_ELIGIBLE' };
+      }
+    }
     const application = await applyTrackingUpdate(payload.vendorSubmissionId, {
       ...normalizedTracking,
       provider,
       note: `Vendor tracking recheck: ${provider}`,
       source: 'POLL',
-    }, authContext);
+    }, authContext, poll);
 
     return {
       provider,
@@ -781,8 +874,22 @@ async function recheckVendorTracking(payload = {}, authContext) {
       tracking: normalizedTracking,
       ...application,
     };
+  }
+
+  try {
+    if (pending) {
+      return pending.guardKey
+        ? await withClientGuard(provider, pending.guardKey, () => apply(pending))
+        : await apply(pending);
+    }
+    return await fetchVendorTracking(identity, {
+      dateFrom: asDateOrNull(payload.dateFrom),
+      dateTo: asDateOrNull(payload.dateTo),
+    }, apply);
   } finally {
-    await repository.touchLastCheckedAtByVendorSubmission(payload.vendorSubmissionId, new Date()).catch(() => {});
+    if (!poll || await poll.renew()) {
+      await writeShipment(poll, repository.touchLastCheckedAtByVendorSubmission, payload.vendorSubmissionId, new Date()).catch(() => {});
+    }
   }
 }
 
@@ -1003,6 +1110,7 @@ module.exports = {
   recheckSubmittedVendorTracking,
   recheckVendorTracking,
   recheckShipment,
+  shouldSkipShipment,
   summarizeShippedByOrderItemIds,
   summarizeShipments,
   updateStatus,

@@ -212,7 +212,9 @@ async function markOrderDelivered(orderId, deliveredAt = new Date(), context = {
       deliveredAt: updated.deliveredAt,
       'order.deliveredAt': updated.deliveredAt,
     }, { source: 'ORDER_DELIVERED' });
-    await orderTimelineService.appendTimeline({
+    const append = context.idempotencyKey ? orderTimelineService.appendTimelineOnce : orderTimelineService.appendTimeline;
+    await append({
+      ...(context.idempotencyKey && { idempotencyKey: context.idempotencyKey }),
       orderId,
       shopId: updated.shopId,
       salesChannelCode: updated.salesChannelCode,
@@ -301,7 +303,7 @@ async function transitionItemStatus(orderItemId, targetStatus, context = {}) {
     await financePublic.requestSnapshotRecalculation({
       orderItemId: String(orderItemId),
       reason: `ORDER_ITEM_${targetStatus}`,
-    });
+    }, ...(context.session ? [{ session: context.session }] : []));
   }
   return updated;
 }

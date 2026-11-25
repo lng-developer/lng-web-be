@@ -39,8 +39,8 @@ function buildFilter(query = {}) {
   return filter;
 }
 
-async function create(payload) {
-  const shipment = await Shipment.create(payload);
+async function create(payload, session) {
+  const shipment = await new Shipment(payload).save({ session });
   return shipment.toObject();
 }
 
@@ -168,7 +168,7 @@ async function updateById(shipmentId, patch) {
   ).lean();
 }
 
-async function updateTrackingIfNotDelivered(shipmentId, patch) {
+async function updateTrackingIfNotDelivered(shipmentId, patch, session) {
   return Shipment.findOneAndUpdate(
     {
       _id: shipmentId,
@@ -180,23 +180,23 @@ async function updateTrackingIfNotDelivered(shipmentId, patch) {
       },
     },
     { $set: patch, $inc: { __v: 1 } },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
-async function touchLastCheckedAtByVendorSubmission(vendorSubmissionId, lastCheckedAt) {
+async function touchLastCheckedAtByVendorSubmission(vendorSubmissionId, lastCheckedAt, session) {
   return Shipment.findOneAndUpdate(
     { vendorSubmissionId },
     { $set: { lastCheckedAt }, $inc: { __v: 1 } },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
-async function updateStatusIfCurrent(shipmentId, currentStatus, patch) {
+async function updateStatusIfCurrent(shipmentId, currentStatus, patch, session) {
   return Shipment.findOneAndUpdate(
     { _id: shipmentId, status: currentStatus },
     { $set: patch, $inc: { __v: 1 } },
-    { returnDocument: 'after', runValidators: true },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 

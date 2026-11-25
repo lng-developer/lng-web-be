@@ -3,10 +3,21 @@ const shipmentService = require('./shipment.service');
 const trackingSyncConfigService = require('./trackingSyncConfig.service');
 const { withDistributedLock } = require('../../../shared/utils/distributedLock');
 
+const config = require('../../../config');
+const trackingQueue = require('./vendorTrackingQueue.service');
+const DISPATCH_INTERVAL_MS = 30000;
+let activeRun;
+let refresh;
 let timer = null;
 let running = false;
 
-async function runOnce(authContext = { system: true, source: 'VENDOR_TRACKING_RECHECK_SCHEDULER' }) {
+function runOnce(authContext = { system: true, source: 'VENDOR_TRACKING_RECHECK_SCHEDULER' }) {
+  if (activeRun) return Promise.resolve(null);
+  activeRun = execute(authContext).finally(() => { activeRun = null; });
+  return activeRun;
+}
+
+async function execute(authContext) {
   if (running) return null;
   return withDistributedLock('scheduler:vendor_tracking_recheck', 120000, async () => {
     if (running) return null;
@@ -14,7 +25,10 @@ async function runOnce(authContext = { system: true, source: 'VENDOR_TRACKING_RE
     const startedAt = new Date();
     try {
       const settings = await trackingSyncConfigService.get();
-      const result = await shipmentService.recheckSubmittedVendorTracking({
+      const queuedDiscovery = config.shipment?.trackingQueueEnabled && authContext.system === true
+        && authContext.source === 'VENDOR_TRACKING_RECHECK_SCHEDULER';
+      const result = queuedDiscovery ? await trackingQueue.discoverAndEnqueue(settings.batchSize)
+        : await shipmentService.recheckSubmittedVendorTracking({
         limit: settings.batchSize,
         perVendor: true,
       }, {
@@ -50,12 +64,13 @@ function schedule(settings) {
   if (timer) clearInterval(timer);
   timer = null;
   if (!settings.enabled) return null;
+  const intervalMs = config.shipment?.trackingQueueEnabled ? DISPATCH_INTERVAL_MS : settings.intervalMinutes * 60000;
   timer = setInterval(() => {
     runOnce().catch((error) => logger.warn('vendor_tracking_recheck_failed', { error }));
-  }, settings.intervalMinutes * 60_000);
+  }, intervalMs);
   timer.unref?.();
   logger.info('vendor_tracking_recheck_scheduler_started', {
-    intervalMs: settings.intervalMinutes * 60_000,
+    intervalMs,
     limit: settings.batchSize,
   });
   return timer;
@@ -63,6 +78,23 @@ function schedule(settings) {
 
 async function startVendorTrackingRecheckScheduler() {
   if (timer) return timer;
+  if (config.runtime?.role === 'scheduler') {
+    async function refreshSettings() {
+      try {
+        const settings = await trackingSyncConfigService.get();
+        const lastRun = settings.lastRunAt ? new Date(settings.lastRunAt).getTime() : 0;
+        const due = config.shipment?.trackingQueueEnabled || Date.now() - lastRun >= settings.intervalMinutes * 60000;
+        if (timer && settings.enabled && due) await runOnce();
+      } catch (error) {
+        logger.warn('vendor_tracking_recheck_failed', { error });
+      }
+    }
+    timer = setInterval(() => {
+      refresh ||= refreshSettings().finally(() => { refresh = null; });
+    }, config.shipment?.trackingQueueEnabled ? DISPATCH_INTERVAL_MS : 60000);
+    timer.unref?.();
+    return timer;
+  }
   try {
     return schedule(await trackingSyncConfigService.get());
   } catch (error) {
@@ -72,13 +104,14 @@ async function startVendorTrackingRecheckScheduler() {
 }
 
 function applyTrackingSyncConfig(settings) {
+  if (config.runtime?.role && config.runtime.role !== 'combined') return null;
   return schedule(settings);
 }
 
 function stopVendorTrackingRecheckScheduler() {
-  if (!timer) return;
-  clearInterval(timer);
+  if (timer) clearInterval(timer);
   timer = null;
+  return Promise.all([refresh, activeRun]);
 }
 
 module.exports = {

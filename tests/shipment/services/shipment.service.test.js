@@ -158,6 +158,128 @@ describe('shipment.service', () => {
     });
   });
 
+  test('manual recheck honors the shared client quota before calling the vendor', async () => {
+    const config = require('../../../src/config');
+    const redis = require('../../../src/config/redis');
+    const client = { eval: jest.fn().mockResolvedValue(-53000) };
+    const mock = jest.spyOn(redis, 'getRedisClient').mockReturnValue(client);
+    const previous = config.shipment.trackingQueueEnabled;
+    config.shipment.trackingQueueEnabled = true;
+    try {
+      await expect(service.recheckVendorTracking({ vendorSubmissionId }, { permissions: ['SHIPMENTS:WRITE'] }))
+        .rejects.toMatchObject({ trackingBusy: true, retryMs: 53000 });
+      expect(getTrackingAdapter().fetchTrackingByExternalOrderId).not.toHaveBeenCalled();
+    } finally {
+      mock.mockRestore();
+      config.shipment.trackingQueueEnabled = previous;
+    }
+  });
+
+  test.each(['SHIPPED', 'DELIVERED'])('replays committed %s shipment effects without another vendor request', async status => {
+    let current = { ...shipment, status: status === 'DELIVERED' ? 'SHIPPED' : 'TRACKING_PENDING' };
+    const auth = { system: true };
+    const poll = { renew: async () => true, write: mutate => mutate(null),
+      remember: async update => { poll.pending = update; return true; } };
+    const fetch = jest.fn().mockResolvedValue({ shipmentStatus: status, carrier: 'USPS', trackingNumber: 'recovery' });
+    getTrackingAdapter.mockReturnValue({ fetchTrackingByExternalOrderId: fetch });
+    repository.findByOrderItem.mockImplementation(async () => current);
+    repository.findById.mockImplementation(async () => current);
+    repository.findActiveByVendorSubmission.mockImplementation(async () => current);
+    const commit = async (...args) => { current = { ...current, ...args[args.length - 2] }; return current; };
+    repository.updateTrackingIfNotDelivered.mockImplementation(commit);
+    repository.updateStatusIfCurrent.mockImplementation(commit);
+    if (status === 'DELIVERED') {
+      current.carrier = 'USPS';
+      current.trackingNumber = 'recovery';
+      orderPublic.markOrderDelivered.mockRejectedValueOnce(new Error('interrupted'));
+    } else {
+      orderPublic.transitionItemStatus.mockRejectedValueOnce(new Error('interrupted'));
+    }
+    await expect(service.recheckVendorTracking({ vendorSubmissionId }, auth, poll)).rejects.toThrow('interrupted');
+    expect(current.status).toBe(status);
+    await service.recheckVendorTracking({ vendorSubmissionId }, auth, poll);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(orderPublic.updateOrderWorkbenchItem).toHaveBeenCalledTimes(2);
+    expect(orderPublic.appendTimelineOnce).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: status === 'DELIVERED' ? 'SHIPMENT_CONFIRMED' : 'TRACKING_AVAILABLE',
+    }));
+  });
+
+  test('a replay respects the manual client lock and preserves a newer carrier and URL', async () => {
+    const config = require('../../../src/config');
+    const evalRedis = jest.fn().mockResolvedValue(2);
+    const redis = jest.spyOn(require('../../../src/config/redis'), 'getRedisClient').mockReturnValue({ eval: evalRedis });
+    const previous = config.shipment.trackingQueueEnabled;
+    config.shipment.trackingQueueEnabled = true;
+    let current = { ...shipment };
+    repository.findById.mockImplementation(async () => current);
+    repository.findByOrderItem.mockImplementation(async () => current);
+    repository.findActiveByVendorSubmission.mockImplementation(async () => current);
+    repository.updateTrackingIfNotDelivered.mockImplementation(async (_id, patch) => { current = { ...current, ...patch }; return current; });
+    orderPublic.transitionItemStatus.mockRejectedValueOnce(new Error('interrupted'));
+    const fetch = jest.fn().mockResolvedValue({ shipmentStatus: 'SHIPPED', trackingNumber: 'same',
+      carrier: 'old', trackingUrl: 'https://old.example', raw: { secret: 'private' } });
+    getTrackingAdapter.mockReturnValue({ fetchTrackingByExternalOrderId: fetch });
+    const poll = { renew: async () => true, write: mutate => mutate(null),
+      remember: async update => { poll.pending = update; return true; } };
+    const check = () => service.recheckVendorTracking({ vendorSubmissionId }, { system: true }, poll);
+    try {
+      await expect(check()).rejects.toThrow('interrupted');
+      expect(poll.pending).not.toHaveProperty('raw');
+      current = { ...current, carrier: 'new', trackingUrl: 'https://new.example' };
+      evalRedis.mockResolvedValueOnce(0);
+      await expect(check()).rejects.toMatchObject({ trackingBusy: true });
+      expect((await check()).reason).toBe('NO_LONGER_ELIGIBLE');
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(repository.updateTrackingIfNotDelivered).toHaveBeenCalledTimes(1);
+      expect(orderPublic.appendTimelineOnce).toHaveBeenCalledWith(expect.objectContaining({
+        metadata: { carrier: 'new', trackingNumber: 'same' },
+      }));
+    } finally {
+      redis.mockRestore();
+      config.shipment.trackingQueueEnabled = previous;
+    }
+  });
+
+  test('manual refresh can advance marketplace-ready SHIPPED to DELIVERED in queued mode', async () => {
+    const config = require('../../../src/config');
+    const mock = jest.spyOn(require('../../../src/config/redis'), 'getRedisClient').mockReturnValue({
+      eval: jest.fn().mockResolvedValue(2),
+    });
+    const previous = config.shipment.trackingQueueEnabled;
+    config.shipment.trackingQueueEnabled = true;
+    const ready = { ...shipment, status: 'SHIPPED', carrier: 'USPS', trackingNumber: 'ready', shippedAt: new Date() };
+    repository.findById.mockResolvedValue(ready);
+    repository.findByOrderItem.mockResolvedValue(ready);
+    repository.findActiveByVendorSubmission.mockResolvedValue(ready);
+    const fetch = jest.fn().mockResolvedValue({ shipmentStatus: 'DELIVERED', trackingNumber: 'ready', carrier: 'USPS' });
+    getTrackingAdapter.mockReturnValue({ fetchTrackingByExternalOrderId: fetch });
+    try {
+      const result = await service.recheckShipment(shipmentId, { permissions: ['SHIPMENTS:WRITE'] });
+      expect(result.shipment.status).toBe('DELIVERED');
+      expect(fetch).toHaveBeenCalledTimes(1);
+    } finally {
+      mock.mockRestore();
+      config.shipment.trackingQueueEnabled = previous;
+    }
+  });
+
+  test('worker drops a stale vendor response before mutating a shipment', async () => {
+    const result = await service.recheckVendorTracking({ vendorSubmissionId }, { system: true }, {
+      renew: jest.fn().mockResolvedValue(false),
+    });
+    expect(result.reason).toBe('LEASE_LOST');
+    expect(repository.create).not.toHaveBeenCalled();
+    expect(repository.updateTrackingIfNotDelivered).not.toHaveBeenCalled();
+  });
+
+  test('worker skips a completed shipment before an outbound request', async () => {
+    repository.findByOrderItem.mockResolvedValue({ status: 'DELIVERED' });
+    const result = await service.recheckVendorTracking({ vendorSubmissionId }, { system: true }, {});
+    expect(result.reason).toBe('NO_LONGER_ELIGIBLE');
+    expect(getTrackingAdapter().fetchTrackingByExternalOrderId).not.toHaveBeenCalled();
+  });
+
   test('creates tracking pending shipment from submitted vendor submission', async () => {
     const result = await service.createFromVendorSubmission(vendorSubmissionId, {
       permissions: ['SHIPMENTS:WRITE'],

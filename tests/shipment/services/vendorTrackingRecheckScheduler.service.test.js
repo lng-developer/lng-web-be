@@ -43,6 +43,25 @@ describe('vendorTrackingRecheckScheduler', () => {
     });
   });
 
+  test('queued discovery dispatches due retries every 30 seconds even when legacy interval is hourly', async () => {
+    const config = require('../../../src/config');
+    const queue = require('../../../src/modules/shipment/services/vendorTrackingQueue.service');
+    const discovery = jest.spyOn(queue, 'discoverAndEnqueue').mockResolvedValue({ queued: 1 });
+    const previous = config.shipment.trackingQueueEnabled;
+    config.shipment.trackingQueueEnabled = true;
+    jest.useFakeTimers();
+    trackingSyncConfigService.get.mockResolvedValue({ enabled: true, intervalMinutes: 60, batchSize: 25 });
+    try {
+      await scheduler.startVendorTrackingRecheckScheduler();
+      await jest.advanceTimersByTimeAsync(60000);
+      expect(discovery).toHaveBeenCalledTimes(2);
+      expect(shipmentService.recheckSubmittedVendorTracking).not.toHaveBeenCalled();
+    } finally {
+      config.shipment.trackingQueueEnabled = previous;
+      discovery.mockRestore();
+    }
+  });
+
   test('measures the actual run interval instead of two completion timestamps', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-11-23T08:00:00Z'));
     trackingSyncConfigService.get.mockResolvedValue({ batchSize: 50 });

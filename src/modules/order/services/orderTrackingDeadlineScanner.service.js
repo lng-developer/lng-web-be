@@ -1,3 +1,4 @@
+const { createScheduledRunTracker } = require('../../../shared/utils/scheduledRunTracker');
 const orderRepository = require('../repositories/order.repository');
 const notificationPublic = require('../../notification/public');
 const organizationPublic = require('../../organization/public');
@@ -6,6 +7,7 @@ const { withDistributedLock } = require('../../../shared/utils/distributedLock')
 
 let timer = null;
 let running = false;
+const runs = createScheduledRunTracker();
 const SCANNER_LOCK_KEY = 'scheduler:order_tracking_deadline';
 const SCANNER_LOCK_TTL_MS = 120000;
 const DEFAULT_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
@@ -125,7 +127,7 @@ async function runOnce() {
 function startOrderTrackingDeadlineScheduler(intervalMs = DEFAULT_INTERVAL_MS) {
   if (timer) return timer;
   timer = setInterval(() => {
-    runOnce().catch((error) => logger.warn('order_tracking_deadline_scheduler_error', { error }));
+    return runs.track(runOnce().catch((error) => logger.warn('order_tracking_deadline_scheduler_error', { error })));
   }, intervalMs);
   timer.unref?.();
   logger.info('order_tracking_deadline_scheduler_started', { intervalMs });
@@ -138,6 +140,7 @@ function stopOrderTrackingDeadlineScheduler() {
     timer = null;
     logger.info('order_tracking_deadline_scheduler_stopped');
   }
+  return runs.drain();
 }
 
 module.exports = {

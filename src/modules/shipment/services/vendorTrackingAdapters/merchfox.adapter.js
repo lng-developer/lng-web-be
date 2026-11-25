@@ -22,7 +22,7 @@ module.exports = Object.freeze({
     return normalizeVendorTrackingPayload(provider, payload);
   },
 
-  async fetchTrackingByExternalOrderId(externalOrderId, { credential } = {}) {
+  async fetchTrackingByExternalOrderId(externalOrderId, { credential, signal } = {}) {
     const baseUrl = String(credential?.baseUrl || '').replace(/\/+$/, '');
     const apiKey = credential?.apiKey;
     const apiSecret = credential?.apiSecret;
@@ -30,12 +30,14 @@ module.exports = Object.freeze({
       throw new Error('MERCHFOX tracking credentials are not configured');
     }
     const response = await fetch(`${baseUrl}/api/v1/orders/${encodeURIComponent(externalOrderId)}`, {
+      ...(signal && { signal }),
       headers: { Accept: 'application/json', 'X-Mfx-App-Key': apiKey, 'X-Mfx-App-Secret': apiSecret },
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok || body.code !== 0) {
       const error = new Error('MERCHFOX tracking request failed');
       error.vendorHttpStatus = response.status;
+      error.retryAfter = response.headers?.get?.('retry-after');
       error.vendorMessage = body.message || null;
       throw error;
     }

@@ -27,6 +27,17 @@ const financeImportRepository = require('../repositories/financeImport.repositor
 const financeAccess = require('./financeAccess.service');
 const { toFinanceSnapshotDto, toOrderFinanceSummaryDto, toPaginatedResponse } = require('../dtos/financeSnapshot.dto');
 
+const config = require('../../../config');
+const requests = require('../repositories/financeRecalculationRequest.repository');
+
+async function withOrderGuard(orderId, work) {
+  await requests.prepareGuard(orderId);
+  return withFinanceTransaction(async (session) => {
+    await requests.lockOrder(orderId, session);
+    return work(session);
+  });
+}
+
 const SHOP_SCOPE_TYPE = 'shop';
 
 async function recordRecalculationAudit(
@@ -862,9 +873,19 @@ async function calculateAndUpsertOrderItem(orderItemId, authContext, session) {
   return { item, result };
 }
 
-async function recalculateOrderItem(orderItemId, authContext, httpContext) {
+function recalculateOrderItem(orderItemId, authContext, httpContext) {
+  return recalculateItem(orderItemId, authContext, httpContext, false);
+}
+
+function processRecalculationRequest(orderItemId) {
+  return recalculateItem(orderItemId, { system: true, worker: true }, null, true);
+}
+
+async function recalculateItem(orderItemId, authContext, httpContext, durableJob) {
   const operationId = recalculationOperationId();
-  return withFinanceTransaction(async (session) => {
+  const work = async (session) => {
+    const claim = durableJob && await requests.findPending(orderItemId, session);
+    if (durableJob && !claim) return null;
     const { item, result } = await calculateAndUpsertOrderItem(orderItemId, authContext, session);
     await recordRecalculationAudit(
       {
@@ -879,12 +900,40 @@ async function recalculateOrderItem(orderItemId, authContext, httpContext) {
       httpContext,
       session,
     );
+    if (claim && await requests.complete(claim, session)) {
+      for (const batchId of claim.batchIds) {
+        await financeImportRepository.markImportBatchRecalculationCompleted(batchId, orderItemId, { session });
+      }
+    }
     return result;
+  };
+  if (!durableJob && !config.finance?.durableRecalculationEnabled) return withFinanceTransaction(work);
+  const item = await loadOrderItem(orderItemId);
+  return withOrderGuard(item.orderId, work);
+}
+
+async function recordFailedRequest(orderItemId, version, error) {
+  return withFinanceTransaction(async (session) => {
+    const claim = await requests.findPending(orderItemId, session);
+    if (!claim || claim.requestedVersion !== version) return;
+    for (const batchId of claim.batchIds) {
+      await financeImportRepository.markImportBatchRecalculationFailed(batchId, orderItemId, error, { session });
+    }
+    await requests.blockFailedVersion(claim, error, session);
   });
 }
 
 async function updateActualVendorCost(orderItemId, vendorCost = {}) {
-  const existingSnapshot = await repository.findByOrderItem(orderItemId);
+  if (config.finance?.durableRecalculationEnabled) {
+    const item = await orderPublic.findItemById(orderItemId);
+    if (!item) return null;
+    return withOrderGuard(item.orderId, (session) => applyActualVendorCost(orderItemId, vendorCost, { session }));
+  }
+  return applyActualVendorCost(orderItemId, vendorCost);
+}
+
+async function applyActualVendorCost(orderItemId, vendorCost, options) {
+  const existingSnapshot = await repository.findByOrderItem(orderItemId, options);
   if (!existingSnapshot) return null;
   const actualCost = {
     actualVendorBaseCostAmount: vendorCost.vendorBaseCostAmount ?? null,
@@ -903,7 +952,7 @@ async function updateActualVendorCost(orderItemId, vendorCost = {}) {
       ? Math.round((orderPnl.profitAmount / existingSnapshot.customerPaidAmount) * 10000)
       : null,
     profitStatus: financeProfitStatuses.ACTUAL,
-  });
+  }, options);
   return toFinanceSnapshotDto({ ...(updated || existingSnapshot), orderPnl });
 }
 
@@ -940,7 +989,10 @@ function orderRecalculateSummary(orderId, snapshots = []) {
 async function recalculateOrder(orderId, authContext, httpContext) {
   assertValidObjectId(orderId, 'orderId');
   const operationId = recalculationOperationId();
-  return withFinanceTransaction(async (session) => {
+  const transact = config.finance?.durableRecalculationEnabled
+    ? (work) => withOrderGuard(orderId, work)
+    : withFinanceTransaction;
+  return transact(async (session) => {
     const items = await orderPublic.listItemsByOrder(orderId);
     const snapshots = [];
     for (const item of items || []) {
@@ -1033,6 +1085,8 @@ async function getOrderSummary(orderId, authContext) {
 }
 
 module.exports = {
+  recordFailedRequest,
+  processRecalculationRequest,
   calculateCost,
   calculateMargin,
   calculateOrderPnl,

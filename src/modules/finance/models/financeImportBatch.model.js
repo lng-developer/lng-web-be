@@ -36,6 +36,7 @@ const financeImportBatchSchema = new mongoose.Schema({
   recalculationTotal: { type: Number, default: 0, min: 0 },
   recalculationCompleted: { type: Number, default: 0, min: 0 },
   recalculationFailed: { type: Number, default: 0, min: 0 },
+  recalculationFinishedItemIds: { type: [String], default: undefined },
   recalculationErrors: [{ orderItemId: { type: String, default: null }, message: { type: String, required: true } }],
   finishedAt: { type: Date, default: null },
 }, { timestamps: true, suppressReservedKeysWarning: true });

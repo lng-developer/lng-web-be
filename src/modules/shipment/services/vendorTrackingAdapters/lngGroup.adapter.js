@@ -37,7 +37,7 @@ module.exports = Object.freeze({
     return normalizeVendorTrackingPayload(provider, payload);
   },
 
-  async fetchTrackingByExternalOrderId(externalOrderId, { credential, orderExternalOrderId } = {}) {
+  async fetchTrackingByExternalOrderId(externalOrderId, { credential, orderExternalOrderId, signal } = {}) {
     const baseUrl = credential?.baseUrl;
     const token = credential?.accessToken;
     if (!baseUrl || !token) {
@@ -49,18 +49,19 @@ module.exports = Object.freeze({
     const targetOrderId = orderExternalOrderId || externalOrderId;
     let response = await fetch(
       `${baseUrl.replace(/\/+$/, '')}/api/portal/orders/${encodeURIComponent(targetOrderId)}`,
-      { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } },
+      { ...(signal && { signal }), headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } },
     );
     if (response.status === 404 && targetOrderId !== externalOrderId) {
       response = await fetch(
         `${baseUrl.replace(/\/+$/, '')}/api/portal/orders/${encodeURIComponent(externalOrderId)}`,
-        { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } },
+        { ...(signal && { signal }), headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } },
       );
     }
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || payload?.success === false) {
       const error = new Error('LNG Group tracking request failed');
       error.vendorHttpStatus = response.status;
+      error.retryAfter = response.headers?.get?.('retry-after');
       error.vendorMessage = payload?.error?.message || payload?.message || null;
       throw error;
     }

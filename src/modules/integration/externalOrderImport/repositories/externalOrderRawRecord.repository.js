@@ -26,6 +26,12 @@ async function findById(rawRecordId) {
   return ExternalOrderRawRecord.findById(rawRecordId).lean();
 }
 
+async function hasUnfinishedPostImportRecords(importJobId) {
+  return Boolean(await ExternalOrderRawRecord.findOne({
+    importJobId, importStatus: 'IMPORTED', postImportStatus: { $nin: ['COMPLETED', 'SKIPPED'] },
+  }).select('_id').lean());
+}
+
 async function findImportedItem(importJobId, externalOrderId, externalItemId) {
   return ExternalOrderRawRecord.findOne({ importJobId, externalOrderId, externalItemId, importStatus: 'IMPORTED', orderItemId: { $ne: null } }).lean();
 }
@@ -200,6 +206,7 @@ module.exports = {
     ]);
   },
   findImportedItem,
+  hasUnfinishedPostImportRecords,
   create,
   createMany,
   findById,

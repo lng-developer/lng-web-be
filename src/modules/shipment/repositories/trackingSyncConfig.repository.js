@@ -6,10 +6,10 @@ function get() {
   return TrackingSyncConfig.findOne({ key: KEY }).lean();
 }
 
-function upsert(patch) {
+function upsert(patch, insertDefaults = {}) {
   return TrackingSyncConfig.findOneAndUpdate(
     { key: KEY },
-    { $set: patch, $setOnInsert: { key: KEY } },
+    { $set: patch, $setOnInsert: { key: KEY, ...insertDefaults } },
     { upsert: true, returnDocument: 'after', runValidators: true },
   ).lean();
 }

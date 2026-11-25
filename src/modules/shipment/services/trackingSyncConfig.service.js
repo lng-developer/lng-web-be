@@ -58,8 +58,9 @@ async function update(input, authContext) {
 
 async function recordRun(result, authContext, timing = {}) {
   const now = new Date();
-  const current = await get();
+  const defaults = environmentDefaults();
   const summary = {
+    ...(result?.queued !== undefined && { queued: result.queued }),
     checked: Number(result?.checked) || 0,
     applied: Number(result?.applied) || 0,
     skipped: Number(result?.skipped) || 0,
@@ -68,13 +69,10 @@ async function recordRun(result, authContext, timing = {}) {
       ? Math.max(0, timing.finishedAt - timing.startedAt) : null,
   };
   const config = toTrackingSyncConfigDto(await repository.upsert({
-    enabled: current.enabled,
-    intervalMinutes: current.intervalMinutes,
-    batchSize: current.batchSize,
     lastRunAt: timing.startedAt || now,
     lastRunFinishedAt: timing.finishedAt || now,
     lastRunSummary: summary,
-  }));
+  }, { enabled: defaults.enabled, batchSize: defaults.batchSize, intervalMinutes: defaults.intervalMinutes }));
   await record('SHIPMENT_TRACKING_SYNC_RUN_COMPLETED', config, authContext, summary);
   return config;
 }

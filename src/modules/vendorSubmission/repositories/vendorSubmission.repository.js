@@ -136,7 +136,7 @@ async function list(query = {}) {
 async function listSubmittedForTracking(query = {}) {
   const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 100);
   return VendorSubmission.aggregate([
-    { $match: buildTrackingFilter(query) },
+    { $match: { ...buildTrackingFilter(query), ...(query.submissionIds && { _id: { $in: query.submissionIds } }) } },
     {
       $lookup: {
         from: 'shipments',
@@ -189,6 +189,16 @@ async function listSubmittedForTracking(query = {}) {
       },
     },
   ]);
+}
+
+async function listTrackingDiscoveryPage({ provider, limit, afterId }) {
+  const filter = buildTrackingFilter({ provider });
+  if (afterId) filter._id = { $gt: toObjectId(afterId) };
+  const page = await VendorSubmission.find(filter).sort({ _id: 1 }).limit(limit).select('_id').lean();
+  const rows = page.length ? await listSubmittedForTracking({
+    provider, limit, submissionIds: page.map(row => row._id),
+  }) : [];
+  return { ids: rows.map(row => String(row._id)), afterId: page.length === limit ? String(page[limit - 1]._id) : null };
 }
 
 async function summarizePerformance(query = {}) {
@@ -370,6 +380,7 @@ module.exports = {
   findByProductionTaskId,
   listLatestByProductionTaskIds,
   listSubmittedForTracking,
+  listTrackingDiscoveryPage,
   list,
   summarize,
   summarizePerformance,
