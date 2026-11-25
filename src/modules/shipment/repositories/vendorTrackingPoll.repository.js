@@ -2,11 +2,11 @@ const Poll = require('../models/vendorTrackingPoll.model');
 
 const LEASE_MS = 120000;
 
-async function discover(ids, now = new Date()) {
+async function discover(ids, now = new Date(), provider) {
   if (!ids.length) return;
   try {
     await Poll.bulkWrite(ids.map(_id => ({ updateOne: {
-      filter: { _id }, update: { $setOnInsert: { nextCheckAt: now, attempt: 0 } }, upsert: true,
+      filter: { _id }, update: { ...(provider && { $set: { provider } }), $setOnInsert: { nextCheckAt: now, attempt: 0 } }, upsert: true,
     } })), { ordered: false });
   } catch (error) {
     if (error.code !== 11000 || !error.writeErrors?.every(e => e.code === 11000)) throw error;
@@ -21,8 +21,8 @@ function eligible(now) {
     $or: [{ leaseExpiresAt: null }, { leaseExpiresAt: { $lte: now } }] };
 }
 
-function due(limit, now = new Date()) {
-  return Poll.find(eligible(now)).sort({ nextCheckAt: 1, _id: 1 }).limit(limit).select('_id').lean();
+function due(limit, now = new Date(), provider) {
+  return Poll.find({ ...eligible(now), ...(provider !== undefined && { provider }) }).sort({ nextCheckAt: 1, _id: 1 }).limit(limit).select('_id').lean();
 }
 
 function claim(id, token, now = new Date()) {
@@ -50,7 +50,7 @@ async function remember(id, token, pendingUpdate) {
 async function finish(id, token, outcome, nextCheckAt, now = new Date(), attempt = 0, clearPending = false) {
   const result = await Poll.updateOne(owned(id, token, now), {
     ...(clearPending && { $unset: { pendingUpdate: 1 } }),
-    $set: { lastOutcome: outcome, nextCheckAt, attempt, leaseToken: null, leaseExpiresAt: null },
+    $set: { lastOutcome: outcome, lastAttemptAt: now, nextCheckAt, attempt, leaseToken: null, leaseExpiresAt: null },
   });
   return result.matchedCount === 1;
 }
@@ -67,3 +67,18 @@ function withOwnedWrite(id, token, mutate) {
 }
 
 module.exports = { discover, due, claim, renew, remember, finish, withOwnedWrite };
+
+async function summarizeByProvider(now = new Date()) {
+  return Poll.aggregate([
+    { $group: {
+      _id: { $ifNull: ['$provider', 'LEGACY'] },
+      waiting: { $sum: { $cond: [{ $and: [{ $ne: ['$nextCheckAt', null] }, { $lte: ['$nextCheckAt', now] }, { $lte: [{ $ifNull: ['$leaseExpiresAt', new Date(0)] }, now] }] }, 1, 0] } },
+      processing: { $sum: { $cond: [{ $gt: ['$leaseExpiresAt', now] }, 1, 0] } },
+      scheduled: { $sum: { $cond: [{ $gt: ['$nextCheckAt', now] }, 1, 0] } },
+      completed: { $sum: { $cond: [{ $eq: ['$lastOutcome', 'COMPLETE'] }, 1, 0] } },
+      errors: { $sum: { $cond: [{ $in: ['$lastOutcome', ['INVALID_REFERENCE', 'RATE_LIMITED', 'TRANSIENT_FAILURE']] }, 1, 0] } },
+      lastAttemptAt: { $max: '$lastAttemptAt' },
+    } },
+  ]);
+}
+module.exports.summarizeByProvider = summarizeByProvider;

@@ -111,7 +111,7 @@ async function recheckSubmittedVendorTracking(req, res) {
 }
 
 async function getTrackingSyncConfig(req, res) {
-  res.status(httpStatus.OK).json({ success: true, data: await trackingSyncConfigService.get() });
+  res.status(httpStatus.OK).json({ success: true, data: await trackingSyncConfigService.getWithMonitoring(req.auth) });
 }
 
 async function updateTrackingSyncConfig(req, res) {

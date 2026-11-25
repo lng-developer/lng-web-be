@@ -1,12 +1,15 @@
 const { randomUUID } = require('crypto');
+const { DelayedError } = require('bullmq');
 const logger = require('../../../shared/utils/logger');
 const config = require('../../../config');
 const { createWorker } = require('../../../config/queue');
-const { QUEUE_NAME } = require('../services/vendorTrackingQueue.service');
+const { QUEUE_NAME, providerQueueName } = require('../services/vendorTrackingQueue.service');
 const polls = require('../repositories/vendorTrackingPoll.repository');
 const shipment = require('../services/shipment.service');
 
-let worker;
+const settingsService = require('../services/trackingSyncConfig.service');
+const { SUPPORTED_TRACKING_PROVIDERS } = require('../constants/shipment.constants');
+let workers = [];
 
 function classifyError(err, attempt) {
   if (err.trackingBusy) return { outcome: 'CLIENT_BUSY', delay: err.retryMs || 1000, attempt };
@@ -19,7 +22,9 @@ function classifyError(err, attempt) {
     delay: err.retryMs || backoff + Math.floor(Math.random() * backoff / 4), attempt: attempt + 1 };
 }
 
-async function processTrackingCheck(job) {
+async function processTrackingCheck(job, jobToken) {
+  const settings = await settingsService.get();
+  if (!settings.enabled) return { outcome: 'PAUSED' };
   const id = job.data.vendorSubmissionId;
   const token = randomUUID();
   const state = await polls.claim(id, token);
@@ -28,6 +33,7 @@ async function processTrackingCheck(job) {
   let delay;
   let attempt = 0;
   let clearPending = false;
+  let admissionBusy = false;
   try {
     const result = await shipment.recheckVendorTracking({ vendorSubmissionId: id }, {
       system: true, source: 'VENDOR_TRACKING_WORKER',
@@ -44,15 +50,21 @@ async function processTrackingCheck(job) {
       delay = null;
     } else {
       outcome = result.reason || 'CHECKED';
-      delay = ['IDENTITY_CHANGED', 'SHIPMENT_CHANGED'].includes(outcome) ? 1000 : 3600000;
+      delay = ['IDENTITY_CHANGED', 'SHIPMENT_CHANGED'].includes(outcome) ? 1000 : settings.intervalMinutes * 60000;
     }
   } catch (err) {
     if (err.code === 'TRACKING_LEASE_LOST') return { outcome: 'LEASE_LOST' };
+    admissionBusy = Boolean(err.trackingBusy);
     ({ outcome, delay, attempt } = classifyError(err, state.attempt));
   }
   const now = new Date();
   const next = delay === null ? null : new Date(now.getTime() + delay);
   const saved = await polls.finish(id, token, outcome, next, now, attempt, clearPending);
+  // Admission cooldown is short; keep the job delayed instead of waiting for the next discovery tick.
+  if (saved && admissionBusy) {
+    await job.moveToDelayed(next.getTime(), jobToken);
+    throw new DelayedError();
+  }
   const finalOutcome = saved ? outcome : 'LEASE_LOST';
   const log = ['INVALID_REFERENCE', 'RATE_LIMITED', 'TRANSIENT_FAILURE'].includes(finalOutcome) ? 'warn' : 'info';
   logger[log]('vendor_tracking_poll_finished', { vendorSubmissionId: id, outcome: finalOutcome, attempt, nextCheckAt: next });
@@ -61,11 +73,12 @@ async function processTrackingCheck(job) {
 
 function startVendorTrackingWorker() {
   if (!config.shipment?.trackingQueueEnabled) return null;
-  worker ||= createWorker(QUEUE_NAME, processTrackingCheck, { concurrency: 2 });
-  return worker;
+  if (!workers.length) workers = [QUEUE_NAME, ...SUPPORTED_TRACKING_PROVIDERS.map(providerQueueName)]
+    .map(name => createWorker(name, processTrackingCheck, { concurrency: 1 }));
+  return workers;
 }
 async function stopVendorTrackingWorker() {
-  if (worker) await worker.close();
-  worker = undefined;
+  await Promise.all(workers.map(worker => worker.close()));
+  workers = [];
 }
 module.exports = { processTrackingCheck, classifyError, startVendorTrackingWorker, stopVendorTrackingWorker };

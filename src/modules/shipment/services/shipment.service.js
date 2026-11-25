@@ -694,7 +694,8 @@ async function fetchVendorTracking(identity, options, apply) {
         throw error;
       }
     };
-    return await (config.shipment?.trackingQueueEnabled ? withClientGuard(provider, guardKey, fetch) : fetch());
+    return await (config.shipment?.trackingQueueEnabled
+      ? withClientGuard(provider, guardKey, fetch, { waitMs: options.waitForAdmission ? 2000 : 0 }) : fetch());
   } catch (error) {
     if (error === applicationError) throw error;
     const wrapped = conflict('Vendor tracking request failed', {
@@ -883,6 +884,7 @@ async function recheckVendorTracking(payload = {}, authContext, poll) {
         : await apply(pending);
     }
     return await fetchVendorTracking(identity, {
+      waitForAdmission: !poll,
       dateFrom: asDateOrNull(payload.dateFrom),
       dateTo: asDateOrNull(payload.dateTo),
     }, apply);
@@ -1021,8 +1023,9 @@ async function recheckSubmittedVendorTracking(query = {}, authContext) {
       await repository.touchLastCheckedAtByVendorSubmission(submission.id, new Date()).catch(() => {});
       items.push({
         ...base,
-        status: 'FAILED',
+        status: error.trackingBusy ? 'SKIPPED' : 'FAILED',
         ...compactBatchError(error),
+        ...(error.trackingBusy && { reason: 'VENDOR_BUSY_RETRY_LATER' }),
       });
     }
   }
