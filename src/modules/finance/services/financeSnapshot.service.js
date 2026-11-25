@@ -204,7 +204,7 @@ function calculateRevenue(item = {}, financeTotals = {}) {
     shippingAmount,
     giftWrapAmount,
     discountAmount,
-    feeAmount,
+    feeAmount: isMarketplaceCancelled && feeSource === marketplaceFeeSources.ESTIMATED_15_PERCENT ? 0 : feeAmount,
     feeSource,
     feeConfidence,
     refundAmount,
