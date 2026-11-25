@@ -324,6 +324,33 @@ describe('financeSnapshot.service', () => {
     });
   });
 
+  test.each(['CANCELLED', 'CANCELED', 'PARTIALLY_CANCELLED'])('does not estimate marketplace fees for %s items', (status) => {
+    const revenue = service.calculateRevenue({ ...item, status, externalData: {}, price: { ...item.price, itemPromotionDiscountAmount: 0 } });
+    expect(revenue).toMatchObject({ feeAmount: 0, netRevenueAmount: 0, financialStatus: 'CANCELLED', feeSource: 'ESTIMATED_15_PERCENT' });
+    expect(service.calculateMargin(revenue, 0, 'PRESENT')).toMatchObject({ grossProfitAmount: 0, grossMarginBps: 0 });
+    expect(service.calculateMargin(revenue, 500, 'PRESENT')).toMatchObject({ grossProfitAmount: -500 });
+  });
+
+  test('November backfill removes only estimated fees and preserves actual costs', () => {
+    const { correction, scope } = require('../../../tools/scripts/maintenance/backfillCancelledEstimatedFees');
+    const snapshot = { financialStatus: 'CANCELLED', feeSource: 'ESTIMATED_15_PERCENT', feeAmount: 641, netRevenueAmount: 0, customerPaidAmount: 4275, discountAmount: 0, totalCostAmount: 0, costStatus: 'PRESENT' };
+    expect(correction(snapshot, service.calculateMargin)).toEqual({ feeAmount: 0, grossProfitAmount: 0, grossMarginBps: 0 });
+    expect(correction({ ...snapshot, actualVendorTotalAmount: 500 }, service.calculateMargin).grossProfitAmount).toBe(-500);
+    expect(() => correction({ ...snapshot, feeSource: 'SETTLEMENT' }, service.calculateMargin)).toThrow('eligible');
+    expect(() => correction({ ...snapshot, feeAmount: 0 }, service.calculateMargin)).toThrow('eligible');
+    expect(scope.orderedAt.$gte.toISOString()).toBe('2026-10-31T17:00:00.000Z');
+    expect(scope.orderedAt.$lt.toISOString()).toBe('2026-11-30T17:00:00.000Z');
+  });
+
+  test('keeps actual cancellation fees including zero and credits', () => {
+    const cancelled = { ...item, externalStatus: 'CANCELLED' };
+    expect(service.calculateRevenue(cancelled)).toMatchObject({ feeAmount: 300, feeSource: 'ORDER_IMPORT' });
+    for (const feeAmount of [92, 0, -92]) {
+      expect(service.calculateRevenue(cancelled, { feeAmount })).toMatchObject({ feeAmount, feeSource: 'SETTLEMENT' });
+    }
+    expect(service.calculateRevenue({ ...cancelled, externalData: {} })).toMatchObject({ feeAmount: 0 });
+  });
+
   test('recalculate uses linked finance fee and refund rows before externalData fallback', async () => {
     financeImportRepository.sumFeesByOrderItem.mockResolvedValueOnce(425);
     financeImportRepository.sumRefundsByOrderItem.mockResolvedValueOnce(150);
