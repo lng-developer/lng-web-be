@@ -29,7 +29,7 @@ function splitName(name = '') {
 function buildMangoTeeItem(snapshot = {}) {
   const item = snapshot.orderItemSnapshot || snapshot.orderItem || {};
   const costCenter = snapshot.vendorCostCenter || {};
-  const sku = firstValue(costCenter.sku, costCenter.lngCode, costCenter.code);
+  const sku = firstValue(costCenter.sku);
 
   return {
     sku: sku || '',

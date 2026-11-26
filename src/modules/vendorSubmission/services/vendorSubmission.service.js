@@ -196,12 +196,27 @@ async function refreshSubmissionOrderSnapshot(submission) {
 
 async function refreshSubmissionVendorCostCenter(submission) {
   const snapshot = submission.payloadSnapshot || {};
-  const costCenterId = snapshot.vendorCostCenter?.id || snapshot.vendorCostCenter?._id;
-  if (!costCenterId || snapshot.vendorCostCenter?.sku) return submission;
-  const rows = await vendorPublic.listActiveVendorCostCentersByIds([String(costCenterId)]);
-  const costCenter = rows?.[0];
-  if (!costCenter) return submission;
-  const nextSnapshot = { ...snapshot, vendorCostCenter: stripUnsafe(costCenter) };
+  const snapshots = [snapshot, ...(snapshot.bundledItems || [])];
+  const ids = [...new Set(snapshots
+    .filter((item) => !item.vendorCostCenter?.sku)
+    .map((item) => item.vendorCostCenter?.id || item.vendorCostCenter?._id)
+    .filter(Boolean).map(String))];
+  if (!ids.length) return submission;
+  const rows = await vendorPublic.listActiveVendorCostCentersByIds(ids);
+  const byId = new Map((rows || []).map((row) => [String(row.id || row._id), row]));
+  const refresh = (item) => {
+    const current = item.vendorCostCenter;
+    if (current?.sku) return item;
+    const row = byId.get(String(current?.id || current?._id));
+    if (!row) return item;
+    return { ...item, vendorCostCenter: {
+      ...stripUnsafe(row), id: String(row.id || row._id), _id: String(row.id || row._id),
+    } };
+  };
+  const nextSnapshot = {
+    ...refresh(snapshot),
+    ...(snapshot.bundledItems ? { bundledItems: snapshot.bundledItems.map(refresh) } : {}),
+  };
   const refreshed = await repository.updateById(submission._id || submission.id, { payloadSnapshot: nextSnapshot });
   return refreshed || { ...submission, payloadSnapshot: nextSnapshot };
 }
@@ -1203,10 +1218,10 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
   }
 
   submission = await refreshSubmissionOrderSnapshot(submission);
-  submission = await refreshSubmissionVendorCostCenter(submission);
   if (!submission.payloadSnapshot?.bundledItems?.length) {
     submission = await bundleReadySiblingSubmissions(submission, authContext);
   }
+  submission = await refreshSubmissionVendorCostCenter(submission);
   const fulfillmentOrder = await refreshLngFulfillmentOrder(submission, authContext);
   if (fulfillmentOrder) {
     submission = await repository.updateById(submissionId, {
