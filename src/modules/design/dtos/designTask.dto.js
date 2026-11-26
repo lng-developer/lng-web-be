@@ -226,7 +226,7 @@ function toDesignTaskDto(task, {
     seller: sellerDto,
     externalOrderId: orderContext.externalOrderId || null,
     blockedOrderCount: orderContext.blockedOrderCount || 0,
-    asinType: 'NORMAL',
+    asinType: matchedListing?.designType || 'NORMAL',
     thumbnailAsset: toAssetDto(assetsById[thumbnailAssetId]),
     submittedAssetCount: (task.submittedAssetIds || []).length,
     submissionCount: submissions.filter((submission) => submission.status !== 'REMOVED').length,
