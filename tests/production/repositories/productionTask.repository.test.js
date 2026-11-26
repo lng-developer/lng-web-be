@@ -394,7 +394,7 @@ describe('productionTask.repository', () => {
       { $match: expect.objectContaining({ 'orderItemSnapshot.salesChannelCode': 'AMAZON' }) },
     ]));
     expect(result).toEqual({
-      total: 10, blocked: 3, scaleQueue: 5, needScale: 4, qcRejected: 1, qcPending: 0, qcQueue: 2, ready: 1, sent: 2, cancelled: 1, unclassified: 0,
+      total: 10, blocked: 3, scaleQueue: 5, needScale: 4, qcRejected: 1, qcPending: 0, qcQueue: 2, ready: 1, sent: 2, cancelled: 1, unclassified: 0, unassigned: 0,
     });
   });
 
@@ -498,4 +498,15 @@ describe('productionTask.repository', () => {
     expect(ProductionTask.find).toHaveBeenCalledWith({ qcStatus: 'PASSED' });
     expect(chain.limit).toHaveBeenCalledWith(25);
   });
+});
+
+test('urgency sorts deadline then order age before pagination, with missing dates last', async () => {
+  ProductionTask.aggregate.mockResolvedValue([]); ProductionTask.countDocuments.mockResolvedValue(0);
+  await repository.list({ sort: 'urgency', page: 2, limit: 10 });
+  const pipeline = ProductionTask.aggregate.mock.calls.at(-1)[0];
+  expect(pipeline.find(s => s.$sort).$sort).toEqual({ queueClosed: 1, queueDeadline: 1, queueOrderedAt: 1, _id: 1 });
+  expect(pipeline.findIndex(s => s.$sort)).toBeLessThan(pipeline.findIndex(s => s.$skip));
+  expect(pipeline.find(s => s.$skip)).toEqual({ $skip: 10 });
+  expect(pipeline.find(s => s.$set).$set.queueDeadline.$ifNull[0]).toBe('$orderSnapshot.shipByDate');
+  expect(pipeline.find(s => s.$set).$set.queueOrderedAt).toEqual({ $ifNull: ['$orderSnapshot.orderedAt', '$createdAt'] });
 });

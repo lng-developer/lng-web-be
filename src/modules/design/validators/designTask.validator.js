@@ -10,7 +10,7 @@ const {
 
 const objectId = Joi.string().hex().length(24);
 const psdStatuses = Object.freeze(['MISSING', 'PRESENT']);
-const taskSortFields = Object.freeze(['createdAt', 'updatedAt', 'submittedAt', 'priority', 'status']);
+const taskSortFields = Object.freeze(['createdAt', 'updatedAt', 'submittedAt', 'priority', 'status', 'urgency']);
 
 function validate(schema, payload) {
   const result = schema.validate(payload, {

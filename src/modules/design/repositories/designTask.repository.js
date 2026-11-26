@@ -57,7 +57,10 @@ function buildFilter(query = {}) {
       ],
     };
   }
-  if (query.unassigned) filter.assignedDesignerId = null;
+  if (query.unassigned) {
+    if (query.assignedDesignerId || (query.assignedDesignerIds && !query.includeUnassignedDesigner)) return emptyFilter();
+    filter.assignedDesignerId = null;
+  }
   if (query.requestedByAccountId) filter.requestedByAccountId = toObjectId(query.requestedByAccountId);
   if (query.requestedByAccountIds) {
     if (!query.requestedByAccountIds.length) return emptyFilter();
@@ -134,7 +137,14 @@ async function list(query = {}) {
   const { page, limit } = normalizePagination(query, { defaultLimit: 20, maxLimit: 100 });
   const filter = buildFilter(query);
   const [items, total] = await Promise.all([
-    DesignTask.find(filter)
+    query.sortBy === 'urgency' ? DesignTask.aggregate([
+      { $match: filter },
+      { $set: { queueClosed: { $cond: [{ $in: ['$status', ['APPROVED', 'CANCELLED']] }, 1, 0] }, queuePriority: { $indexOfArray: [['URGENT', 'HIGH', 'NORMAL', 'LOW'], { $ifNull: ['$priority', 'NORMAL'] }] } } },
+      { $sort: { queueClosed: 1, queuePriority: 1, createdAt: 1, _id: 1 } },
+      { $skip: getPaginationOffset({ page, limit }) },
+      { $limit: limit },
+      { $unset: ['queueClosed', 'queuePriority'] },
+    ]) : DesignTask.find(filter)
       .sort(buildSort(query))
       .skip(getPaginationOffset({ page, limit }))
       .limit(limit)

@@ -453,6 +453,7 @@ function commonTaskFields(task = {}) {
     salesChannelCode,
     marketplaceCode,
     orderDate: task.orderSnapshot?.orderedAt || task.createdAt || null,
+    shipByDate: task.orderSnapshot?.shipByDate || null,
     shippingType: shippingType(task),
     fulfillName: fulfillName(task),
     mainListingImageUrl: mainListingImage,
@@ -587,6 +588,7 @@ function toQcTaskSummaryDto(task) {
     shopId: toId(task.shopId),
     shopName: shop?.name || null,
     orderDate: task.orderSnapshot?.orderedAt || task.createdAt || null,
+    shipByDate: task.orderSnapshot?.shipByDate || null,
     shippingType: shippingType(task),
     fulfillName: fulfillName(task),
     productImageUrl: task.orderItemSnapshot?.productImageUrl
