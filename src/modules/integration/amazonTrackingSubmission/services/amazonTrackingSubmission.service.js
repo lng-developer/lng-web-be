@@ -477,15 +477,31 @@ async function markTerminal(commandId, submissionId, body, authContext) {
   return toSubmissionDto(updated);
 }
 
+function canReadSubmission(authContext, scope) {
+  if (authContext?.tokenType === 'EXTENSION') return false;
+  return authContext?.system || ['ORDERS:READ', 'ORDERS:WRITE', 'SHIPMENTS:READ', 'SHIPMENTS:WRITE']
+    .some((permission) => authPublic.canAccessScope(authContext, permission, scope));
+}
+
 async function listSubmissions(query, authContext) {
-  const shopIds = authPublic.listAccessibleScopeIds(authContext, 'ORDERS:READ', 'shop');
-  return repository.listSubmissions({ shopIds, page: query.page, limit: query.limit });
+  let shopIds;
+  if (query.shopId) {
+    if (!canReadSubmission(authContext, { scopeType: 'shop', scopeId: query.shopId })) throw forbidden();
+    shopIds = [query.shopId];
+  } else if (!canReadSubmission(authContext, { scopeType: 'global', scopeId: null })) {
+    shopIds = [...new Set((authContext?.scopes || [])
+      .filter((scope) => scope.scopeType === 'shop' && scope.scopeId && canReadSubmission(authContext, scope))
+      .map((scope) => String(scope.scopeId)))];
+    if (!shopIds.length) return { items: [], total: 0, page: query.page, limit: query.limit };
+  }
+  const result = await repository.listSubmissions({ shopIds, page: query.page, limit: query.limit });
+  return { ...result, items: result.items.map(toSubmissionDto) };
 }
 
 async function getSubmission(submissionId, authContext) {
   const submission = await repository.findById(submissionId);
   if (!submission) throw notFound('Submission not found');
-  assertUserShopAccess(authContext, submission.shopId, 'ORDERS:READ');
+  if (!canReadSubmission(authContext, { scopeType: 'shop', scopeId: String(submission.shopId) })) throw forbidden();
   return toSubmissionDetailDto(submission);
 }
 
