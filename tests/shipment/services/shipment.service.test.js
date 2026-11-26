@@ -984,7 +984,15 @@ describe('shipment.service', () => {
     expect(repository.updateTrackingIfNotDelivered).not.toHaveBeenCalled();
   });
 
-  test('acknowledges non-cancelled vendor tracking for a cancelled shipment', async () => {
+  test('reports a skipped update for a cancelled shipment', async () => {
+    repository.findActiveByVendorSubmission.mockResolvedValueOnce({ ...shipment, status: 'CANCELLED' });
+    await expect(service.applyTrackingUpdate(vendorSubmissionId, { carrier: 'USPS', trackingNumber: '9214490411375403131206' }, {})).resolves.toMatchObject({
+      applied: false, reason: 'SHIPMENT_CANCELLED', shipment: { id: shipmentId, status: 'CANCELLED' },
+    });
+    expect(repository.updateTrackingIfNotDelivered).not.toHaveBeenCalled();
+  });
+
+  test('rejects manual recheck for a cancelled shipment without reopening it', async () => {
     const cancelledShipment = { ...shipment, status: 'CANCELLED' };
     repository.findActiveByVendorSubmission.mockResolvedValueOnce(cancelledShipment);
     getTrackingAdapter.mockReturnValueOnce({
@@ -1000,10 +1008,7 @@ describe('shipment.service', () => {
       provider: 'MERCHIZE',
       externalOrderId: '112-7237034-7096265',
       vendorSubmissionId,
-    }, { permissions: ['SHIPMENTS:WRITE'], accountId: actorId })).resolves.toMatchObject({
-      applied: true,
-      shipment: { id: shipmentId, status: 'CANCELLED' },
-    });
+    }, { permissions: ['SHIPMENTS:WRITE'], accountId: actorId })).rejects.toThrow('Shipment is cancelled; tracking was not updated');
 
     expect(repository.updateTrackingIfNotDelivered).not.toHaveBeenCalled();
   });

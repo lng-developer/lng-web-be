@@ -724,7 +724,7 @@ async function applyTrackingUpdate(vendorSubmissionId, update = {}, authContext,
   const statusUnchanged = Boolean(existing && (!nextStatus || existing.status === nextStatus));
 
   if (existing?.status === shipmentStatuses.CANCELLED) {
-    return { applied: true, shipment: toShipmentDto(existing) };
+    return { applied: false, reason: 'SHIPMENT_CANCELLED', shipment: toShipmentDto(existing) };
   }
 
   if (existing && statusUnchanged && (!trackingNumber || trackingUnchanged)) {
@@ -867,6 +867,12 @@ async function recheckVendorTracking(payload = {}, authContext, poll) {
       note: `Vendor tracking recheck: ${provider}`,
       source: 'POLL',
     }, authContext, poll);
+
+    if (!poll && application.reason === 'SHIPMENT_CANCELLED') {
+      throw conflict('Shipment is cancelled; tracking was not updated. Restore the shipment before rechecking.', {
+        reason: 'SHIPMENT_CANCELLED',
+      });
+    }
 
     return {
       provider,
