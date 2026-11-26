@@ -401,6 +401,63 @@ describe('productionTask.service', () => {
       expect.objectContaining({ designType: expected, designTypeSource: 'AUTO' }), expect.anything());
   });
 
+  test.each(['NORMAL', 'CUSTOM_IMAGE'])('uses listing design type %s for new tasks', async (designType) => {
+    catalogPublic.getListingById.mockResolvedValue({ ...listing, designType });
+    const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+    expect(result).toMatchObject({ designType, designTypeSource: 'LISTING' });
+  });
+
+  test.each([template, { ...template, artworkSlots: [] }])('blocks custom-image listings without buyer assets (%j)', async (configuredTemplate) => {
+    catalogPublic.getListingById.mockResolvedValue({ ...listing, designType: 'CUSTOM_IMAGE' });
+    catalogPublic.getInternalTemplateById.mockResolvedValue(configuredTemplate);
+    customizationPublic.getOrderItemCustomizationView.mockResolvedValue({ status: 'PARSED', customerInputs: { images: [] } });
+    const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+    expect(result).toMatchObject({ designType: 'CUSTOM_IMAGE', status: 'BLOCKED' });
+    expect(result.blockers).toContain('CUSTOMER_IMAGE_MISSING');
+  });
+
+  test('keeps accepted-key image matching when making an optional slot required', async () => {
+    catalogPublic.getListingById.mockResolvedValue({ ...listing, designType: 'CUSTOM_IMAGE' });
+    catalogPublic.getInternalTemplateById.mockResolvedValue({ ...template, artworkSlots: [{ key: 'FRONT', required: false, acceptedFieldKeys: ['PHOTO'] }] });
+    customizationPublic.getOrderItemCustomizationView.mockResolvedValue({ status: 'PARSED', customerInputs: { images: [
+      { key: 'OTHER', assetId: '660000000000000000000998' },
+      { key: 'PHOTO', assetId: mediaAssetId },
+    ] } });
+    const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+    expect(result.fileChecks.find((check) => check.slotKey === 'FRONT')).toMatchObject({ inputAssetId: mediaAssetId, required: true });
+    expect(result.blockers).not.toContain('CUSTOMER_IMAGE_MISSING');
+  });
+
+  test('replaces an empty fallback slot when a real template and buyer image become available', async () => {
+    const current = { _id: taskId, designType: 'CUSTOM_IMAGE', designTypeSource: 'LISTING', status: 'BLOCKED', fileChecks: [
+      { slotKey: 'CUSTOMER_IMAGE', sourceType: 'CUSTOMER_IMAGE', required: true, inputAssetId: null, outputAssetId: null, blockers: ['CUSTOMER_IMAGE_MISSING'] },
+    ] };
+    repository.findByOrderItem.mockResolvedValue(current);
+    repository.updateById.mockImplementation(async (id, patch) => ({ ...current, ...patch }));
+    const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+    expect(result.fileChecks.some((check) => check.slotKey === 'CUSTOMER_IMAGE')).toBe(false);
+    expect(result.blockers).not.toContain('CUSTOMER_IMAGE_MISSING');
+  });
+
+  test('preserves listing classification when the listing changes after task creation', async () => {
+    catalogPublic.getListingById.mockResolvedValue({ ...listing, designType: 'NORMAL' });
+    const current = { _id: taskId, designType: 'CUSTOM_IMAGE', designTypeSource: 'LISTING', status: 'NEED_SCALE', fileChecks: [] };
+    repository.findByOrderItem.mockResolvedValue(current);
+    repository.updateById.mockImplementation(async (id, patch) => ({ ...current, ...patch }));
+    const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+    expect(result).toMatchObject({ designType: 'CUSTOM_IMAGE', designTypeSource: 'LISTING' });
+    expect(repository.updateByIdIf.mock.calls[0][2]).not.toHaveProperty('designType');
+  });
+
+  test('does not apply new listing configuration to an existing AUTO task', async () => {
+    catalogPublic.getListingById.mockResolvedValue({ ...listing, designType: 'CUSTOM_IMAGE' });
+    customizationPublic.getOrderItemCustomizationView.mockResolvedValue({ status: 'PARSED', customerInputs: { images: [], texts: [{ value: 'Name' }] } });
+    repository.findByOrderItem.mockResolvedValue({ _id: taskId, designType: 'NORMAL', designTypeSource: 'AUTO', status: 'NEED_SCALE', fileChecks: [] });
+    repository.updateById.mockImplementation(async (id, patch) => ({ _id: id, ...patch }));
+    const result = await service.createOrRecheckTaskForOrderItem(orderItemId, { permissions: ['PRODUCTION:WRITE'] });
+    expect(result).toMatchObject({ designType: 'NORMAL', designTypeSource: 'AUTO' });
+  });
+
   test('recheck preserves a manual design type', async () => {
     repository.findByOrderItem.mockResolvedValue({ _id: taskId, designType: 'NORMAL', designTypeSource: 'MANUAL', status: 'NEED_SCALE', fileChecks: [] });
     repository.updateById.mockImplementation(async (id, patch) => ({ _id: id, designType: 'NORMAL', designTypeSource: 'MANUAL', ...patch }));
