@@ -169,3 +169,14 @@ describe('Listing model', () => {
     expect(updateListingSchema.validate(payload).error).toBeTruthy();
   });
 });
+
+describe('Listing design type', () => {
+  test.each([null, 'NORMAL', 'CUSTOM_IMAGE'])('accepts and exposes %s', (designType) => {
+    expect(updateListingSchema.validate({ designType }).error).toBeUndefined();
+    expect(toListingDto({ _id: 'listing', designType }).designType).toBe(designType);
+    expect(Listing.schema.path('designType').enumValues).toEqual(['NORMAL', 'CUSTOM_IMAGE']);
+  });
+  test('rejects unknown design types', () => {
+    expect(updateListingSchema.validate({ designType: 'OTHER' }).error).toBeDefined();
+  });
+});

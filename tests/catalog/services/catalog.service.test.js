@@ -1123,6 +1123,7 @@ describe('catalog.service', () => {
       asin: 'b0updated',
       etsyListingId: '1234567890',
       previewImageUrl: 'https://cdn.lng.co/previews/updated.png',
+      designType: 'CUSTOM_IMAGE',
       psdStatus: 'MISSING',
     }, { permissions: ['CATALOG:WRITE'], scopes: [] });
 
@@ -1131,6 +1132,7 @@ describe('catalog.service', () => {
       asin: 'b0updated',
       etsyListingId: '1234567890',
       previewImageUrl: 'https://cdn.lng.co/previews/updated.png',
+      designType: 'CUSTOM_IMAGE',
     });
   });
 

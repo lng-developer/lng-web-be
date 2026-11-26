@@ -71,6 +71,7 @@ const listingSchema = new mongoose.Schema(
       trim: true,
       default: null,
     },
+    designType: { type: String, enum: ['NORMAL', 'CUSTOM_IMAGE'], default: null },
     defaultPsdTemplateAssetId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'MediaAsset',

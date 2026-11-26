@@ -70,3 +70,13 @@ describe('design task listing image', () => {
     });
   });
 });
+
+describe('design task listing design type', () => {
+  test.each(['CUSTOM_IMAGE', 'NORMAL', null])('reads current listing type %s without changing priority', (designType) => {
+    const dto = toDesignTaskDto({
+      _id: 'task', listingId: 'listing', taskType: 'PSD_TEMPLATE', priority: 'NORMAL',
+    }, { listingsById: { listing: { designType } } });
+    expect(dto.asinType).toBe(designType || 'NORMAL');
+    expect(dto.priority).toBe('NORMAL');
+  });
+});
