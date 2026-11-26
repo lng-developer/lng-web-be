@@ -59,7 +59,7 @@ const validateQcStatus = createMultiEnumValidator(
 );
 
 function validateTaskSort(value, helpers) {
-  if (!value) return value;
+  if (!value || value === 'urgency') return value;
   const invalid = String(value).split(',')
     .map((field) => field.trim().replace(/^-/, ''))
     .find((field) => !allowedTaskSortFields.has(field));
