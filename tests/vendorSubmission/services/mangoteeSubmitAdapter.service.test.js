@@ -75,6 +75,13 @@ describe('MangoTee submit adapter', () => {
     expect(() => adapter.validatePayload(payload)).not.toThrow();
   });
 
+  test('rejects an internal cost-center code when vendor SKU is missing', () => {
+    const payload = adapter.buildPayload({ ...submission, payloadSnapshot: {
+      ...submission.payloadSnapshot, vendorCostCenter: { code: 'PRODUCT_1717_M_LIGHT_GREEN_CCBTH700M' },
+    } });
+    expect(() => adapter.validatePayload(payload)).toThrow('items[0].sku');
+  });
+
   test('submits with the configured vendor API key', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,

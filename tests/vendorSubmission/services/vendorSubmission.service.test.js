@@ -19,6 +19,7 @@ jest.mock('../../../src/modules/media/public', () => ({
 }));
 
 jest.mock('../../../src/modules/vendor/public', () => ({
+  listActiveVendorCostCentersByIds: jest.fn(),
   getVendorIntegrationAssignment: jest.fn(),
   getVendorIntegrationCredential: jest.fn(),
 }));
@@ -708,6 +709,30 @@ describe('vendorSubmission.service', () => {
       code: 'CONFLICT_ERROR',
     });
     expect(repository.updateById).not.toHaveBeenCalled();
+  });
+
+
+  test('refreshes missing SKUs inside an existing bundle even when the primary has a SKU', async () => {
+    const snapshot = {
+      ...submission.payloadSnapshot,
+      vendorCostCenter: { id: vendorCostCenterId, sku: 'CCBTH700M' },
+      bundledItems: [
+        { vendorCostCenter: { id: vendorCostCenterId, code: 'INTERNAL_M' }, fulfillQty: 1 },
+        { vendorCostCenter: { id: '660000000000000000120018', code: 'INTERNAL_S' }, fulfillQty: 2 },
+        { vendorCostCenter: { id: vendorCostCenterId, code: 'INTERNAL_M' }, fulfillQty: 1 },
+      ],
+    };
+    repository.findById.mockResolvedValue({ ...submission, payloadSnapshot: snapshot });
+    vendorPublic.listActiveVendorCostCentersByIds.mockResolvedValue([
+      { _id: vendorCostCenterId, sku: 'CCBTH700M', code: 'INTERNAL_M' },
+      { _id: '660000000000000000120018', sku: 'CCBTH700S', code: 'INTERNAL_S' },
+    ]);
+    await service.submitToVendor(submissionId, { dryRun: true }, { system: true });
+    const adapter = submitRegistry.getAdapter.mock.results[0].value;
+    const sent = adapter.buildPayload.mock.calls[0][0].payloadSnapshot;
+    expect(sent.bundledItems.map(i => i.vendorCostCenter.sku)).toEqual(['CCBTH700M', 'CCBTH700S', 'CCBTH700M']);
+    expect(sent.bundledItems.map(i => i.fulfillQty)).toEqual([1, 2, 1]);
+    expect(adapter.submitPayload).not.toHaveBeenCalled();
   });
 
   test('submit to vendor defaults to dry run and does not mutate submission', async () => {
