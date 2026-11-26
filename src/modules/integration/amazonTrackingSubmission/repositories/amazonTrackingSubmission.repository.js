@@ -23,9 +23,10 @@ async function updateById(id, patch) {
 }
 
 async function listSubmissions({ shopIds, page, limit }) {
-  const filter = { ...(shopIds?.length ? { shopId: { $in: shopIds } } : {}) };
+  const filter = { ...(shopIds ? { shopId: { $in: shopIds } } : {}) };
   const [items, total] = await Promise.all([
     AmazonTrackingSubmission.find(filter)
+      .select('-rows -tsv')
       .sort({ createdAt: -1, _id: -1 })
       .skip(getPaginationOffset({ page, limit }))
       .limit(limit)
