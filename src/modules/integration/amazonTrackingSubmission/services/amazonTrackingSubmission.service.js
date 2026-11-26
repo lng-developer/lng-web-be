@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const httpStatus = require('../../../../shared/constants/httpStatus');
 const errorCodes = require('../../../../shared/constants/errorCodes');
 const AppError = require('../../../../shared/errors/appError');
+const { assertValidObjectId } = require('../../../../shared/utils/objectId');
 const authPublic = require('../../../auth/public');
 const shipmentPublic = require('../../../shipment/public');
 const orderPublic = require('../../../order/public');
@@ -256,6 +257,50 @@ async function prepareFeedRows(shipments, { shopId, strict = false } = {}) {
     feedRows,
     allDisplayRows,
   };
+}
+
+async function createManualDraft(payload = {}, authContext) {
+  assertValidObjectId(payload.shopId, 'shopId');
+  assertUserShopAccess(authContext, payload.shopId, 'ORDERS:WRITE');
+  const ids = payload.shipmentIds;
+  if (!Array.isArray(ids) || !ids.length || ids.length > 200 || new Set(ids.map(String)).size !== ids.length) {
+    throw badRequest('Provide 1 to 200 unique shipment IDs');
+  }
+  ids.forEach(id => assertValidObjectId(id, 'shipmentId'));
+  const shipments = await shipmentPublic.findByIds(ids);
+  if (shipments.length !== ids.length) throw badRequest('Some requested shipments were not found');
+  const { validRows, validShipmentIds } = await prepareFeedRows(shipments, { shopId: payload.shopId, strict: true });
+  if (!validRows.length || validRows.length !== ids.length) throw badRequest('Every requested shipment must produce a valid feed row');
+  const itemKeys = new Set();
+  for (const row of validRows) {
+    if (!/^\d{3}-\d{7}-\d{7}$/.test(row.externalOrderId)) throw badRequest('An Amazon order ID is required');
+    if (!/^\d+$/.test(row.externalItemId || '') || !Number.isInteger(Number(row.quantity)) || Number(row.quantity) < 1) {
+      throw badRequest('Order item ID and positive quantity are required for manual drafts');
+    }
+    const key = `${row.externalOrderId}:${row.externalItemId}`;
+    if (itemKeys.has(key)) throw badRequest('Duplicate order item in manual draft');
+    itemKeys.add(key);
+    if ([row.carrier, row.carrierCode, row.trackingNumber, row.shipMethod].some(value => /[\t\r\n]/.test(value))) {
+      throw badRequest('Tracking feed fields cannot contain tabs or newlines');
+    }
+  }
+  // Item-specific rows avoid replacing tracking for unselected items on the same order.
+  validRows.sort((a, b) => `${a.externalOrderId}:${a.externalItemId}`.localeCompare(`${b.externalOrderId}:${b.externalItemId}`));
+  const { tsv, checksum, filename } = buildTsvFeed(validRows);
+  const existing = await repository.findDraftByChecksum(payload.shopId, checksum);
+  if (existing) return toSubmissionDto(existing);
+  return toSubmissionDto(await repository.create({
+    shopId: payload.shopId,
+    agentId: null,
+    commandId: null,
+    shipmentIds: validShipmentIds,
+    rows: validRows,
+    filename,
+    tsv,
+    checksum,
+    rowCount: validRows.length,
+    status: amazonTrackingSubmissionStatuses.DRAFT,
+  }));
 }
 
 async function createSubmission(payload, authContext) {
@@ -521,6 +566,7 @@ async function failSubmissionByCommandId(commandId, errorMessage) {
 }
 
 module.exports = {
+  createManualDraft,
   createSubmission,
   previewSubmission,
   failSubmissionByCommandId,
