@@ -140,6 +140,7 @@ function toDesignTaskDto(task, {
   orderContextByListingId = {},
   scoresBySubmissionId = {},
   includeScores = false,
+  scaleFileSummariesByChannel = {},
 } = {}) {
   if (!task) return null;
   const assignedDesignerId = toId(task.assignedDesignerId);
@@ -267,6 +268,9 @@ function toDesignTaskDto(task, {
       : null;
   }
 
+  const identifier = listing?.salesChannelCode === 'ETSY' ? listing.etsyListingId : listing?.asin;
+  const scaleFileSummary = scaleFileSummariesByChannel[listing?.salesChannelCode]?.[identifier];
+  if (task.taskType === 'PSD_TEMPLATE' && scaleFileSummary) dto.scaleFileSummary = scaleFileSummary;
   return dto;
 }
 
@@ -281,7 +285,16 @@ function toPaginatedResponse(result = {}) {
   };
 }
 
+function toAsinSummaryDto(group, counts = {}) {
+  const totalFileCount = counts.totalFileCount || 0;
+  const scaledFileCount = counts.scaledFileCount || 0;
+  return { asin: group._id, taskCount: group.taskCount,
+    productionTaskCount: counts.productionTaskCount || 0,
+    totalFileCount, scaledFileCount, pendingFileCount: totalFileCount - scaledFileCount };
+}
+
 module.exports = {
+  toAsinSummaryDto,
   toDesignTaskDto,
   toId,
   toPaginatedResponse,

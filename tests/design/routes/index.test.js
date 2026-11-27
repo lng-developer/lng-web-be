@@ -72,6 +72,26 @@ function request(server, {
 }
 
 describe('design routes', () => {
+  test('task list accepts total-file sort and rejects invalid directions', async () => {
+    service.listTasks.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
+    const headers = { 'x-auth-context': JSON.stringify({ permissions: ['DESIGN:READ'] }) };
+    expect((await request(createServer(), { method: 'GET', path: '/tasks?sortBy=totalFileCount&sortOrder=asc', headers })).statusCode).toBe(200);
+    expect(service.listTasks).toHaveBeenLastCalledWith({ sortBy: 'totalFileCount', sortOrder: 'asc' }, expect.any(Object));
+    expect((await request(createServer(), { method: 'GET', path: '/tasks?sortBy=totalFileCount&sortOrder=wrong', headers })).statusCode).toBe(400);
+  });
+  test('ASIN summary uses PSD read access and list query validation before task-id routes', async () => {
+    const data = { items: [], pagination: { page: 1, limit: 20, total: 0 } };
+    service.listAsinSummary.mockResolvedValue(data);
+    const headers = { 'x-auth-context': JSON.stringify({ permissions: ['DESIGN:PSD_REQUEST'] }) };
+    const response = await request(createServer(), { method: 'GET', path: '/tasks/asin-summary?page=1&unassigned=true', headers });
+    expect(response).toMatchObject({ statusCode: 200, body: { success: true, data } });
+    expect(service.listAsinSummary).toHaveBeenCalledWith({ page: 1, unassigned: true }, expect.any(Object));
+    expect((await request(createServer(), { method: 'GET', path: '/tasks/asin-summary?limit=101', headers })).statusCode).toBe(400);
+    expect((await request(createServer(), { method: 'GET', path: '/tasks/asin-summary?sortBy=unknown', headers })).statusCode).toBe(400);
+    expect((await request(createServer(), { method: 'GET', path: '/tasks/asin-summary?sortBy=pendingFileCount&sortOrder=desc', headers })).statusCode).toBe(200);
+    expect(service.listAsinSummary).toHaveBeenLastCalledWith({ sortBy: 'pendingFileCount', sortOrder: 'desc' }, expect.any(Object));
+    expect((await request(createServer(), { method: 'GET', path: '/tasks/asin-summary' })).statusCode).toBe(403);
+  });
   const taskId = '660000000000000000510001';
   const listingId = '660000000000000000510002';
   const assetId = '660000000000000000510007';

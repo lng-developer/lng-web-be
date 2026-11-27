@@ -8,10 +8,10 @@ describe('aggregate Postman handoff', () => {
   test('contains every module request exactly once', () => {
     const collection = buildAggregate();
     expect(collection.item).toHaveLength(20);
-    expect(requestCount(collection.item)).toBe(464);
+    expect(requestCount(collection.item)).toBe(465);
   });
 
   test('publishes the current totals in the endpoint index', () => {
-    expect(buildIndex()).toContain('**516 endpoints** across **23 modules**');
+    expect(buildIndex()).toContain('**517 endpoints** across **23 modules**');
   });
 });
