@@ -96,6 +96,30 @@ describe('merchize submit adapter', () => {
     }).order_id).toBe('113-TEST-ORDER');
   });
 
+  test.each([false, true])('sends distinct front and back artwork (bundled=%s)', (bundled) => {
+    const snapshot = {
+      ...submission.payloadSnapshot,
+      fileChecks: [
+        { slotKey: 'FRONT', outputVendorUrl: 'https://cdn.example/front.png' },
+        { slotKey: 'BACK', outputVendorUrl: 'https://cdn.example/back.png' },
+      ],
+    };
+    const payload = adapter.buildPayload({ ...submission, payloadSnapshot: bundled
+      ? { ...snapshot, bundledItems: [snapshot] } : snapshot });
+    expect(payload.items[0]).toMatchObject({
+      design_front: 'https://cdn.example/front.png',
+      design_back: 'https://cdn.example/back.png',
+    });
+  });
+
+  test('does not copy front artwork into a missing back slot', () => {
+    const payload = adapter.buildPayload({ ...submission, payloadSnapshot: {
+      ...submission.payloadSnapshot,
+      fileChecks: [{ slotKey: 'FRONT', outputVendorUrl: 'https://cdn.example/front.png' }],
+    } });
+    expect(payload.items[0].design_back).toBeNull();
+  });
+
   test('uses the persisted retry order id for Merchize', () => {
     expect(adapter.buildPayload({
       ...submission,
