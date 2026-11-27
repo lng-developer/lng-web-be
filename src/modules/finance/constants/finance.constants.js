@@ -21,6 +21,7 @@ const financeCostBases = Object.freeze({
 });
 
 const financeFeeConfidences = Object.freeze({
+  ALLOCATED: 'ALLOCATED',
   ACTUAL: 'ACTUAL',
   ESTIMATED: 'ESTIMATED',
 });

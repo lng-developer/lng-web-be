@@ -174,14 +174,14 @@ async function listSourceReferencesByOrderItem(orderItemId) {
   const [ledgerLines, feeLines, refunds] = await Promise.all([
     MarketplaceSettlementLedgerLine.find(filter)
       .select('sourceRef importBatchId sourceType postedAt settlementId amount').sort({ postedAt: -1, _id: -1 }).lean(),
-    MarketplaceFeeLine.find(filter)
-      .select('sourceRef importBatchId sourceType postedAt settlementId feeType totalFeeAmount').sort({ postedAt: -1, _id: -1 }).lean(),
+    MarketplaceFeeLine.find({ $or: [filter, { 'allocations.orderItemId': toObjectId(orderItemId) }] })
+      .select('sourceRef importBatchId sourceType postedAt settlementId feeType totalFeeAmount allocationMethod allocations').sort({ postedAt: -1, _id: -1 }).lean(),
     RefundRecord.find(filter)
       .select('sourceRef importBatchId sourceType refundedAt externalRefundId totalRefundAmount').sort({ refundedAt: -1, _id: -1 }).lean(),
   ]);
   return [
     ...ledgerLines.map((row) => ({ sourceKind: 'LEDGER', sourceRef: row.sourceRef || null, importBatchId: toId(row.importBatchId), occurredAt: row.postedAt || null, settlementId: row.settlementId || null, amount: row.amount || 0 })),
-    ...feeLines.map((row) => ({ sourceKind: 'FEE', sourceRef: row.sourceRef || null, importBatchId: toId(row.importBatchId), occurredAt: row.postedAt || null, settlementId: row.settlementId || null, category: row.feeType || null, amount: row.totalFeeAmount || 0 })),
+    ...feeLines.map((row) => ({ sourceKind: 'FEE', sourceRef: row.sourceRef || null, importBatchId: toId(row.importBatchId), occurredAt: row.postedAt || null, settlementId: row.settlementId || null, category: row.feeType || null, allocationMethod: row.allocationMethod || null, amount: row.allocations?.length ? row.allocations.filter(entry => toId(entry.orderItemId) === String(orderItemId)).reduce((sum, entry) => sum + entry.amount, 0) : row.totalFeeAmount || 0 })),
     ...refunds.map((row) => ({ sourceKind: 'REFUND', sourceRef: row.sourceRef || null, importBatchId: toId(row.importBatchId), occurredAt: row.refundedAt || null, externalReference: row.externalRefundId || null, amount: row.totalRefundAmount || 0 })),
   ];
 }
@@ -198,7 +198,7 @@ async function linkUnlinkedFinanceRowsForOrderItem({
   const update = { $set: { orderId, orderItemId, listingId: listingId || null } };
   const results = await Promise.all([
     MarketplaceSettlementLedgerLine.updateMany(identity, update),
-    MarketplaceFeeLine.updateMany(identity, update),
+    MarketplaceFeeLine.updateMany({ ...identity, 'allocations.0': { $exists: false } }, update),
     RefundRecord.updateMany(identity, update),
   ]);
   return { linkedCount: results.reduce((sum, result) => sum + (result.matchedCount ?? result.n ?? 0), 0) };
@@ -636,8 +636,14 @@ async function latestFinancialInputTimes(orderItemIds) {
   const ids = orderItemIds.map(toObjectId);
   const [fees, refunds] = await Promise.all([
     MarketplaceFeeLine.aggregate([
-      { $match: { orderItemId: { $in: ids } } },
-      { $group: { _id: '$orderItemId', updatedAt: { $max: '$updatedAt' } } },
+      { $match: { $or: [{ orderItemId: { $in: ids } }, { 'allocations.orderItemId': { $in: ids } }] } },
+      { $project: { updatedAt: 1, affectedItems: { $cond: [
+        { $gt: [{ $size: { $ifNull: ['$allocations', []] } }, 0] },
+        { $setIntersection: ['$allocations.orderItemId', ids] },
+        ['$orderItemId'],
+      ] } } },
+      { $unwind: '$affectedItems' },
+      { $group: { _id: '$affectedItems', updatedAt: { $max: '$updatedAt' } } },
     ]),
     RefundRecord.aggregate([
       { $match: { $or: [{ orderItemId: { $in: ids } }, { 'allocations.orderItemId': { $in: ids } }] } },
@@ -656,10 +662,32 @@ async function latestFinancialInputTimes(orderItemIds) {
 async function sumFeesByOrderItem(orderItemId) {
   const _id = new mongoose.Types.ObjectId(String(orderItemId));
   const result = await MarketplaceFeeLine.aggregate([
-    { $match: { orderItemId: _id } },
-    { $group: { _id: null, total: { $sum: '$totalFeeAmount' } } },
+    {
+      $match: {
+        $or: [
+          { orderItemId: _id, 'allocations.0': { $exists: false } },
+          { 'allocations.orderItemId': _id },
+        ],
+      },
+    },
+    {
+      $project: {
+        allocatedAmount: {
+          $cond: [
+            { $gt: [{ $size: { $ifNull: ['$allocations', []] } }, 0] },
+            { $sum: { $map: { input: { $filter: { input: '$allocations', as: 'allocation', cond: { $eq: ['$$allocation.orderItemId', _id] } } }, as: 'allocation', in: '$$allocation.amount' } } },
+            '$totalFeeAmount',
+          ],
+        },
+      },
+    },
+    { $group: { _id: null, total: { $sum: '$allocatedAmount' } } },
   ]);
   return result.length ? result[0].total : null;
+}
+
+async function hasAllocatedFeesByOrderItem(orderItemId) {
+  return Boolean(await MarketplaceFeeLine.exists({ 'allocations.orderItemId': toObjectId(orderItemId) }));
 }
 
 async function sumRefundsByOrderItem(orderItemId) {
@@ -719,6 +747,7 @@ module.exports = {
   markImportBatchRecalculationFailed,
   latestFinancialInputTimes,
   sumFeesByOrderItem,
+  hasAllocatedFeesByOrderItem,
   sumRefundsByOrderItem,
   upsertAdsSpend,
   upsertFeeLine,

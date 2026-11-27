@@ -178,8 +178,9 @@ function calculateRevenue(item = {}, financeTotals = {}) {
     : hasImportedFee
       ? marketplaceFeeSources.ORDER_IMPORT
       : marketplaceFeeSources.ESTIMATED_15_PERCENT;
-  const feeConfidence =
-    feeSource === marketplaceFeeSources.ESTIMATED_15_PERCENT
+  const feeConfidence = financeTotals.hasAllocatedFees
+    ? financeFeeConfidences.ALLOCATED
+    : feeSource === marketplaceFeeSources.ESTIMATED_15_PERCENT
       ? financeFeeConfidences.ESTIMATED
       : financeFeeConfidences.ACTUAL;
   const refundAmount =
@@ -814,11 +815,12 @@ async function calculateAndUpsertOrderItem(orderItemId, authContext, session) {
     mappingPublic.getFulfillmentPlanForOrderItem(orderItemId),
     shipmentPublic.getShipmentByOrderItem(orderItemId),
   ]);
-  const [feeAmount, refundAmount] = await Promise.all([
+  const [feeAmount, refundAmount, hasAllocatedFees] = await Promise.all([
     financeImportRepository.sumFeesByOrderItem(orderItemId),
     financeImportRepository.sumRefundsByOrderItem(orderItemId),
+    financeImportRepository.hasAllocatedFeesByOrderItem(orderItemId),
   ]);
-  const revenue = calculateRevenue(item, { feeAmount, refundAmount });
+  const revenue = calculateRevenue(item, { feeAmount, refundAmount, hasAllocatedFees });
   const isCancelled = revenue.financialStatus === 'CANCELLED' || String(item.status || '').toUpperCase() === 'CANCELLED';
   const hasShipped = Boolean(
     shipment?.trackingNumber
