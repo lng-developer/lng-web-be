@@ -3,6 +3,7 @@ const mappingRuleService = require('./services/mappingRule.service');
 const fulfillmentPlanRepository = require('./repositories/fulfillmentPlan.repository');
 
 const publicPort = {
+  syncOrderItemQuantity: fulfillmentPlanService.syncOrderItemQuantity,
   getFulfillmentPlanForOrderItem: fulfillmentPlanService.getFulfillmentPlanForOrderItem,
   resetFulfillmentPlanForVendorRematch: fulfillmentPlanService.resetFulfillmentPlanForVendorRematch,
   listFulfillmentPlansForOrderItems: fulfillmentPlanService.listFulfillmentPlansForOrderItems,

@@ -565,6 +565,8 @@ async function resolveSafeShipDate(shipment, vendorShippedAt) {
 
 async function updateStatus(shipmentId, payload = {}, authContext, poll) {
   const status = String(payload.status || '').trim().toUpperCase();
+  const localCancellation = status === shipmentStatuses.CANCELLED
+    && authContext?.system === true && authContext.localOrderCancellation === true;
   if (![
     shipmentStatuses.DELIVERED,
     shipmentStatuses.EXCEPTION,
@@ -576,10 +578,10 @@ async function updateStatus(shipmentId, payload = {}, authContext, poll) {
   const shipment = await loadShipment(shipmentId);
   assertCanAccessShop(shipment.shopId, shipmentPermissions.WRITE, authContext);
   if (status === shipment.status) return toShipmentDto(shipment);
-  if (terminalShipmentStatuses.has(shipment.status)) {
+  if (terminalShipmentStatuses.has(shipment.status) && !localCancellation) {
     throw conflict('Terminal shipment status cannot be changed', { status: shipment.status });
   }
-  if (!statusTransitions[shipment.status]?.has(status)) {
+  if (!statusTransitions[shipment.status]?.has(status) && !localCancellation) {
     throw conflict('Invalid shipment status transition', {
       fromStatus: shipment.status,
       toStatus: status,
@@ -638,7 +640,7 @@ async function applyStatusEffects(updated, authContext, poll) {
       { reason: updated.note || 'Vendor shipment cancelled' },
       `SHIPMENT_STATUS:${updated._id || updated.id}:${status}`,
     ).catch(error => { if (poll) throw error; });
-    if (updated.vendorSubmissionId) {
+    if (updated.vendorSubmissionId && !authContext?.localOrderCancellation) {
       try {
         await vendorSubmissionPublic.cancelAfterExternalCancellation(
           String(updated.vendorSubmissionId),

@@ -1305,6 +1305,33 @@ async function syncOrderAddressSnapshot(order) {
   await repository.updateOrderAddressSnapshot(toId(order._id || order.id), order);
 }
 
+async function syncOrderItemQuantity(orderItemId, quantity, { session } = {}) {
+  assertValidObjectId(orderItemId, 'orderItemId');
+  if (!Number.isSafeInteger(quantity) || quantity < 1) {
+    throw appError('Quantity must be a positive integer', httpStatus.BAD_REQUEST, errorCodes.VALIDATION_ERROR);
+  }
+  const task = await repository.findByOrderItem(orderItemId, { session });
+  if (!task) return null;
+  if (![
+    productionTaskStatuses.BLOCKED,
+    productionTaskStatuses.NEED_SCALE,
+    productionTaskStatuses.QC_PENDING,
+    productionTaskStatuses.QC_REJECTED,
+  ].includes(task.status)) {
+    throw conflict('Production task quantity cannot be changed in its current status', { status: task.status });
+  }
+  const updated = await repository.updateByIdIf(toId(task), {
+    status: task.status,
+    updatedAt: task.updatedAt || null,
+  }, {
+    fulfillQty: quantity,
+    ...(task.orderItemSnapshot ? { 'orderItemSnapshot.quantity': quantity } : {}),
+  }, { session });
+  if (!updated) throw conflict('Production task changed concurrently');
+  await syncWorkbenchProduction(updated, session);
+  return toProductionTaskDto(updated);
+}
+
 async function syncCustomizationSnapshot(orderItemId, customization) {
   if (!orderItemId) return null;
   const task = await repository.findByOrderItem(orderItemId);
@@ -1382,6 +1409,7 @@ async function restartForVendorChange(orderItemId, authContext = {}) {
 }
 
 async function cancelTaskByOrderItem(orderItemId, { reason } = {}, authContext = {}) {
+  const localCancellation = authContext.system === true && authContext.localOrderCancellation === true;
   assertValidObjectId(orderItemId, 'orderItemId');
   const task = await repository.findByOrderItem(orderItemId);
   if (!task) return null;
@@ -1391,7 +1419,7 @@ async function cancelTaskByOrderItem(orderItemId, { reason } = {}, authContext =
   if (task.status === productionTaskStatuses.CANCELLED) {
     return toProductionTaskDto(task);
   }
-  if (task.status === productionTaskStatuses.SENT_TO_VENDOR) {
+  if (task.status === productionTaskStatuses.SENT_TO_VENDOR && !localCancellation) {
     throw conflict('Production task already sent to vendor', {
       productionTaskId: toId(task),
       status: task.status,
@@ -1403,7 +1431,7 @@ async function cancelTaskByOrderItem(orderItemId, { reason } = {}, authContext =
     ? await vendorSubmissionPublic.getByProductionTaskId(toId(task))
     : null;
   if (submission && submission.status !== 'CANCELLED' && typeof vendorSubmissionPublic.cancel === 'function') {
-    if (submission.status === 'SUBMITTED') {
+    if (submission.status === 'SUBMITTED' && !localCancellation) {
       throw conflict('Submitted vendor submission cannot be cancelled', {
         productionTaskId: toId(task),
         vendorSubmissionId: submission.id,
@@ -1420,7 +1448,7 @@ async function cancelTaskByOrderItem(orderItemId, { reason } = {}, authContext =
   }
 
   const updated = await withProductionOperation(async (session) => {
-    const cancelled = await repository.cancelTask(toId(task), { session });
+    const cancelled = await repository.cancelTask(toId(task), { session, ...(localCancellation ? { allowSentToVendor: true } : {}) });
     if (!cancelled) {
       throw conflict('Production task changed concurrently or is already sent to vendor');
     }
@@ -3274,6 +3302,7 @@ const productionTaskService = {
   uploadScaledFile,
   uploadScaledOutputFile,
   syncOrderAddressSnapshot,
+  syncOrderItemQuantity,
 };
 
 if (process.env.NODE_ENV === 'test') {

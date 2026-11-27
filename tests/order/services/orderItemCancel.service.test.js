@@ -15,6 +15,10 @@ jest.mock('../../../src/modules/order/services/orderTimeline.service', () => ({
 
 jest.mock('../../../src/modules/vendorSubmission/public', () => ({
   getByOrderItemId: jest.fn(),
+  cancel: jest.fn(),
+}));
+jest.mock('../../../src/modules/shipment/public', () => ({
+  getShipmentByOrderItem: jest.fn(), updateStatus: jest.fn(),
 }));
 
 jest.mock('../../../src/modules/production/public', () => ({
@@ -120,7 +124,7 @@ describe('orderItemCancel.service', () => {
     }));
   });
 
-  test('same-status cancellation retry is a true no-op', async () => {
+  test('same-status cancellation retries cleanup without duplicate item audit', async () => {
     orderItemRepository.findById.mockResolvedValue({
       _id: orderItemId,
       orderId,
@@ -131,13 +135,21 @@ describe('orderItemCancel.service', () => {
     const result = await service.cancelOrderItem(orderItemId, {}, { permissions: ['ORDERS:WRITE'] });
 
     expect(result.status).toBe('CANCELLED');
-    expect(vendorSubmissionPublic.getByOrderItemId).not.toHaveBeenCalled();
+    expect(vendorSubmissionPublic.getByOrderItemId).toHaveBeenCalled();
     expect(transitionService.transitionItemStatus).not.toHaveBeenCalled();
     expect(orderTimelineService.appendTimeline).not.toHaveBeenCalled();
     expect(auditPublic.record).not.toHaveBeenCalled();
   });
 
-  test.each(['SUBMITTED', 'SUBMITTING', 'NEEDS_REVIEW'])('rejects cancellation without state or timeline writes for %s vendor submission', async (status) => {
+  test('cancels shipment locally without asserting vendor cancellation', async () => {
+    const shipmentPublic = require('../../../src/modules/shipment/public');
+    shipmentPublic.getShipmentByOrderItem.mockResolvedValueOnce({ id: 'shipment', status: 'TRACKING_PENDING' });
+    await service.cancelOrderItem(orderItemId, { reason: 'Manual cancellation' }, { permissions: ['ORDERS:WRITE'] });
+    expect(shipmentPublic.updateStatus).toHaveBeenCalledWith('shipment', { status: 'CANCELLED', note: 'Manual cancellation' },
+      expect.objectContaining({ system: true, localOrderCancellation: true }));
+  });
+
+  test.each(['SUBMITTED', 'SUBMITTING', 'NEEDS_REVIEW'])('cancels locally for %s vendor submission', async (status) => {
     const vendorSubmissionId = '660000000000000000000501';
     vendorSubmissionPublic.getByOrderItemId.mockResolvedValue({
       id: vendorSubmissionId,
@@ -149,13 +161,10 @@ describe('orderItemCancel.service', () => {
       orderItemId,
       { reason: 'Buyer requested cancellation' },
       { permissions: ['ORDERS:WRITE'] },
-    )).rejects.toMatchObject({
-      statusCode: 409,
-      code: 'CONFLICT_ERROR',
-    });
+    )).resolves.toMatchObject({ status: 'CANCELLED' });
 
-    expect(transitionService.transitionItemStatus).not.toHaveBeenCalled();
-    expect(orderTimelineService.appendTimeline).not.toHaveBeenCalled();
+    expect(vendorSubmissionPublic.cancel).toHaveBeenCalledWith(vendorSubmissionId, expect.any(Object),
+      expect.objectContaining({ system: true, localOrderCancellation: true }));
   });
 });
 const mockSession = {

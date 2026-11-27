@@ -142,6 +142,12 @@ router.post(
   asyncHandler(orderController.cancelOrderItem),
 );
 router.patch(
+  '/items/:orderItemId/quantity',
+  authPublic.authenticate,
+  requireOrderWrite,
+  asyncHandler(orderController.updateOrderItemQuantity),
+);
+router.patch(
   '/items/:orderItemId/cs-note',
   authPublic.authenticate,
   requireOrderWrite,

@@ -155,10 +155,23 @@ function buildAtomicUpdate({ set = {}, addToSet = {} } = {}) {
 }
 
 async function updateFromExternalImport(orderItemId, payload) {
-  return OrderItem.findByIdAndUpdate(
-    orderItemId,
+  const imported = await OrderItem.findOneAndUpdate(
+    { _id: orderItemId, quantityOverride: null },
     buildAtomicUpdate(payload),
     { returnDocument: 'after', runValidators: true },
+  ).lean();
+  if (imported) return imported;
+  // Keep manual quantity edits when the marketplace report is imported again.
+  const { quantity, ...set } = payload.set || {};
+  return OrderItem.findByIdAndUpdate(orderItemId, buildAtomicUpdate({ ...payload, set }),
+    { returnDocument: 'after', runValidators: true }).lean();
+}
+
+async function updateQuantity(orderItemId, quantity, { session, expectedQuantity, expectedUpdatedAt } = {}) {
+  return OrderItem.findOneAndUpdate(
+    { _id: orderItemId, quantity: expectedQuantity, updatedAt: expectedUpdatedAt },
+    { $set: { quantity, quantityOverride: quantity } },
+    { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }
 
@@ -457,6 +470,7 @@ async function findIdsBySellerCode(employeeCode) {
 }
 
 module.exports = {
+  updateQuantity,
   findIdsBySellerCode,
   hasSellerSku,
   attachListingImage,

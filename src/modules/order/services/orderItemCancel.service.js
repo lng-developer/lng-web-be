@@ -2,6 +2,7 @@ const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
 const vendorSubmissionPublic = require('../../vendorSubmission/public');
+const shipmentPublic = require('../../shipment/public');
 const { orderItemStatuses } = require('../constants/orderStatuses');
 const { orderTimelineEventTypes } = require('../constants/orderTimelineEventTypes');
 const { orderTimelineSources } = require('../constants/orderTimelineSources');
@@ -27,16 +28,8 @@ async function cancelOrderItem(orderItemId, payload = {}, authContext = {}) {
   const order = await orderRepository.findById(item.orderId);
   if (!order) throw notFound('Order not found');
   await orderAccess.assertCanWriteOrder(order, authContext);
-  if (item.status === orderItemStatuses.CANCELLED) return item;
-
   const submission = await vendorSubmissionPublic.getByOrderItemId(orderItemId);
-  if (['SUBMITTED', 'SUBMITTING', 'NEEDS_REVIEW'].includes(submission?.status)) {
-    throw new AppError('Submitted vendor order cannot be cancelled', httpStatus.CONFLICT, true, errorCodes.CONFLICT_ERROR, {
-      orderItemId,
-      vendorSubmissionId: submission.id,
-      status: submission.status,
-    });
-  }
+  const cancellationContext = { ...authContext, system: true, source: 'ORDER_CANCEL', localOrderCancellation: true };
 
   const updated = await withOrderOperation(async (session) => {
     const current = await orderItemRepository.findById(orderItemId, { session });
@@ -46,7 +39,7 @@ async function cancelOrderItem(orderItemId, payload = {}, authContext = {}) {
     const updated = await orderItemStatusTransitionService.transitionItemStatus(
       orderItemId,
       orderItemStatuses.CANCELLED,
-      { ...authContext, source: authContext.system === true && authContext.source === 'IMPORT' ? orderTimelineSources.IMPORT : orderTimelineSources.USER, session },
+      { ...authContext, localOrderCancellation: true, source: authContext.system === true && authContext.source === 'IMPORT' ? orderTimelineSources.IMPORT : orderTimelineSources.USER, session },
     );
 
     await orderTimelineService.appendTimeline({
@@ -72,25 +65,24 @@ async function cancelOrderItem(orderItemId, payload = {}, authContext = {}) {
 
     return updated;
   });
+  if (submission && submission.status !== 'CANCELLED') {
+    await vendorSubmissionPublic.cancel(submission.id, {
+      cancelReason: payload.reason || 'Order item cancelled locally; vendor cancellation is separate',
+    }, cancellationContext);
+  }
   const productionPublic = getProductionPublic();
   if (typeof productionPublic?.cancelTaskByOrderItem === 'function') {
-    await productionPublic.cancelTaskByOrderItem(orderItemId, { reason: payload.reason }, {
-      ...authContext,
-      system: true,
-      source: 'ORDER_CANCEL',
-    });
+    await productionPublic.cancelTaskByOrderItem(orderItemId, { reason: payload.reason }, cancellationContext);
   }
 
-  if (submission && submission.status !== 'CANCELLED' && typeof vendorSubmissionPublic.cancel === 'function') {
-    await vendorSubmissionPublic.cancel(submission.id, {
-      cancelReason: payload.reason || 'Order item cancelled',
-    }, {
-      ...authContext,
-      system: true,
-      source: 'ORDER_CANCEL',
-    });
+  const shipment = await shipmentPublic.getShipmentByOrderItem(orderItemId, cancellationContext);
+  if (shipment && shipment.status !== 'CANCELLED') {
+    await shipmentPublic.updateStatus(shipment.id, {
+      status: 'CANCELLED', note: payload.reason || 'Order item cancelled locally; vendor cancellation is separate',
+    }, cancellationContext);
   }
 
+  if (item.status === orderItemStatuses.CANCELLED) return updated;
   await orderNotificationService.notifyAssignedStaff({
     order,
     actorAccountId: authContext.accountId || null,

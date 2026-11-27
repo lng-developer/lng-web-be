@@ -7,6 +7,7 @@ const repository = require('../repositories/orderWorkbenchProjection.repository'
 const { toMarketplaceItemFields } = require('../dtos/orderItem.dto');
 
 const ITEM_PATCH_FIELDS = new Set([
+  'item.quantity',
   'item.listingImageAssetId',
   'item.status', 'item.asin', 'item.listingId', 'item.csNote', 'seller', 'listing', 'customization', 'fulfillmentPlan', 'listingVariant', 'production', 'tracking',
 ]);

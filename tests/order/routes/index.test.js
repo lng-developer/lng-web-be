@@ -4,6 +4,7 @@ const orderRouter = require('../../../src/modules/order/routes');
 const errorHandler = require('../../../src/middlewares/errorHandler');
 const orderQueryService = require('../../../src/modules/order/services/orderQuery.service');
 const orderOperationsService = require('../../../src/modules/order/services/orderOperations.service');
+const orderItemQuantityService = require('../../../src/modules/order/services/orderItemQuantity.service');
 const orderCaseService = require('../../../src/modules/order/services/orderCase.service');
 const orderItemRecheckService = require('../../../src/modules/order/services/orderItemRecheck.service');
 const orderReplacementService = require('../../../src/modules/order/services/orderReplacement.service');
@@ -15,6 +16,7 @@ const { toOrderDto } = require('../../../src/modules/order/dtos/order.dto');
 
 jest.mock('../../../src/modules/order/services/orderQuery.service');
 jest.mock('../../../src/modules/order/services/orderOperations.service');
+jest.mock('../../../src/modules/order/services/orderItemQuantity.service');
 jest.mock('../../../src/modules/order/services/orderCase.service');
 jest.mock('../../../src/modules/order/services/orderItemRecheck.service');
 jest.mock('../../../src/modules/order/services/orderReplacement.service');
@@ -95,6 +97,31 @@ function request(server, { method, path, body, permissions }) {
 }
 
 describe('order routes', () => {
+  test('PATCH item quantity validates input, enforces write permission and returns a DTO', async () => {
+    const id = '660000000000000000000401';
+    const body = { quantity: 2, expectedQuantity: 1, reason: 'Pack 2' };
+    orderItemQuantityService.updateQuantity.mockResolvedValue({ _id: id, quantity: 2, quantityOverride: 2 });
+    const response = await request(createTestServer(), { method: 'PATCH', path: `/items/${id}/quantity`, body });
+    expect(response.statusCode).toBe(200);
+    expect(response.body.data).toMatchObject({ id, quantity: 2 });
+    expect(response.body.data.quantityOverride).toBeUndefined();
+    expect(orderItemQuantityService.updateQuantity).toHaveBeenCalledWith(id, body, expect.any(Object));
+    orderItemQuantityService.updateQuantity.mockClear();
+    const denied = await request(createTestServer(), { method: 'PATCH', path: `/items/${id}/quantity`, body, permissions: ['ORDERS:READ'] });
+    expect(denied.statusCode).toBe(403);
+    expect(orderItemQuantityService.updateQuantity).not.toHaveBeenCalled();
+  });
+  test.each([
+    { quantity: 0, expectedQuantity: 1, reason: 'Pack' },
+    { quantity: 1.5, expectedQuantity: 1, reason: 'Pack' },
+    { quantity: 10000, expectedQuantity: 1, reason: 'Pack' },
+    { quantity: 2, reason: 'Pack' },
+    { quantity: 2, expectedQuantity: 1, reason: ' ' },
+  ])('rejects invalid quantity edit %j', async (body) => {
+    const response = await request(createTestServer(), { method: 'PATCH', path: '/items/660000000000000000000401/quantity', body });
+    expect(response.statusCode).toBe(400);
+    expect(orderItemQuantityService.updateQuantity).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     jest.clearAllMocks();
   });
