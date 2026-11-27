@@ -8,6 +8,7 @@ const access = require('./orderAccess.service');
 const { parseEmployeeCodeFromSku } = require('./orderImport.helpers');
 const projection = require('./orderWorkbenchProjection.service');
 const timeline = require('./orderTimeline.service');
+const { resolveMarketplaceQuantities } = require('./orderMarketplaceQuantity.service');
 const { withOrderOperation, recordOrderOperation } = require('./orderOperationAudit.service');
 
 const EDITABLE_STATUSES = new Set([
@@ -43,8 +44,9 @@ async function updateQuantity(orderItemId, { quantity, expectedQuantity, reason 
     }
     if (item.quantity !== expectedQuantity) throw conflict('Quantity changed. Refresh the order before editing again.');
     if (quantity === item.quantity) return item;
+    const [{ marketplaceQuantity }] = await resolveMarketplaceQuantities([item], { session });
     const updated = await repository.updateQuantity(orderItemId, quantity, {
-      session, expectedQuantity, expectedUpdatedAt: item.updatedAt,
+      session, expectedQuantity, expectedUpdatedAt: item.updatedAt, marketplaceQuantity,
     });
     if (!updated) throw conflict('Order item changed. Refresh the order before editing again.');
     await production.syncOrderItemQuantity(orderItemId, quantity, { session });

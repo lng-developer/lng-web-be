@@ -114,7 +114,7 @@ function buildTsvFeed(feedRows) {
 
 async function prepareFeedRows(shipments, { shopId, strict = false } = {}) {
   const orderItemIds = [...new Set(shipments.map((s) => s.orderItemId).filter(Boolean).map(String))];
-  const orderItems = orderItemIds.length ? await orderPublic.findItemsByIds(orderItemIds) : [];
+  const orderItems = orderItemIds.length ? await orderPublic.findItemsForMarketplaceConfirmation(orderItemIds) : [];
   const orderItemById = new Map(orderItems.map((i) => [String(i._id || i.id), i]));
 
   const normalizedList = await Promise.all(
@@ -174,6 +174,11 @@ async function prepareFeedRows(shipments, { shopId, strict = false } = {}) {
 
     const carrierName = carrierCode === 'Other' ? (resolvedCarrier || 'Other') : '';
     const item = shipment.orderItemId ? orderItemById.get(String(shipment.orderItemId)) : null;
+    const marketplaceQuantity = item?.marketplaceQuantity;
+    if (shipment.orderItemId && (!Number.isSafeInteger(marketplaceQuantity) || marketplaceQuantity < 1)) {
+      if (strict) throw badRequest(`Original marketplace quantity is unavailable for item ${shipment.orderItemId}; reimport the source order before uploading tracking`);
+      issues.push('missing_marketplace_quantity');
+    }
 
     const row = {
       shipmentId: shipment._id,
@@ -181,7 +186,7 @@ async function prepareFeedRows(shipments, { shopId, strict = false } = {}) {
       orderItemId: shipment.orderItemId || null,
       externalOrderId: shipment.externalOrderId || '',
       externalItemId: item?.externalItemId || null,
-      quantity: item?.quantity || null,
+      quantity: marketplaceQuantity || null,
       shipDate,
       carrier: resolvedCarrier,
       carrierCode,
@@ -217,7 +222,7 @@ async function prepareFeedRows(shipments, { shopId, strict = false } = {}) {
     const hasSubmitted = orderRows.some((r) => r.marketplaceConfirmationStatus === 'SUBMITTED');
     const groupStatus = allConfirmed ? 'CONFIRMED' : hasSubmitted ? 'SUBMITTED' : (orderRows[0].marketplaceConfirmationStatus || 'PENDING');
 
-    if (trackingNumbers.size === 1) {
+    if (trackingNumbers.size === 1 && !skippedRows.some(row => row.externalOrderId === orderRows[0].externalOrderId)) {
       feedRows.push({
         ...orderRows[0],
         itemCount: orderRows.length,
@@ -234,7 +239,7 @@ async function prepareFeedRows(shipments, { shopId, strict = false } = {}) {
           itemCount: 1,
           shipmentIds: [r.shipmentId],
           externalItemId: r.externalItemId || '',
-          quantity: r.quantity ? String(r.quantity) : '1',
+          quantity: r.quantity ? String(r.quantity) : '',
         });
       }
     }
@@ -429,7 +434,34 @@ async function getLeasedPayload(commandId, body, authContext) {
   const command = await validateCommandLease(commandId, agent._id, body.leaseToken);
   const submission = await repository.findByCommandId(command._id);
   if (!submission) throw notFound('Tracking submission not found for command');
+  await assertStoredMarketplaceQuantities(submission);
   return toLeasedPayloadDto(submission);
+}
+
+async function assertStoredMarketplaceQuantities(submission) {
+  const [header = '', ...lines] = String(submission.tsv || '').split(/\r?\n/);
+  const columns = header.split('\t');
+  const itemColumn = columns.indexOf('order-item-id');
+  const orderColumn = columns.indexOf('order-id');
+  const quantityColumn = columns.indexOf('quantity');
+  const itemRows = lines.filter(Boolean).map(line => line.split('\t')).filter(row => itemColumn >= 0 && row[itemColumn]);
+  if (!itemRows.length) return;
+  const rows = submission.rows || [];
+  const shipmentIds = [...new Set(rows.filter(row => !row.orderItemId).map(row => row.shipmentId).filter(Boolean).map(String))];
+  const shipments = shipmentIds.length ? await shipmentPublic.findByIds(shipmentIds) : [];
+  const itemIdByShipment = new Map(shipments.map(shipment => [String(shipment._id || shipment.id), shipment.orderItemId]));
+  const rowItemId = row => row?.orderItemId || itemIdByShipment.get(String(row?.shipmentId));
+  const ids = [...new Set(rows.map(rowItemId).filter(Boolean).map(String))];
+  const items = ids.length ? await orderPublic.findItemsForMarketplaceConfirmation(ids) : [];
+  const byId = new Map(items.map(item => [String(item._id || item.id), item]));
+  for (const row of itemRows) {
+    const snapshot = rows.find(entry => String(entry.externalOrderId) === row[orderColumn]
+      && String(entry.externalItemId) === row[itemColumn]);
+    const quantity = byId.get(String(rowItemId(snapshot)))?.marketplaceQuantity;
+    if (!Number.isSafeInteger(quantity) || quantity < 1 || Number(row[quantityColumn]) !== quantity) {
+      throw conflict('Tracking file quantity does not match the original marketplace quantity. Reimport the source order if needed and recreate this tracking batch.');
+    }
+  }
 }
 
 async function markSubmitted(commandId, submissionId, body, authContext) {
@@ -547,6 +579,7 @@ async function getSubmission(submissionId, authContext) {
   const submission = await repository.findById(submissionId);
   if (!submission) throw notFound('Submission not found');
   if (!canReadSubmission(authContext, { scopeType: 'shop', scopeId: String(submission.shopId) })) throw forbidden();
+  await assertStoredMarketplaceQuantities(submission);
   return toSubmissionDetailDto(submission);
 }
 
