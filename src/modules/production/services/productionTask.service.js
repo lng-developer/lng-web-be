@@ -1758,6 +1758,34 @@ async function getTaskByOrderItem(orderItemId, authContext) {
   return toProductionTaskDto(task);
 }
 
+async function listPsdBlockedTasksByListings(listingIds = []) {
+  const ids = [...new Set(listingIds.map(String))];
+  ids.forEach((id) => assertValidObjectId(id, 'listingId'));
+  if (!ids.length) return [];
+  const [snapshotTasks, itemRefs] = await Promise.all([
+    repository.listPsdBlockedByListingIds(ids), orderPublic.findItemListingRefs(ids),
+  ]);
+  const itemListing = new Map(itemRefs.map((item) => [String(item._id), String(item.listingId)]));
+  const itemTasks = await repository.listPsdBlockedByOrderItemIds(itemRefs.map((item) => item._id));
+  const rows = new Map();
+  const add = (task, listingId) => {
+    rows.set(`${listingId}:${toId(task)}`, { id: toId(task), orderItemId: toId(task.orderItemId),
+      externalOrderId: task.orderItemSnapshot?.externalOrderId || null, listingId,
+      productImageUrl: taskProductImageUrl(task), shopId: toId(task.shopId), blockers: task.blockers || [] });
+  };
+  // Preserve both memberships when historical snapshots differ from current order mappings.
+  for (const task of snapshotTasks) {
+    for (const id of new Set([toId(task.listingSnapshot?.id), toId(task.listingSnapshot?._id)])) {
+      if (ids.includes(id)) add(task, id);
+    }
+  }
+  for (const task of itemTasks) {
+    const id = itemListing.get(toId(task.orderItemId));
+    if (id) add(task, id);
+  }
+  return [...rows.values()];
+}
+
 async function listPsdBlockedTasksByListing(listingId) {
   assertValidObjectId(listingId, 'listingId');
   const tasks = await findPsdBlockedTasksByListing(listingId);
@@ -3280,6 +3308,7 @@ const productionTaskService = {
   getTaskByOrderItem,
   getScaleAssignees,
   listPsdBlockedTasksByListing,
+  listPsdBlockedTasksByListings,
   listPsdBlockedTasksByExternalOrderId,
   listTasks,
   listWorkScoreCandidates,

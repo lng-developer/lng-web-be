@@ -80,3 +80,10 @@ describe('design task listing design type', () => {
     expect(dto.priority).toBe('NORMAL');
   });
 });
+test('table responses omit history while default and detail contracts preserve it', () => {
+  const { toDesignTaskDto } = require('../../../src/modules/design/dtos/designTask.dto');
+  const task = { _id: 'task', taskType: 'PSD_TEMPLATE', createdAt: new Date(), submissions: [] };
+  expect(toDesignTaskDto(task, { table: true })).not.toHaveProperty('history');
+  expect(toDesignTaskDto(task)).toHaveProperty('history');
+  expect(toDesignTaskDto(task, { table: true, detail: true }).history).toHaveLength(1);
+});
