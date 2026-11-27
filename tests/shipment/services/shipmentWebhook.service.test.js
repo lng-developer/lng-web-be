@@ -173,6 +173,48 @@ describe('shipmentWebhook.service', () => {
     process.env = originalEnv;
   });
 
+  test('acknowledges a submitted Fulfillment acceptance without creating a shipment', async () => {
+    const lngSubmission = { ...submission, provider: 'LNG_GROUP', status: 'SUBMITTED', payloadSnapshot: { vendorProduct: { vendor: { id: '660000000000000000130009', providerKey: 'LNG_GROUP' } } } };
+    process.env.VENDOR_WEBHOOK_SECRET_LNG_GROUP = webhookSecret;
+    vendorSubmissionPublic.getByProviderExternalOrderId.mockResolvedValue(lngSubmission);
+    getTrackingAdapter.mockReturnValue({ normalizeTracking: () => ({ provider: 'LNG_GROUP', vendorExternalOrderId: 'fulfillment-order', trackingNumber: '' }) });
+    const request = req({ provider: 'lng', body: { eventType: 'fulfillment.accepted', fulfillmentOrderId: 'fulfillment-order' } });
+    const result = await service.receiveVendorWebhook('lng', request);
+    expect(result).toMatchObject({ statusCode: 200, data: { eventType: 'fulfillment.accepted', vendorSubmissionId, status: 'SUBMITTED' } });
+    expect(shipmentRepository.create).not.toHaveBeenCalled();
+    expect(webhookLogRepository.create).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'SUCCESS', message: 'Fulfillment acceptance acknowledged' }));
+  });
+
+  test('does not acknowledge acceptance for a non-submitted order', async () => {
+    const lngSubmission = { ...submission, provider: 'LNG_GROUP', status: 'CANCELLED', payloadSnapshot: { vendorProduct: { vendor: { id: '660000000000000000130009', providerKey: 'LNG_GROUP' } } } };
+    process.env.VENDOR_WEBHOOK_SECRET_LNG_GROUP = webhookSecret;
+    vendorSubmissionPublic.getByProviderExternalOrderId.mockResolvedValue(lngSubmission);
+    getTrackingAdapter.mockReturnValue({ normalizeTracking: () => ({ provider: 'LNG_GROUP', vendorExternalOrderId: 'fulfillment-order', trackingNumber: '' }) });
+    const result = await service.receiveVendorWebhook('lng', req({ provider: 'lng', body: { eventType: 'fulfillment.accepted', fulfillmentOrderId: 'fulfillment-order' } }));
+    expect(result).toMatchObject({ statusCode: 202, data: { reason: 'SUBMISSION_NOT_SUBMITTED' } });
+    expect(shipmentRepository.create).not.toHaveBeenCalled();
+  });
+
+  test('resolves a real fulfillment acceptance by fulfillment order ID', async () => {
+    const lngSubmission = { ...submission, provider: 'LNG_GROUP', status: 'SUBMITTED', payloadSnapshot: { vendorProduct: { vendor: { id: '660000000000000000130009', providerKey: 'LNG_GROUP' } } } };
+    process.env.VENDOR_WEBHOOK_SECRET_LNG_GROUP = webhookSecret;
+    vendorSubmissionPublic.getByProviderExternalOrderId.mockResolvedValue(lngSubmission);
+    const actual = jest.requireActual('../../../src/modules/shipment/services/vendorTrackingNormalizer.service');
+    getTrackingAdapter.mockReturnValue({ normalizeTracking: actual.normalizeVendorTrackingPayload });
+    const result = await service.receiveVendorWebhook('lng', req({ provider: 'lng', body: { eventId: 'event-1', eventType: 'fulfillment.accepted', externalOrderId: 'marketplace-order', fulfillmentOrderId: 'fulfillment-order' } }));
+    expect(vendorSubmissionPublic.getByProviderExternalOrderId).toHaveBeenCalledWith({ provider: 'LNG_GROUP', vendorExternalOrderId: 'fulfillment-order' });
+    expect(result).toMatchObject({ statusCode: 200, data: { eventType: 'fulfillment.accepted' } });
+  });
+
+  test('does not acknowledge acceptance when the fulfillment submission is missing', async () => {
+    process.env.VENDOR_WEBHOOK_SECRET_LNG_GROUP = webhookSecret;
+    vendorSubmissionPublic.getByProviderExternalOrderId.mockResolvedValue(null);
+    getTrackingAdapter.mockReturnValue({ normalizeTracking: () => ({ provider: 'LNG_GROUP', vendorExternalOrderId: 'unknown', trackingNumber: '' }) });
+    const result = await service.receiveVendorWebhook('lng', req({ provider: 'lng', body: { eventType: 'fulfillment.accepted', fulfillmentOrderId: 'unknown' } }));
+    expect(result).toMatchObject({ statusCode: 202, data: { reason: 'SUBMISSION_NOT_FOUND' } });
+    expect(shipmentRepository.create).not.toHaveBeenCalled();
+  });
+
   test('rejects invalid shared secret', async () => {
     await expect(service.receiveVendorWebhook('printway', req({ secret: 'bad' })))
       .rejects.toMatchObject({ statusCode: 403, code: 'AUTHORIZATION_ERROR' });
