@@ -167,10 +167,10 @@ async function updateFromExternalImport(orderItemId, payload) {
     { returnDocument: 'after', runValidators: true }).lean();
 }
 
-async function updateQuantity(orderItemId, quantity, { session, expectedQuantity, expectedUpdatedAt } = {}) {
+async function updateQuantity(orderItemId, quantity, { session, expectedQuantity, expectedUpdatedAt, marketplaceQuantity } = {}) {
   return OrderItem.findOneAndUpdate(
     { _id: orderItemId, quantity: expectedQuantity, updatedAt: expectedUpdatedAt },
-    { $set: { quantity, quantityOverride: quantity } },
+    { $set: { quantity, quantityOverride: quantity, marketplaceQuantity } },
     { returnDocument: 'after', runValidators: true, session },
   ).lean();
 }

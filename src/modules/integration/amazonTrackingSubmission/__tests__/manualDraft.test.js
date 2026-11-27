@@ -20,7 +20,7 @@ beforeEach(() => {
   shipments = shipmentIds.map((_id, i) => ({ _id, shopId, orderId: '507f1f77bcf86cd799439016', orderItemId: itemIds[i], externalOrderId: '113-1967256-1428220', status: 'SHIPPED', carrier: 'USPS', trackingNumber: '9214490374008505154599', shippedAt: '2026-11-19T09:45:20Z', marketplaceConfirmationStatus: 'CONFIRMED' }));
   shipmentPublic.findByIds.mockImplementation(async () => shipments);
   shipmentPublic.normalizeTrackingForAmazon.mockImplementation(async s => ({ ...s, carrierCode: 'USPS', shipDate: '2026-11-19', shipMethod: 'USPS Ground Advantage' }));
-  orderPublic.findItemsByIds.mockResolvedValue(itemIds.map((_id, i) => ({ _id, externalItemId: `17576883483024${i}`, quantity: i + 1 })));
+  orderPublic.findItemsForMarketplaceConfirmation.mockResolvedValue(itemIds.map((_id, i) => ({ _id, externalItemId: `17576883483024${i}`, quantity: i + 1, marketplaceQuantity: i + 1 })));
   repository.create.mockImplementation(async data => ({ _id: '507f1f77bcf86cd799439017', ...data }));
 });
 
