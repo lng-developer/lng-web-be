@@ -63,9 +63,14 @@ const taskFilterQuery = {
 
 const listTasksQuerySchema = Joi.object({
   ...taskFilterQuery,
+  sortBy: Joi.string().trim().valid(...taskSortFields, 'totalFileCount'),
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),
 }).custom(normalizeSellerAlias);
+
+const asinSummaryQuerySchema = listTasksQuerySchema.keys({
+  sortBy: Joi.string().trim().valid('asin', 'taskCount', 'productionTaskCount', 'totalFileCount', 'scaledFileCount', 'pendingFileCount', 'urgency'),
+});
 
 const exportTasksQuerySchema = Joi.object({
   ...taskFilterQuery,
@@ -269,6 +274,7 @@ const voidSubmissionScoreSchema = Joi.object({
 });
 
 module.exports = {
+  asinSummaryQuerySchema,
   approveTaskSchema,
   assigneesQuerySchema,
   assignTaskSchema,

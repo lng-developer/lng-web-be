@@ -14,6 +14,7 @@ const Timeline = require('../../src/modules/order/models/orderTimeline.model');
 const audit = require('../../src/modules/audit/public');
 const repository = require('../../src/modules/order/repositories/orderItem.repository');
 const service = require('../../src/modules/order/services/orderItemQuantity.service');
+const { findItemsForMarketplaceConfirmation } = require('../../src/modules/order/services/orderMarketplaceQuantity.service');
 
 describe('quantity editing persistence', () => {
   let database;
@@ -27,7 +28,7 @@ describe('quantity editing persistence', () => {
     await mongoose.connect(database.getUri());
     await Promise.all([Order.init(), Item.init(), Task.init(), Projection.init(), Timeline.init()]);
   });
-  afterAll(async () => { await mongoose.disconnect(); await database.stop(); });
+  afterAll(async () => { await mongoose.disconnect(); await database.stop(); }, 30000);
   beforeEach(async () => {
     jest.resetAllMocks();
     require('../../src/modules/auth/public').canAccessScope.mockReturnValue(true);
@@ -39,16 +40,40 @@ describe('quantity editing persistence', () => {
   });
   test('changes live quantities together and preserves override across reimport', async () => {
     await service.updateQuantity(String(itemId), body, { permissions: ['ORDERS:WRITE'] });
-    expect((await Item.findById(itemId).lean())).toMatchObject({ quantity: 2, quantityOverride: 2, price: { itemPriceAmount: 2500 } });
+    expect((await Item.findById(itemId).lean())).toMatchObject({ quantity: 2, quantityOverride: 2, marketplaceQuantity: 1, price: { itemPriceAmount: 2500 } });
     expect((await Task.findById(taskId).lean())).toMatchObject({ fulfillQty: 2, status: 'NEED_SCALE', orderItemSnapshot: { quantity: 2 } });
     expect((await Projection.findOne({ orderId }).lean()).items[0].item.quantity).toBe(2);
-    await repository.updateFromExternalImport(itemId, { set: { quantity: 1, title: 'Reimported title' } });
-    expect(await Item.findById(itemId).lean()).toMatchObject({ quantity: 2, title: 'Reimported title' });
+    await repository.updateFromExternalImport(itemId, { set: { quantity: 4, marketplaceQuantity: 4, title: 'Reimported title' } });
+    expect(await Item.findById(itemId).lean()).toMatchObject({ quantity: 2, marketplaceQuantity: 4, title: 'Reimported title' });
     expect(await Timeline.countDocuments({ orderItemId: itemId, eventType: 'ORDER_ITEM_QUANTITY_UPDATED' })).toBe(1);
   });
   test('normal marketplace imports still update quantity', async () => {
     await repository.updateFromExternalImport(itemId, { set: { quantity: 3 } });
     expect((await Item.findById(itemId).lean()).quantity).toBe(3);
+  });
+  test('successive manual edits preserve the original marketplace quantity', async () => {
+    await service.updateQuantity(String(itemId), body, { permissions: ['ORDERS:WRITE'] });
+    await service.updateQuantity(String(itemId), { ...body, quantity: 3, expectedQuantity: 2 }, { permissions: ['ORDERS:WRITE'] });
+    expect(await findItemsForMarketplaceConfirmation([itemId])).toEqual([
+      expect.objectContaining({ quantity: 3, quantityOverride: 3, marketplaceQuantity: 1 }),
+    ]);
+  });
+  test('recovers the earliest legacy edit and preserves it through another edit', async () => {
+    await Item.collection.updateOne({ _id: itemId }, { $set: { quantity: 3, quantityOverride: 3 } });
+    await Timeline.collection.insertMany([
+      { orderItemId: itemId, eventType: 'ORDER_ITEM_QUANTITY_UPDATED', createdAt: new Date('2026-11-02'), metadata: { previousQuantity: 2 } },
+      { orderItemId: itemId, eventType: 'ORDER_ITEM_QUANTITY_UPDATED', createdAt: new Date('2026-11-01'), metadata: { previousQuantity: 1 } },
+    ]);
+    expect(await findItemsForMarketplaceConfirmation([itemId])).toEqual([expect.objectContaining({ quantity: 3, marketplaceQuantity: 1 })]);
+    await service.updateQuantity(String(itemId), { ...body, quantity: 4, expectedQuantity: 3 }, { permissions: ['ORDERS:WRITE'] });
+    expect(await Item.findById(itemId).lean()).toMatchObject({ quantity: 4, marketplaceQuantity: 1 });
+  });
+  test('unknown legacy quantity stays unknown even after further edits', async () => {
+    await Item.collection.updateOne({ _id: itemId }, { $set: { quantity: 2, quantityOverride: 2 } });
+    expect(await findItemsForMarketplaceConfirmation([itemId])).toEqual([expect.objectContaining({ marketplaceQuantity: null })]);
+    await service.updateQuantity(String(itemId), { ...body, quantity: 3, expectedQuantity: 2 }, { permissions: ['ORDERS:WRITE'] });
+    await service.updateQuantity(String(itemId), { ...body, quantity: 4, expectedQuantity: 3 }, { permissions: ['ORDERS:WRITE'] });
+    expect(await findItemsForMarketplaceConfirmation([itemId])).toEqual([expect.objectContaining({ quantity: 4, marketplaceQuantity: null })]);
   });
   test('audit failure rolls back order, production and projection', async () => {
     audit.record.mockRejectedValue(new Error('audit unavailable'));
