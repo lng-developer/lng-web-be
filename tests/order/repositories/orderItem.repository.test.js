@@ -28,6 +28,20 @@ function listResult(value) {
   return { limit: jest.fn().mockReturnValue({ lean }) };
 }
 
+test('bulk listing references fetch only item and listing ids as lean objects', async () => {
+  OrderItem.find.mockClear();
+  const id = '660000000000000000000501';
+  const chain = { select: jest.fn().mockReturnThis(), lean: jest.fn().mockResolvedValue([]) };
+  OrderItem.find.mockReturnValue(chain);
+  await repository.findItemListingRefs([id]);
+  expect(OrderItem.find.mock.calls[0][0].listingId.$in.map(String)).toEqual([id]);
+  expect(chain.select).toHaveBeenCalledWith('_id listingId');
+  expect(chain.lean).toHaveBeenCalledTimes(1);
+  OrderItem.find.mockClear();
+  await expect(repository.findItemListingRefs([])).resolves.toEqual([]);
+  expect(OrderItem.find).not.toHaveBeenCalled();
+});
+
 describe('orderItem.repository findByFinanceIdentity', () => {
   beforeEach(() => {
     jest.clearAllMocks();

@@ -408,7 +408,7 @@ function parseEmployeeCodeFromSku(sku) {
   return match ? match[1].toUpperCase() : null;
 }
 
-async function buildDtoOptions(tasks = [], { includeScores = false } = {}) {
+async function buildDtoOptions(tasks = [], { includeScores = false, batchOrderContext = false, table = false } = {}) {
   const assignedDesignerIds = uniqueIds(tasks.map((task) => task.assignedDesignerId));
   const requestedByAccountIds = uniqueIds(tasks.map((task) => task.requestedByAccountId));
   const accountIdsToFetch = uniqueIds([...assignedDesignerIds, ...requestedByAccountIds]);
@@ -421,12 +421,15 @@ async function buildDtoOptions(tasks = [], { includeScores = false } = {}) {
     const ids = task.submittedAssetIds || [];
     return ids.length ? ids[ids.length - 1] : null;
   }));
-  const submissionAssetIds = uniqueIds(tasks.flatMap((task) => (
-    task.submissions || []
-  ).flatMap((submission) => [
+  const submissionAssetIds = uniqueIds(tasks.flatMap((task) => {
+    const submissions = getSubmissions(task);
+    const visible = table ? submissions.filter((submission) => submission.status !== 'REMOVED')
+      .sort((a, b) => (Number(b.version) || 0) - (Number(a.version) || 0)).slice(0, 1) : submissions;
+    return visible.flatMap((submission) => [
     ...(submission.assetIds || []),
     submission.approvedAssetId,
-  ])));
+    ]);
+  }));
   const assetIds = uniqueIds([...thumbnailAssetIds, ...latestAssetIds, ...submissionAssetIds]);
 
   const [profiles, shops, assets, orderContexts, scores, listings] = await Promise.all([
@@ -435,15 +438,20 @@ async function buildDtoOptions(tasks = [], { includeScores = false } = {}) {
     assetIds.length && typeof mediaPublic.getAssetsByIds === 'function'
       ? mediaPublic.getAssetsByIds(assetIds)
       : [],
-    Promise.all(listingIds.map(async (listingId) => {
-      const blockedTasks = await productionPublic.listPsdBlockedTasksByListing(listingId);
-      const externalOrderIds = uniqueIds((blockedTasks || []).map((task) => task.externalOrderId));
-      return [listingId, {
-        externalOrderId: externalOrderIds[0] || null,
-        blockedOrderCount: externalOrderIds.length,
-        productImageUrl: (blockedTasks || []).map((task) => task.productImageUrl).find(Boolean) || null,
-      }];
-    })),
+    batchOrderContext
+      ? productionPublic.listPsdBlockedTasksByListings(listingIds).then((rows) => listingIds.map((listingId) => {
+        const matches = rows.filter((row) => row.listingId === listingId);
+        const externalIds = uniqueIds(matches.map((row) => row.externalOrderId));
+        return [listingId, { externalOrderId: externalIds[0] || null, blockedOrderCount: externalIds.length,
+          productImageUrl: matches.map((row) => row.productImageUrl).find(Boolean) || null }];
+      }))
+      : Promise.all(listingIds.map(async (listingId) => {
+        const blockedTasks = await productionPublic.listPsdBlockedTasksByListing(listingId);
+        const externalOrderIds = uniqueIds((blockedTasks || []).map((task) => task.externalOrderId));
+        return [listingId, { externalOrderId: externalOrderIds[0] || null,
+          blockedOrderCount: externalOrderIds.length,
+          productImageUrl: (blockedTasks || []).map((task) => task.productImageUrl).find(Boolean) || null }];
+      })),
     includeScores && submissionIds.length ? scoreRepository.findBySubmissionIds(submissionIds) : [],
     listingIds.length ? catalogPublic.getListingsByIds(listingIds) : [],
   ]);
@@ -610,7 +618,7 @@ async function listTasks(query = {}, authContext) {
   return toPaginatedResponse({
     ...result,
     items,
-    dtoOptions: { ...(await buildDtoOptions(items)), scaleFileSummariesByChannel },
+    dtoOptions: { ...(await buildDtoOptions(items, { batchOrderContext: true, table: query.view === 'table' })), scaleFileSummariesByChannel, table: query.view === 'table' },
   });
 }
 

@@ -164,6 +164,16 @@ async function summarizeScaleFilesByListings(groups = [], { sellerCode } = {}) {
   ]);
 }
 
+async function listPsdBlockedByListingIds(listingIds = []) {
+  if (!listingIds.length) return [];
+  const strings = listingIds.map(String);
+  const mixed = [...strings, ...strings.filter((id) => mongoose.Types.ObjectId.isValid(id))
+    .map((id) => new mongoose.Types.ObjectId(id))];
+  return ProductionTask.find({ blockers: 'PSD_MISSING', $or: [
+    { 'listingSnapshot.id': { $in: strings } }, { 'listingSnapshot._id': { $in: mixed } },
+  ] }).select('_id orderItemId shopId blockers orderItemSnapshot listingSnapshot').lean();
+}
+
 async function listPsdBlockedByListingId(listingId) {
   const listingObjectId = mongoose.Types.ObjectId.isValid(listingId)
     ? new mongoose.Types.ObjectId(listingId)
@@ -868,6 +878,7 @@ module.exports = {
   listQcPassedForWorkScore,
   listByOrderId,
   listPsdBlockedByListingId,
+  listPsdBlockedByListingIds,
   listPsdBlockedByOrderItemIds,
   listPsdBlockedByExternalOrderId,
   listByOrderItemIds,

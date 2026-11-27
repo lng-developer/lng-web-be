@@ -63,6 +63,7 @@ const taskFilterQuery = {
 
 const listTasksQuerySchema = Joi.object({
   ...taskFilterQuery,
+  view: Joi.string().valid('table'),
   sortBy: Joi.string().trim().valid(...taskSortFields, 'totalFileCount'),
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(100),

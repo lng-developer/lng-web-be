@@ -476,6 +476,21 @@ describe('productionTask.repository', () => {
     expect(result).toEqual([{ _id: 'task-1' }]);
   });
 
+  test('bulk listing lookup supports string and legacy ObjectId snapshots with lean results', async () => {
+    const chain = mockFind([{ _id: 'task-1' }]);
+    const id = '660000000000000000000501';
+    await expect(repository.listPsdBlockedByListingIds([id])).resolves.toEqual([{ _id: 'task-1' }]);
+    expect(ProductionTask.find).toHaveBeenCalledWith({ blockers: 'PSD_MISSING', $or: [
+      { 'listingSnapshot.id': { $in: [id] } },
+      { 'listingSnapshot._id': { $in: [id, new mongoose.Types.ObjectId(id)] } },
+    ] });
+    expect(chain.select).toHaveBeenCalledWith('_id orderItemId shopId blockers orderItemSnapshot listingSnapshot');
+    expect(chain.lean).toHaveBeenCalledTimes(1);
+    ProductionTask.find.mockClear();
+    await expect(repository.listPsdBlockedByListingIds([])).resolves.toEqual([]);
+    expect(ProductionTask.find).not.toHaveBeenCalled();
+  });
+
   test('listPsdBlockedByOrderItemIds returns compact tasks for stale listing snapshots', async () => {
     const chain = mockFind([{ _id: 'task-1' }]);
     const orderItemIds = ['660000000000000000000401'];
