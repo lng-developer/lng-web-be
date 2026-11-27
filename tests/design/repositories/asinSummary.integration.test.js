@@ -91,3 +91,24 @@ test('Etsy grouping uses its own external id and preserves shop, seller and stat
   expect(await production.summarizeScaleFilesByListings(groups.items.map((group) => ({ asin: group._id, listings: group.listings })),
     { sellerCode: 'J2502' })).toEqual([{ asin: '123', productionTaskCount: 1, totalFileCount: 2, scaledFileCount: 1 }]);
 });
+
+
+test('counts one pending minimum for NEED_SCALE tasks without output checks, without changing explicit slots', async () => {
+  const listingId = id(); const shopId = id();
+  const row = (extra = {}) => ({ shopId, listingSnapshot: { id: String(listingId) },
+    status: 'NEED_SCALE', scaleStatus: 'NEED_SCALE', templateSnapshot: null, fulfillQty: 20,
+    fileChecks: [{ sourceType: 'PSD_TEMPLATE', required: true, inputAssetId: id() }], ...extra });
+  const summarize = () => production.summarizeScaleFilesByListings([
+    { asin: 'MISSING-SLOTS', listings: [{ listingId, shopId }] },
+  ]);
+  await ProductionTask.collection.insertMany([
+    row(), row({ status: 'CANCELLED' }), row({ orderSnapshot: { status: 'CANCELLED' } }),
+    row({ scaleStatus: 'NOT_REQUIRED' }), row({ scaleStatus: 'SCALED' }),
+  ]);
+  expect(await summarize()).toEqual([{ asin: 'MISSING-SLOTS', productionTaskCount: 3, totalFileCount: 1, scaledFileCount: 0 }]);
+  await ProductionTask.collection.insertOne(row({ fileChecks: [
+    { sourceType: 'CUSTOMER_IMAGE', slotKey: 'front', required: true, outputAssetId: id() },
+    { sourceType: 'CUSTOMER_IMAGE', slotKey: 'back', required: true },
+  ] }));
+  expect(await summarize()).toEqual([{ asin: 'MISSING-SLOTS', productionTaskCount: 4, totalFileCount: 3, scaledFileCount: 1 }]);
+});

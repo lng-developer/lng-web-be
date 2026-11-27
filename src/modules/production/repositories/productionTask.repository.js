@@ -141,7 +141,7 @@ async function summarizeScaleFilesByListings(groups = [], { sellerCode } = {}) {
       'orderSnapshot.status': { $ne: 'CANCELLED' },
       ...(sellerCode ? { 'orderItemSnapshot.sku': sellerCodeRegex(sellerCode) } : {}),
       $or: branches.map((branch) => branch.match) } },
-    { $project: { asin: { $switch: { branches: branches.map((branch) => ({
+    { $project: { scaleStatus: 1, asin: { $switch: { branches: branches.map((branch) => ({
       case: branch.condition, then: branch.asin,
     })), default: null } }, checks: { $filter: {
       input: { $ifNull: ['$fileChecks', []] }, as: 'check', cond: { $and: [
@@ -151,7 +151,11 @@ async function summarizeScaleFilesByListings(groups = [], { sellerCode } = {}) {
       ] },
     } } } },
     { $group: { _id: '$asin', productionTaskCount: { $sum: 1 },
-      totalFileCount: { $sum: { $size: '$checks' } },
+      // shortcut: unknown output slots count as one minimum; use exact slots when checks are populated.
+      totalFileCount: { $sum: { $cond: [
+        { $and: [{ $eq: [{ $size: '$checks' }, 0] }, { $eq: ['$scaleStatus', 'NEED_SCALE'] }] },
+        1, { $size: '$checks' },
+      ] } },
       scaledFileCount: { $sum: { $size: { $filter: { input: '$checks', as: 'check',
         cond: { $and: [hasAsset('$$check.outputAssetId'), { $ne: ['$$check.qcStatus', 'REJECTED'] },
           { $not: [{ $in: ['QC_REJECTED', { $ifNull: ['$$check.blockers', []] }] }] }] },
