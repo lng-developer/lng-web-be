@@ -578,7 +578,8 @@ async function listAsinSummary(query = {}, authContext) {
     }
     scopedQuery.assignedDesignerId = authContext?.accountId;
   }
-  const result = await repository.listAsinGroups(scopedQuery);
+  const numericSort = ['taskCount', 'productionTaskCount', 'totalFileCount', 'scaledFileCount', 'pendingFileCount'].includes(query.sortBy);
+  const result = await repository.listAsinGroups(scopedQuery, { paginate: !numericSort });
   if (hasFullRead(authContext) && !scopedQuery.sellerRequestedByAccountId) {
     result.items.forEach((group) => group.listings.forEach(({ shopId }) =>
       assertCanAccessShopAny(shopId, DESIGN_READ_SCOPE_PERMISSIONS, authContext)));
@@ -592,7 +593,14 @@ async function listAsinSummary(query = {}, authContext) {
     result.items.map((group) => ({ asin: group._id, listings: group.listings })), { sellerCode },
   );
   const byAsin = new Map(counts.map((row) => [row.asin, row]));
-  return { items: result.items.map((group) => toAsinSummaryDto(group, byAsin.get(group._id))),
+  let items = result.items.map((group) => toAsinSummaryDto(group, byAsin.get(group._id)));
+  if (numericSort) {
+    const direction = query.sortOrder === 'desc' ? -1 : 1;
+    items.sort((left, right) => direction * (left[query.sortBy] - right[query.sortBy])
+      || left.asin.localeCompare(right.asin));
+    items = items.slice((result.page - 1) * result.limit, result.page * result.limit);
+  }
+  return { items,
     pagination: { page: result.page, limit: result.limit, total: result.total } };
 }
 

@@ -3,6 +3,7 @@ const service = require('../services/designTask.service');
 const mediaPublic = require('../../media/public');
 const scoreService = require('../services/designSubmissionScore.service');
 const {
+  asinSummaryQuerySchema,
   approveTaskSchema,
   assigneesQuerySchema,
   assignTaskSchema,
@@ -37,7 +38,7 @@ async function listTasks(req, res) {
 }
 
 async function listAsinSummary(req, res) {
-  const query = assertValid(listTasksQuerySchema, req.query);
+  const query = assertValid(asinSummaryQuerySchema, req.query);
   res.status(httpStatus.OK).json({ success: true, data: await service.listAsinSummary(query, req.auth) });
 }
 

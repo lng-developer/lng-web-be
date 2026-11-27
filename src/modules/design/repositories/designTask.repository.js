@@ -156,7 +156,7 @@ async function list(query = {}) {
   });
 }
 
-async function listAsinGroups(query = {}) {
+async function listAsinGroups(query = {}, { paginate = true } = {}) {
   const { page, limit } = normalizePagination(query);
   const [result] = await DesignTask.aggregate([
     { $match: buildFilter({ ...query, taskType: designTaskTypes.PSD_TEMPLATE }) },
@@ -164,8 +164,8 @@ async function listAsinGroups(query = {}) {
       'listingSnapshot.salesChannelCode': 'AMAZON' } },
     { $group: { _id: '$listingSnapshot.asin', taskCount: { $sum: 1 },
       listings: { $addToSet: { listingId: { $ifNull: ['$targetListingId', '$listingId'] }, shopId: '$shopId' } } } },
-    { $sort: { _id: 1 } },
-    { $facet: { items: [{ $skip: getPaginationOffset({ page, limit }) }, { $limit: limit }],
+    { $sort: { _id: query.sortOrder === 'desc' ? -1 : 1 } },
+    { $facet: { items: paginate ? [{ $skip: getPaginationOffset({ page, limit }) }, { $limit: limit }] : [],
       total: [{ $count: 'count' }] } },
   ]);
   return { items: result?.items || [], page, limit, total: result?.total?.[0]?.count || 0 };

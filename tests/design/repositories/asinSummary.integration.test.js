@@ -50,4 +50,8 @@ test('groups all matching design tasks before pagination and counts actual outpu
   expect(await design.listAsinGroups({ shopIds: [] })).toMatchObject({ items: [], total: 0 });
   expect(await design.listAsinGroups({ shopId: String(shopId), status: 'OPEN', page: 2, limit: 1 }))
     .toMatchObject({ items: [{ _id: 'B002', taskCount: 1 }], total: 2 });
+  expect(await design.listAsinGroups({ shopId: String(shopId), status: 'OPEN', sortOrder: 'desc', limit: 1 }))
+    .toMatchObject({ items: [{ _id: 'B002', taskCount: 1 }], total: 2 });
+  const allGroups = await design.listAsinGroups({ shopId: String(shopId), status: 'OPEN', limit: 1 }, { paginate: false });
+  expect(allGroups.items.map((group) => group._id)).toEqual(['B001', 'B002']);
 });

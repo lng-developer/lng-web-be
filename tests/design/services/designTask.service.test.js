@@ -94,13 +94,29 @@ const notificationPublic = require('../../../src/modules/notification/public');
 const service = require('../../../src/modules/design/services/designTask.service');
 
 describe('designTask.service', () => {
+  test.each(['taskCount', 'productionTaskCount', 'totalFileCount', 'scaledFileCount', 'pendingFileCount'])('ASIN %s sorting is global, numeric and stable before pagination', async (sortBy) => {
+    const auth = { accountId: 'worker', permissions: ['DESIGN:WORK'] };
+    const groups = ['B001', 'B003', 'B002'].map((_id, index) => ({ _id, taskCount: index ? 10 : 2, listings: [] }));
+    repository.listAsinGroups.mockResolvedValue({ items: groups, page: 1, limit: 1, total: 3 });
+    productionPublic.summarizeScaleFilesByListings.mockResolvedValue(groups.map((group) => ({ asin: group._id,
+      productionTaskCount: group.taskCount, totalFileCount: group.taskCount * 2, scaledFileCount: group.taskCount,
+    })));
+    const result = await service.listAsinSummary({ sortBy, sortOrder: 'desc', limit: 1 }, auth);
+    expect(result.items.map((item) => item.asin)).toEqual(['B002']);
+    expect(result.pagination.total).toBe(3);
+    expect(repository.listAsinGroups).toHaveBeenLastCalledWith(expect.objectContaining({ sortBy }), { paginate: false });
+    expect((await service.listAsinSummary({ sortBy, sortOrder: 'asc', limit: 1 }, auth)).items[0].asin).toBe('B001');
+    repository.listAsinGroups.mockResolvedValue({ items: groups, page: 2, limit: 1, total: 3 });
+    expect((await service.listAsinSummary({ sortBy, sortOrder: 'desc', page: 2, limit: 1 }, auth)).items[0].asin).toBe('B003');
+    expect((await service.listAsinSummary({ sortBy, sortOrder: 'asc', page: 2, limit: 1 }, auth)).items[0].asin).toBe('B002');
+  });
   test('ASIN summary intersects requester and own assignment for explicit WORK mixed roles', async () => {
     repository.listAsinGroups.mockResolvedValue({ items: [], page: 1, limit: 20, total: 0 });
     productionPublic.summarizeScaleFilesByListings.mockResolvedValue([]);
     await service.listAsinSummary({}, { accountId: 'worker', permissions: ['DESIGN:WORK', 'DESIGN:PSD_REQUEST'] });
     expect(repository.listAsinGroups).toHaveBeenCalledWith(expect.objectContaining({
       taskType: 'PSD_TEMPLATE', assignedDesignerId: 'worker', requestedByAccountIds: ['worker'],
-    }));
+    }), { paginate: true });
   });
   test('ASIN summary preserves seller scope, forces PSD tasks and exposes only aggregate DTOs', async () => {
     const auth = { accountId: 'seller-a', scopes: [{ roles: ['SALES'], scopeType: 'team', permissions: ['DESIGN:READ'] }] };
@@ -116,7 +132,7 @@ describe('designTask.service', () => {
         totalFileCount: 4, scaledFileCount: 1, pendingFileCount: 3 }], pagination: { page: 2, limit: 1, total: 3 } });
     expect(repository.listAsinGroups).toHaveBeenCalledWith(expect.objectContaining({
       taskType: 'PSD_TEMPLATE', sellerRequestedByAccountId: 'seller-a', sellerListingIds: ['own-listing'], status: 'APPROVED',
-    }));
+    }), { paginate: true });
     expect(productionPublic.summarizeScaleFilesByListings).toHaveBeenCalledWith(expect.any(Array), { sellerCode: 'J2502' });
     hrPublic.getEmployeeProfileByAccountId.mockResolvedValue(null);
     productionPublic.summarizeScaleFilesByListings.mockResolvedValue([]);
