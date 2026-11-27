@@ -992,7 +992,8 @@ async function cancel(submissionId, payload = {}, authContext) {
   if (submission.status === vendorSubmissionStatuses.CANCELLED) {
     return toVendorSubmissionDto(submission, { detail: true });
   }
-  if (![vendorSubmissionStatuses.DRAFT, vendorSubmissionStatuses.READY, vendorSubmissionStatuses.FAILED].includes(submission.status)) {
+  if (!(authContext?.system && authContext.localOrderCancellation === true)
+    && ![vendorSubmissionStatuses.DRAFT, vendorSubmissionStatuses.READY, vendorSubmissionStatuses.FAILED].includes(submission.status)) {
     throw conflict('Vendor submission must be reconciled before cancellation', { status: submission.status });
   }
 

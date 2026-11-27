@@ -663,6 +663,16 @@ describe('vendorSubmission.service', () => {
     }), {});
   });
 
+  test.each(['SUBMITTED', 'SUBMITTING', 'NEEDS_REVIEW'])('local order cancellation stops %s without dispatching to vendor', async (status) => {
+    repository.findById.mockResolvedValueOnce({ ...submission, status });
+    const result = await service.cancel(submissionId, { cancelReason: 'Local cancellation' }, {
+      system: true, localOrderCancellation: true,
+    });
+    expect(result.status).toBe('CANCELLED');
+    expect(repository.transitionStatus).toHaveBeenCalledWith(submissionId, [status], expect.objectContaining({ status: 'CANCELLED' }));
+    expect(submitRegistry.getAdapter).not.toHaveBeenCalled();
+  });
+
   test('preserves a valid long cancel reason in domain history while bounding only its audit copy', async () => {
     const reason = 'x'.repeat(1000);
 

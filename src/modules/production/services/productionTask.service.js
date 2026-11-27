@@ -1409,6 +1409,7 @@ async function restartForVendorChange(orderItemId, authContext = {}) {
 }
 
 async function cancelTaskByOrderItem(orderItemId, { reason } = {}, authContext = {}) {
+  const localCancellation = authContext.system === true && authContext.localOrderCancellation === true;
   assertValidObjectId(orderItemId, 'orderItemId');
   const task = await repository.findByOrderItem(orderItemId);
   if (!task) return null;
@@ -1418,7 +1419,7 @@ async function cancelTaskByOrderItem(orderItemId, { reason } = {}, authContext =
   if (task.status === productionTaskStatuses.CANCELLED) {
     return toProductionTaskDto(task);
   }
-  if (task.status === productionTaskStatuses.SENT_TO_VENDOR) {
+  if (task.status === productionTaskStatuses.SENT_TO_VENDOR && !localCancellation) {
     throw conflict('Production task already sent to vendor', {
       productionTaskId: toId(task),
       status: task.status,
@@ -1430,7 +1431,7 @@ async function cancelTaskByOrderItem(orderItemId, { reason } = {}, authContext =
     ? await vendorSubmissionPublic.getByProductionTaskId(toId(task))
     : null;
   if (submission && submission.status !== 'CANCELLED' && typeof vendorSubmissionPublic.cancel === 'function') {
-    if (submission.status === 'SUBMITTED') {
+    if (submission.status === 'SUBMITTED' && !localCancellation) {
       throw conflict('Submitted vendor submission cannot be cancelled', {
         productionTaskId: toId(task),
         vendorSubmissionId: submission.id,
@@ -1447,7 +1448,7 @@ async function cancelTaskByOrderItem(orderItemId, { reason } = {}, authContext =
   }
 
   const updated = await withProductionOperation(async (session) => {
-    const cancelled = await repository.cancelTask(toId(task), { session });
+    const cancelled = await repository.cancelTask(toId(task), { session, ...(localCancellation ? { allowSentToVendor: true } : {}) });
     if (!cancelled) {
       throw conflict('Production task changed concurrently or is already sent to vendor');
     }

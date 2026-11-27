@@ -108,6 +108,7 @@ jest.mock('../../src/modules/production/public', () => ({
 }));
 
 jest.mock('../../src/modules/vendorSubmission/public', () => ({
+  cancel: jest.fn(),
   createFromProductionTask: jest.fn(),
   getById: jest.fn(),
   getByOrderItemId: jest.fn(),
@@ -115,6 +116,7 @@ jest.mock('../../src/modules/vendorSubmission/public', () => ({
 }));
 
 jest.mock('../../src/modules/shipment/public', () => ({
+  updateStatus: jest.fn(),
   ensureFromVendorSubmission: jest.fn(),
   getShipmentByOrderItem: jest.fn((...args) => mockShipmentService.getShipmentByOrderItem(...args)),
 }));
@@ -822,7 +824,7 @@ describe('order fulfillment E2E contract', () => {
     expect(shipmentRepository.create).not.toHaveBeenCalled();
   });
 
-  test('does not cancel an item after vendor submission', async () => {
+  test('cancels an item locally after vendor submission', async () => {
     item.status = 'SENT_TO_VENDOR';
     vendorSubmissionPublic.getByOrderItemId.mockResolvedValue({
       id: vendorSubmissionId,
@@ -834,14 +836,11 @@ describe('order fulfillment E2E contract', () => {
       orderItemId,
       { reason: 'Buyer requested cancellation' },
       { accountId, permissions: ['ORDERS:WRITE'] },
-    )).rejects.toMatchObject({
-      statusCode: 409,
-      code: 'CONFLICT_ERROR',
-    });
+    )).resolves.toMatchObject({ status: 'CANCELLED' });
 
-    expect(item.status).toBe('SENT_TO_VENDOR');
-    expect(orderItemStatusTransitionService.transitionItemStatus).not.toHaveBeenCalled();
-    expect(orderTimelineService.appendTimeline).not.toHaveBeenCalled();
+    expect(item.status).toBe('CANCELLED');
+    expect(vendorSubmissionPublic.cancel).toHaveBeenCalledWith(vendorSubmissionId, expect.any(Object),
+      expect.objectContaining({ localOrderCancellation: true }));
   });
 
   test('finance snapshot records missing cost when mapping plan is absent', async () => {
