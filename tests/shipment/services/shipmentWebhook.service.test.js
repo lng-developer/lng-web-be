@@ -232,6 +232,19 @@ describe('shipmentWebhook.service', () => {
     }
   });
 
+  test('updates changed tracking when webhook status is already shipped', async () => {
+    shipments.push({ _id: shipmentId, vendorSubmissionId, orderId, orderItemId, shopId: submission.shopId, status: 'SHIPPED', carrier: 'USPS', trackingNumber: 'OLDTRACK123456' });
+    const result = await service.receiveVendorWebhook('printway', req({ body: { vendorSubmissionId, trackingNumber: 'NEWTRACK123456', carrier: 'USPS', status: 'shipped' } }));
+    expect(result.statusCode).toBe(200);
+    expect(shipments[0].trackingNumber).toBe('NEWTRACK123456');
+  });
+
+  test('rejects different tracking on an already delivered shipment', async () => {
+    shipments.push({ _id: shipmentId, vendorSubmissionId, orderId, orderItemId, shopId: submission.shopId, status: 'DELIVERED', carrier: 'USPS', trackingNumber: 'OLDTRACK123456' });
+    await expect(service.receiveVendorWebhook('printway', req({ body: { vendorSubmissionId, trackingNumber: 'NEWTRACK123456', carrier: 'USPS', status: 'delivered' } }))).rejects.toMatchObject({ statusCode: 409 });
+    expect(shipments[0].trackingNumber).toBe('OLDTRACK123456');
+  });
+
   test('marks delivered when vendor status is delivered', async () => {
     const result = await service.receiveVendorWebhook('printway', req({
       body: {
