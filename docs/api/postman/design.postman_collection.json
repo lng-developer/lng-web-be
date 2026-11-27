@@ -360,7 +360,7 @@
         {
           "name": "GET /api/design/tasks",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW, DESIGN:PSD_REQUEST.",
+            "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW, DESIGN:PSD_REQUEST. Amazon PSD rows include scaleFileSummary: { totalFileCount, scaledFileCount, pendingFileCount }. Counts aggregate matching accessible listings for each visible ASIN across task pages, respecting current task filters and seller SKU scope. Counts cover recorded scale file slots, not quantity; tasks without output slots are not yet included. Other task types/channels omit this field.",
             "method": "GET",
             "header": [],
             "url": {
@@ -402,6 +402,21 @@
                 }
               ]
             }
+          }
+        },
+        {
+          "name": "GET /api/design/tasks/asin-summary",
+          "request": {
+            "description": "Bearer token required. Same scoped permissions and query filters as GET tasks. Forces PSD_TEMPLATE and Amazon ASIN groups. sortBy accepts asin (default), taskCount, productionTaskCount, totalFileCount, scaledFileCount, pendingFileCount; urgency is a legacy ASIN alias. sortOrder accepts asc (default) or desc. Sorting is global before group pagination, with ASIN ascending to break numeric ties. Returns data.items with asin, taskCount, productionTaskCount, totalFileCount, scaledFileCount, pendingFileCount and data.pagination {page,limit,total}. Production counts cover all linked non-cancelled tasks in authorized listing/shop pairs; personal sellers are restricted by SKU employee code. File counts are declared CUSTOMER_IMAGE slots (required, input/output present, or scaling status), never PSD template input slots or order quantities. QC rejected outputs remain pending rework; undeclared slots cannot be estimated.",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/design/tasks/asin-summary?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "design", "tasks", "asin-summary"],
+              "query": [{"key": "page", "value": "1"}, {"key": "limit", "value": "20"}]
+            },
+            "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{accessToken}}", "type": "string"}]}
           }
         },
         {

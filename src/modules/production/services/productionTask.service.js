@@ -3325,4 +3325,6 @@ async function assertCanReadTasks(tasks, authContext) {
 }
 
 productionTaskService.canReadSellerTaskAsset = canReadSellerTaskAsset;
+productionTaskService.summarizeScaleFilesByListings = async (groups, options) =>
+  repository.summarizeScaleFilesByListings(groups, options);
 module.exports = productionTaskService;

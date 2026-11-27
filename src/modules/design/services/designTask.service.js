@@ -24,7 +24,7 @@ const scoreRepository = require('../repositories/designSubmissionScore.repositor
 const repository = require('../repositories/designTask.repository');
 const { recordDesignOperation } = require('./designOperationAudit.service');
 const designNotificationService = require('./designNotification.service');
-const { toDesignTaskDto, toId, toPaginatedResponse } = require('../dtos/designTask.dto');
+const { toDesignTaskDto, toId, toPaginatedResponse, toAsinSummaryDto } = require('../dtos/designTask.dto');
 const {
   toPsdFileListItemDto,
   toSubmissionScoreListItemDto,
@@ -557,14 +557,102 @@ function updateSubmission(submissions = [], target, patch = {}) {
 
 async function listTasks(query = {}, authContext) {
   const scopedQuery = await applyOrderIdFilter(await applyReadAccessFilter(query, authContext));
-  const result = await repository.list(scopedQuery);
+  const sortByFileCount = query.sortBy === 'totalFileCount';
+  const result = sortByFileCount
+    ? await repository.list(scopedQuery, { paginate: false })
+    : await repository.list(scopedQuery);
   if (authContext && !scopedQuery.sellerRequestedByAccountId) {
     await Promise.all(result.items.map((task) => assertCanReadTask(task, authContext)));
   }
+  const scaleFileSummariesByChannel = {};
+  for (const [salesChannelCode, identifierField] of [['AMAZON', 'asin'], ['ETSY', 'etsyListingId']]) {
+    const externalIds = uniqueIds(result.items.filter((task) => task.taskType === designTaskTypes.PSD_TEMPLATE
+      && task.listingSnapshot?.salesChannelCode === salesChannelCode).map((task) => task.listingSnapshot[identifierField]));
+    if (!externalIds.length) continue;
+    const summaryQuery = { ...scopedQuery };
+    if (!summaryQuery.sellerRequestedByAccountId && !hasFullRead(authContext)
+      && !hasTeamQueueScope(authContext) && hasExplicitPermission(authContext, designPermissions.WORK)) {
+      summaryQuery.assignedDesignerId = authContext.accountId;
+    }
+    const groups = salesChannelCode === 'AMAZON'
+      ? await repository.listAsinGroups({ ...summaryQuery, asins: externalIds }, { paginate: false })
+      : await repository.listListingGroups(summaryQuery, { paginate: false, salesChannelCode, externalIds });
+    if (hasFullRead(authContext) && !scopedQuery.sellerRequestedByAccountId) {
+      groups.items.forEach((group) => group.listings.forEach(({ shopId }) =>
+        assertCanAccessShopAny(shopId, DESIGN_READ_SCOPE_PERMISSIONS, authContext)));
+    }
+    const counts = await summarizeListingFiles(groups.items, scopedQuery);
+    const summaries = scaleFileSummariesByChannel[salesChannelCode] = {};
+    for (const group of groups.items) {
+      const { totalFileCount, scaledFileCount, pendingFileCount } = toAsinSummaryDto(group, counts.get(group._id));
+      summaries[group._id] = { totalFileCount, scaledFileCount, pendingFileCount };
+    }
+  }
+  let items = result.items;
+  if (sortByFileCount) {
+    const totalFor = (task) => {
+      const listing = task.listingSnapshot;
+      const identifier = listing?.salesChannelCode === 'ETSY' ? listing.etsyListingId : listing?.asin;
+      return task.taskType === designTaskTypes.PSD_TEMPLATE
+        ? scaleFileSummariesByChannel[listing?.salesChannelCode]?.[identifier]?.totalFileCount : undefined;
+    };
+    const direction = query.sortOrder === 'asc' ? 1 : -1;
+    items = [...items].sort((left, right) => {
+      const a = totalFor(left); const b = totalFor(right);
+      if (a === undefined && b !== undefined) return 1;
+      if (b === undefined && a !== undefined) return -1;
+      return direction * ((a ?? 0) - (b ?? 0))
+        || String(left.listingSnapshot?.asin || left.listingSnapshot?.etsyListingId || '')
+          .localeCompare(String(right.listingSnapshot?.asin || right.listingSnapshot?.etsyListingId || ''))
+        || String(left._id).localeCompare(String(right._id));
+    }).slice((result.page - 1) * result.limit, result.page * result.limit);
+  }
   return toPaginatedResponse({
     ...result,
-    dtoOptions: await buildDtoOptions(result.items),
+    items,
+    dtoOptions: { ...(await buildDtoOptions(items)), scaleFileSummariesByChannel },
   });
+}
+
+async function summarizeListingFiles(groups, scopedQuery) {
+  let sellerCode;
+  if (scopedQuery.sellerRequestedByAccountId) {
+    const profile = await hrPublic.getEmployeeProfileByAccountId(scopedQuery.sellerRequestedByAccountId);
+    sellerCode = String(profile?.employeeCode || '').trim().toUpperCase();
+  }
+  const counts = await productionPublic.summarizeScaleFilesByListings(
+    groups.map((group) => ({ asin: group._id, listings: group.listings })), { sellerCode },
+  );
+  return new Map(counts.map((row) => [row.asin, row]));
+}
+
+async function listAsinSummary(query = {}, authContext) {
+  const scopedQuery = await applyOrderIdFilter(await applyReadAccessFilter({
+    ...query, taskType: designTaskTypes.PSD_TEMPLATE,
+  }, authContext));
+  if (!scopedQuery.sellerRequestedByAccountId && !hasFullRead(authContext)
+    && !hasTeamQueueScope(authContext) && hasExplicitPermission(authContext, designPermissions.WORK)) {
+    if (scopedQuery.assignedDesignerId && String(scopedQuery.assignedDesignerId) !== String(authContext?.accountId)) {
+      scopedQuery.assignedDesignerIds = [];
+    }
+    scopedQuery.assignedDesignerId = authContext?.accountId;
+  }
+  const numericSort = ['taskCount', 'productionTaskCount', 'totalFileCount', 'scaledFileCount', 'pendingFileCount'].includes(query.sortBy);
+  const result = await repository.listAsinGroups(scopedQuery, { paginate: !numericSort });
+  if (hasFullRead(authContext) && !scopedQuery.sellerRequestedByAccountId) {
+    result.items.forEach((group) => group.listings.forEach(({ shopId }) =>
+      assertCanAccessShopAny(shopId, DESIGN_READ_SCOPE_PERMISSIONS, authContext)));
+  }
+  const byAsin = await summarizeListingFiles(result.items, scopedQuery);
+  let items = result.items.map((group) => toAsinSummaryDto(group, byAsin.get(group._id)));
+  if (numericSort) {
+    const direction = query.sortOrder === 'desc' ? -1 : 1;
+    items.sort((left, right) => direction * (left[query.sortBy] - right[query.sortBy])
+      || left.asin.localeCompare(right.asin));
+    items = items.slice((result.page - 1) * result.limit, result.page * result.limit);
+  }
+  return { items,
+    pagination: { page: result.page, limit: result.limit, total: result.total } };
 }
 
 function csvCell(value) {
@@ -1579,6 +1667,7 @@ async function canReadSellerAsset(assetId, authContext) {
 }
 
 module.exports = {
+  listAsinSummary,
   canReadSellerAsset,
   approveTask,
   assignTask,

@@ -107,6 +107,13 @@ router.get(
 );
 
 router.get(
+  '/tasks/asin-summary',
+  authPublic.authenticate,
+  requirePsdRequestRead,
+  asyncHandler(controller.listAsinSummary),
+);
+
+router.get(
   '/tasks/export.csv',
   authPublic.authenticate,
   requireRead,

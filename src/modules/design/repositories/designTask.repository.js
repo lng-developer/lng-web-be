@@ -36,6 +36,7 @@ function buildFilter(query = {}) {
   if (query.priority) filter.priority = query.priority;
   if (query.psdStatus) filter['listingSnapshot.psdStatus'] = query.psdStatus;
   if (query.asin) filter['listingSnapshot.asin'] = query.asin;
+  if (query.asins) filter['listingSnapshot.asin'] = { $in: query.asin ? query.asins.filter((asin) => asin === query.asin) : query.asins };
   if (query.etsyListingId) filter['listingSnapshot.etsyListingId'] = query.etsyListingId;
   if (query.listingId) filter.listingId = toObjectId(query.listingId);
   if (query.listingIds) {
@@ -133,7 +134,7 @@ async function findActiveListingIdsByType(listingIds = [], taskType) {
   return [...new Set((tasks || []).map((task) => String(task.listingId)).filter(Boolean))];
 }
 
-async function list(query = {}) {
+async function list(query = {}, { paginate = true } = {}) {
   const { page, limit } = normalizePagination(query, { defaultLimit: 20, maxLimit: 100 });
   const filter = buildFilter(query);
   const [items, total] = await Promise.all([
@@ -141,19 +142,39 @@ async function list(query = {}) {
       { $match: filter },
       { $set: { queueClosed: { $cond: [{ $in: ['$status', ['APPROVED', 'CANCELLED']] }, 1, 0] }, queuePriority: { $indexOfArray: [['URGENT', 'HIGH', 'NORMAL', 'LOW'], { $ifNull: ['$priority', 'NORMAL'] }] } } },
       { $sort: { queueClosed: 1, queuePriority: 1, createdAt: 1, _id: 1 } },
-      { $skip: getPaginationOffset({ page, limit }) },
-      { $limit: limit },
+      ...(paginate ? [{ $skip: getPaginationOffset({ page, limit }) }, { $limit: limit }] : []),
       { $unset: ['queueClosed', 'queuePriority'] },
     ]) : DesignTask.find(filter)
       .sort(buildSort(query))
-      .skip(getPaginationOffset({ page, limit }))
-      .limit(limit)
+      .skip(paginate ? getPaginationOffset({ page, limit }) : 0)
+      .limit(paginate ? limit : 0)
       .lean(),
     DesignTask.countDocuments(filter),
   ]);
   return toPaginatedResult({
     items, total, page, limit,
   });
+}
+
+function listAsinGroups(query = {}, options = {}) {
+  return listListingGroups(query, options);
+}
+
+async function listListingGroups(query = {}, { paginate = true, salesChannelCode = 'AMAZON', externalIds } = {}) {
+  const field = salesChannelCode === 'ETSY' ? 'etsyListingId' : 'asin';
+  const identifierPath = `listingSnapshot.${field}`;
+  const { page, limit } = normalizePagination(query);
+  const [result] = await DesignTask.aggregate([
+    { $match: buildFilter({ ...query, taskType: designTaskTypes.PSD_TEMPLATE }) },
+    { $match: { [identifierPath]: { $type: 'string', $ne: '', ...(externalIds ? { $in: externalIds } : {}) },
+      'listingSnapshot.salesChannelCode': salesChannelCode } },
+    { $group: { _id: `$${identifierPath}`, taskCount: { $sum: 1 },
+      listings: { $addToSet: { listingId: { $ifNull: ['$targetListingId', '$listingId'] }, shopId: '$shopId' } } } },
+    { $sort: { _id: query.sortOrder === 'desc' ? -1 : 1 } },
+    { $facet: { items: paginate ? [{ $skip: getPaginationOffset({ page, limit }) }, { $limit: limit }] : [],
+      total: [{ $count: 'count' }] } },
+  ]);
+  return { items: result?.items || [], page, limit, total: result?.total?.[0]?.count || 0 };
 }
 
 function countStatus(status) {
@@ -421,6 +442,8 @@ function findTaskReferencingAsset(assetId, query) {
 }
 
 module.exports = {
+  listAsinGroups,
+  listListingGroups,
   findTaskReferencingAsset,
   buildFilter,
   buildSort,

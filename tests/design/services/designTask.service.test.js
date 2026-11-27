@@ -18,6 +18,7 @@ jest.mock('../../../src/modules/media/public', () => ({
 }));
 
 jest.mock('../../../src/modules/production/public', () => ({
+  summarizeScaleFilesByListings: jest.fn(),
   createOrRecheckTaskForOrderItem: jest.fn(),
   listPsdBlockedTasksByExternalOrderId: jest.fn(),
   listPsdBlockedTasksByListing: jest.fn(),
@@ -51,6 +52,8 @@ jest.mock('../../../src/modules/shop/public', () => ({
 }));
 
 jest.mock('../../../src/modules/design/repositories/designTask.repository', () => ({
+  listAsinGroups: jest.fn(),
+  listListingGroups: jest.fn(),
   create: jest.fn(),
   deleteById: jest.fn(),
   findActiveByListingAndType: jest.fn(),
@@ -92,6 +95,148 @@ const notificationPublic = require('../../../src/modules/notification/public');
 const service = require('../../../src/modules/design/services/designTask.service');
 
 describe('designTask.service', () => {
+  test('Etsy totals stay separate from identical Amazon ids and sort globally within seller scope', async () => {
+    const auth = { accountId: 'seller-a', scopes: [{ roles: ['SALES'], scopeType: 'team', permissions: ['DESIGN:READ'] }] };
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ employeeCode: 'J2502' });
+    catalogPublic.findListingIdsBySellerCode.mockResolvedValue(['own-listing']);
+    const tasks = [
+      { _id: 'amazon', taskType: 'PSD_TEMPLATE', listingSnapshot: { asin: '123', salesChannelCode: 'AMAZON' } },
+      { _id: 'etsy', taskType: 'PSD_TEMPLATE', listingSnapshot: { etsyListingId: '123', salesChannelCode: 'ETSY' } },
+    ];
+    repository.list.mockResolvedValue({ items: tasks, page: 1, limit: 1, total: 2 });
+    repository.listAsinGroups.mockResolvedValue({ items: [{ _id: '123', listings: [{ listingId: 'amazon', shopId: 'shop' }] }] });
+    repository.listListingGroups.mockResolvedValue({ items: [{ _id: '123', listings: [{ listingId: 'etsy', shopId: 'shop' }] }] });
+    productionPublic.summarizeScaleFilesByListings.mockImplementation(async (groups) => [{ asin: '123',
+      totalFileCount: groups[0].listings[0].listingId === 'etsy' ? 8 : 2, scaledFileCount: 1 }]);
+    const query = { taskType: 'PSD_TEMPLATE', sortBy: 'totalFileCount', sortOrder: 'desc', limit: 1 };
+    const result = await service.listTasks(query, auth);
+    expect(result.items[0]).toMatchObject({ id: 'etsy', scaleFileSummary: { totalFileCount: 8, scaledFileCount: 1, pendingFileCount: 7 } });
+    expect(repository.listListingGroups).toHaveBeenCalledWith(expect.objectContaining({
+      sellerRequestedByAccountId: 'seller-a', sellerListingIds: ['own-listing'],
+    }), { paginate: false, salesChannelCode: 'ETSY', externalIds: ['123'] });
+    expect(productionPublic.summarizeScaleFilesByListings).toHaveBeenLastCalledWith([
+      { asin: '123', listings: [{ listingId: 'etsy', shopId: 'shop' }] },
+    ], { sellerCode: 'J2502' });
+    expect((await service.listTasks({ ...query, sortOrder: 'asc' }, auth)).items[0])
+      .toMatchObject({ id: 'amazon', scaleFileSummary: { totalFileCount: 2, pendingFileCount: 1 } });
+    repository.list.mockResolvedValue({ items: tasks, page: 2, limit: 1, total: 2 });
+    expect((await service.listTasks({ ...query, page: 2 }, auth)).items[0].id).toBe('amazon');
+  });
+  test('inline total file sort runs globally before pagination in both directions with stable ties', async () => {
+    const tasks = ['B001', 'B003', 'B002'].map((asin, i) => ({ _id: `task-${i}`, taskType: 'PSD_TEMPLATE',
+      listingSnapshot: { asin, salesChannelCode: 'AMAZON' } }));
+    repository.list.mockResolvedValue({ items: tasks, total: 3, page: 1, limit: 1 });
+    repository.listAsinGroups.mockResolvedValue({ items: tasks.map((task) => ({ _id: task.listingSnapshot.asin, listings: [] })) });
+    productionPublic.summarizeScaleFilesByListings.mockResolvedValue([
+      { asin: 'B001', totalFileCount: 2, scaledFileCount: 1 },
+      { asin: 'B002', totalFileCount: 10, scaledFileCount: 1 },
+      { asin: 'B003', totalFileCount: 10, scaledFileCount: 1 },
+    ]);
+    const auth = { accountId, permissions: ['DESIGN:READ'] };
+    const query = { taskType: 'PSD_TEMPLATE', sortBy: 'totalFileCount', sortOrder: 'desc', limit: 1 };
+    expect((await service.listTasks(query, auth)).items[0].listing.asin).toBe('B002');
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({ sortBy: 'totalFileCount' }), { paginate: false });
+    expect((await service.listTasks({ ...query, sortOrder: 'asc' }, auth)).items[0].listing.asin).toBe('B001');
+    repository.list.mockResolvedValue({ items: tasks, total: 3, page: 2, limit: 1 });
+    const page2 = await service.listTasks({ ...query, page: 2 }, auth);
+    expect(page2.items[0].listing.asin).toBe('B003');
+    expect(page2.pagination).toEqual({ page: 2, limit: 1, total: 3 });
+  });
+  test('PSD task rows include batched ASIN file totals across pages within seller scope', async () => {
+    const auth = { accountId: 'seller-a', scopes: [{ roles: ['SALES'], scopeType: 'team', permissions: ['DESIGN:READ'] }] };
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ employeeCode: 'J2502' });
+    catalogPublic.findListingIdsBySellerCode.mockResolvedValue(['own-listing']);
+    repository.list.mockResolvedValue({ items: [{ _id: 'task', taskType: 'PSD_TEMPLATE',
+      listingSnapshot: { asin: 'B001', salesChannelCode: 'AMAZON' } }], page: 2, limit: 1, total: 4 });
+    repository.listAsinGroups.mockResolvedValue({ items: [{ _id: 'B001', taskCount: 3,
+      listings: [{ listingId: 'own-listing', shopId: 'shop' }] }] });
+    productionPublic.summarizeScaleFilesByListings.mockResolvedValue([
+      { asin: 'B001', productionTaskCount: 3, totalFileCount: 6, scaledFileCount: 4 },
+    ]);
+    const result = await service.listTasks({ taskType: 'PSD_TEMPLATE', page: 2, limit: 1 }, auth);
+    expect(result.items[0].scaleFileSummary).toEqual({ totalFileCount: 6, scaledFileCount: 4, pendingFileCount: 2 });
+    expect(result.pagination).toEqual({ page: 2, limit: 1, total: 4 });
+    expect(repository.listAsinGroups).toHaveBeenCalledWith(expect.objectContaining({
+      asins: ['B001'], sellerRequestedByAccountId: 'seller-a', sellerListingIds: ['own-listing'],
+    }), { paginate: false });
+    expect(productionPublic.summarizeScaleFilesByListings).toHaveBeenCalledWith([
+      { asin: 'B001', listings: [{ listingId: 'own-listing', shopId: 'shop' }] },
+    ], { sellerCode: 'J2502' });
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue(null);
+    productionPublic.summarizeScaleFilesByListings.mockResolvedValue([]);
+    await service.listTasks({ taskType: 'PSD_TEMPLATE' }, auth);
+    expect(productionPublic.summarizeScaleFilesByListings).toHaveBeenLastCalledWith(expect.any(Array), { sellerCode: '' });
+  });
+  test('non-Amazon PSD and other task rows do not request or expose file summaries', async () => {
+    repository.list.mockResolvedValue({ items: [
+      { _id: 'etsy', taskType: 'PSD_TEMPLATE', listingSnapshot: { asin: 'B001', salesChannelCode: 'ETSY' } },
+      { _id: 'idea', taskType: 'IDEA', listingSnapshot: { asin: 'B001', salesChannelCode: 'AMAZON' } },
+    ], page: 1, limit: 20, total: 2 });
+    const result = await service.listTasks({}, { accountId, permissions: ['DESIGN:READ'] });
+    expect(result.items.every((row) => row.scaleFileSummary === undefined)).toBe(true);
+    expect(repository.listAsinGroups).not.toHaveBeenCalled();
+    expect(productionPublic.summarizeScaleFilesByListings).not.toHaveBeenCalled();
+  });
+  test.each(['AMAZON', 'ETSY'])('%s inline totals cannot expose off-page production in an unauthorized shop', async (channel) => {
+    const auth = { accountId, permissions: [], scopes: [
+      { scopeType: 'shop', scopeId: shopId, permissions: ['DESIGN:READ'] },
+      { scopeType: 'team', scopeId: designTeamId, permissions: ['DESIGN:WORK'] },
+    ] };
+    authPublic.canAccessScope.mockImplementation((_auth, _permission, scope) => String(scope.scopeId) === shopId);
+    repository.list.mockResolvedValue({ items: [{ ...openTask, assignedDesignerId: accountId,
+      listingSnapshot: { asin: 'B001', etsyListingId: 'B001', salesChannelCode: channel } }], page: 1, limit: 1, total: 2 });
+    const groupRepository = channel === 'AMAZON' ? repository.listAsinGroups : repository.listListingGroups;
+    groupRepository.mockResolvedValue({ items: [{ _id: 'B001', taskCount: 2,
+      listings: [{ listingId, shopId }, { listingId: 'other-listing', shopId: 'other-shop' }] }] });
+    await expect(service.listTasks({ taskType: 'PSD_TEMPLATE', limit: 1 }, auth)).rejects.toMatchObject({ statusCode: 403 });
+    expect(groupRepository).toHaveBeenCalled();
+    expect(productionPublic.summarizeScaleFilesByListings).not.toHaveBeenCalled();
+  });
+  test.each(['taskCount', 'productionTaskCount', 'totalFileCount', 'scaledFileCount', 'pendingFileCount'])('ASIN %s sorting is global, numeric and stable before pagination', async (sortBy) => {
+    const auth = { accountId: 'worker', permissions: ['DESIGN:WORK'] };
+    const groups = ['B001', 'B003', 'B002'].map((_id, index) => ({ _id, taskCount: index ? 10 : 2, listings: [] }));
+    repository.listAsinGroups.mockResolvedValue({ items: groups, page: 1, limit: 1, total: 3 });
+    productionPublic.summarizeScaleFilesByListings.mockResolvedValue(groups.map((group) => ({ asin: group._id,
+      productionTaskCount: group.taskCount, totalFileCount: group.taskCount * 2, scaledFileCount: group.taskCount,
+    })));
+    const result = await service.listAsinSummary({ sortBy, sortOrder: 'desc', limit: 1 }, auth);
+    expect(result.items.map((item) => item.asin)).toEqual(['B002']);
+    expect(result.pagination.total).toBe(3);
+    expect(repository.listAsinGroups).toHaveBeenLastCalledWith(expect.objectContaining({ sortBy }), { paginate: false });
+    expect((await service.listAsinSummary({ sortBy, sortOrder: 'asc', limit: 1 }, auth)).items[0].asin).toBe('B001');
+    repository.listAsinGroups.mockResolvedValue({ items: groups, page: 2, limit: 1, total: 3 });
+    expect((await service.listAsinSummary({ sortBy, sortOrder: 'desc', page: 2, limit: 1 }, auth)).items[0].asin).toBe('B003');
+    expect((await service.listAsinSummary({ sortBy, sortOrder: 'asc', page: 2, limit: 1 }, auth)).items[0].asin).toBe('B002');
+  });
+  test('ASIN summary intersects requester and own assignment for explicit WORK mixed roles', async () => {
+    repository.listAsinGroups.mockResolvedValue({ items: [], page: 1, limit: 20, total: 0 });
+    productionPublic.summarizeScaleFilesByListings.mockResolvedValue([]);
+    await service.listAsinSummary({}, { accountId: 'worker', permissions: ['DESIGN:WORK', 'DESIGN:PSD_REQUEST'] });
+    expect(repository.listAsinGroups).toHaveBeenCalledWith(expect.objectContaining({
+      taskType: 'PSD_TEMPLATE', assignedDesignerId: 'worker', requestedByAccountIds: ['worker'],
+    }), { paginate: true });
+  });
+  test('ASIN summary preserves seller scope, forces PSD tasks and exposes only aggregate DTOs', async () => {
+    const auth = { accountId: 'seller-a', scopes: [{ roles: ['SALES'], scopeType: 'team', permissions: ['DESIGN:READ'] }] };
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ employeeCode: 'J2502' });
+    catalogPublic.findListingIdsBySellerCode.mockResolvedValue(['own-listing']);
+    repository.listAsinGroups.mockResolvedValue({ page: 2, limit: 1, total: 3,
+      items: [{ _id: 'B001', taskCount: 4, listings: [{ listingId: 'own-listing', shopId: 'shop' }] }] });
+    productionPublic.summarizeScaleFilesByListings.mockResolvedValue([
+      { asin: 'B001', productionTaskCount: 2, totalFileCount: 4, scaledFileCount: 1 },
+    ]);
+    expect(await service.listAsinSummary({ taskType: 'MOCKUP', page: 2, limit: 1, status: 'APPROVED' }, auth))
+      .toEqual({ items: [{ asin: 'B001', taskCount: 4, productionTaskCount: 2,
+        totalFileCount: 4, scaledFileCount: 1, pendingFileCount: 3 }], pagination: { page: 2, limit: 1, total: 3 } });
+    expect(repository.listAsinGroups).toHaveBeenCalledWith(expect.objectContaining({
+      taskType: 'PSD_TEMPLATE', sellerRequestedByAccountId: 'seller-a', sellerListingIds: ['own-listing'], status: 'APPROVED',
+    }), { paginate: true });
+    expect(productionPublic.summarizeScaleFilesByListings).toHaveBeenCalledWith(expect.any(Array), { sellerCode: 'J2502' });
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue(null);
+    productionPublic.summarizeScaleFilesByListings.mockResolvedValue([]);
+    expect((await service.listAsinSummary({}, auth)).items[0]).toMatchObject({ taskCount: 4, totalFileCount: 0, pendingFileCount: 0 });
+    expect(productionPublic.summarizeScaleFilesByListings).toHaveBeenLastCalledWith(expect.any(Array), { sellerCode: '' });
+  });
   test('Seller PSD reads use own requester or owned listings, never the whole team', async () => {
     const auth = { accountId: 'seller-a', scopes: [{ roles: ['SALES'], scopeType: 'team', permissions: ['DESIGN:READ', 'DESIGN:PSD_REQUEST'] }] };
     hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ employeeCode: 'J2502' });
