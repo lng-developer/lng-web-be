@@ -72,6 +72,13 @@ function request(server, {
 }
 
 describe('design routes', () => {
+  test('task list accepts total-file sort and rejects invalid directions', async () => {
+    service.listTasks.mockResolvedValue({ items: [], pagination: { total: 0, page: 1, limit: 20 } });
+    const headers = { 'x-auth-context': JSON.stringify({ permissions: ['DESIGN:READ'] }) };
+    expect((await request(createServer(), { method: 'GET', path: '/tasks?sortBy=totalFileCount&sortOrder=asc', headers })).statusCode).toBe(200);
+    expect(service.listTasks).toHaveBeenLastCalledWith({ sortBy: 'totalFileCount', sortOrder: 'asc' }, expect.any(Object));
+    expect((await request(createServer(), { method: 'GET', path: '/tasks?sortBy=totalFileCount&sortOrder=wrong', headers })).statusCode).toBe(400);
+  });
   test('ASIN summary uses PSD read access and list query validation before task-id routes', async () => {
     const data = { items: [], pagination: { page: 1, limit: 20, total: 0 } };
     service.listAsinSummary.mockResolvedValue(data);

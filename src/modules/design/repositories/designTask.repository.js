@@ -134,7 +134,7 @@ async function findActiveListingIdsByType(listingIds = [], taskType) {
   return [...new Set((tasks || []).map((task) => String(task.listingId)).filter(Boolean))];
 }
 
-async function list(query = {}) {
+async function list(query = {}, { paginate = true } = {}) {
   const { page, limit } = normalizePagination(query, { defaultLimit: 20, maxLimit: 100 });
   const filter = buildFilter(query);
   const [items, total] = await Promise.all([
@@ -142,13 +142,12 @@ async function list(query = {}) {
       { $match: filter },
       { $set: { queueClosed: { $cond: [{ $in: ['$status', ['APPROVED', 'CANCELLED']] }, 1, 0] }, queuePriority: { $indexOfArray: [['URGENT', 'HIGH', 'NORMAL', 'LOW'], { $ifNull: ['$priority', 'NORMAL'] }] } } },
       { $sort: { queueClosed: 1, queuePriority: 1, createdAt: 1, _id: 1 } },
-      { $skip: getPaginationOffset({ page, limit }) },
-      { $limit: limit },
+      ...(paginate ? [{ $skip: getPaginationOffset({ page, limit }) }, { $limit: limit }] : []),
       { $unset: ['queueClosed', 'queuePriority'] },
     ]) : DesignTask.find(filter)
       .sort(buildSort(query))
-      .skip(getPaginationOffset({ page, limit }))
-      .limit(limit)
+      .skip(paginate ? getPaginationOffset({ page, limit }) : 0)
+      .limit(paginate ? limit : 0)
       .lean(),
     DesignTask.countDocuments(filter),
   ]);

@@ -557,7 +557,10 @@ function updateSubmission(submissions = [], target, patch = {}) {
 
 async function listTasks(query = {}, authContext) {
   const scopedQuery = await applyOrderIdFilter(await applyReadAccessFilter(query, authContext));
-  const result = await repository.list(scopedQuery);
+  const sortByFileCount = query.sortBy === 'totalFileCount';
+  const result = sortByFileCount
+    ? await repository.list(scopedQuery, { paginate: false })
+    : await repository.list(scopedQuery);
   if (authContext && !scopedQuery.sellerRequestedByAccountId) {
     await Promise.all(result.items.map((task) => assertCanReadTask(task, authContext)));
   }
@@ -581,9 +584,25 @@ async function listTasks(query = {}, authContext) {
       scaleFileSummariesByAsin[group._id] = { totalFileCount, scaledFileCount, pendingFileCount };
     }
   }
+  let items = result.items;
+  if (sortByFileCount) {
+    const totalFor = (task) => task.taskType === designTaskTypes.PSD_TEMPLATE
+      && task.listingSnapshot?.salesChannelCode === 'AMAZON'
+      ? scaleFileSummariesByAsin[task.listingSnapshot.asin]?.totalFileCount : undefined;
+    const direction = query.sortOrder === 'asc' ? 1 : -1;
+    items = [...items].sort((left, right) => {
+      const a = totalFor(left); const b = totalFor(right);
+      if (a === undefined && b !== undefined) return 1;
+      if (b === undefined && a !== undefined) return -1;
+      return direction * ((a ?? 0) - (b ?? 0))
+        || String(left.listingSnapshot?.asin || '').localeCompare(String(right.listingSnapshot?.asin || ''))
+        || String(left._id).localeCompare(String(right._id));
+    }).slice((result.page - 1) * result.limit, result.page * result.limit);
+  }
   return toPaginatedResponse({
     ...result,
-    dtoOptions: { ...(await buildDtoOptions(result.items)), scaleFileSummariesByAsin },
+    items,
+    dtoOptions: { ...(await buildDtoOptions(items)), scaleFileSummariesByAsin },
   });
 }
 

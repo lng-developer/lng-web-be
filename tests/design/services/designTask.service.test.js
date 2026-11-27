@@ -94,6 +94,26 @@ const notificationPublic = require('../../../src/modules/notification/public');
 const service = require('../../../src/modules/design/services/designTask.service');
 
 describe('designTask.service', () => {
+  test('inline total file sort runs globally before pagination in both directions with stable ties', async () => {
+    const tasks = ['B001', 'B003', 'B002'].map((asin, i) => ({ _id: `task-${i}`, taskType: 'PSD_TEMPLATE',
+      listingSnapshot: { asin, salesChannelCode: 'AMAZON' } }));
+    repository.list.mockResolvedValue({ items: tasks, total: 3, page: 1, limit: 1 });
+    repository.listAsinGroups.mockResolvedValue({ items: tasks.map((task) => ({ _id: task.listingSnapshot.asin, listings: [] })) });
+    productionPublic.summarizeScaleFilesByListings.mockResolvedValue([
+      { asin: 'B001', totalFileCount: 2, scaledFileCount: 1 },
+      { asin: 'B002', totalFileCount: 10, scaledFileCount: 1 },
+      { asin: 'B003', totalFileCount: 10, scaledFileCount: 1 },
+    ]);
+    const auth = { accountId, permissions: ['DESIGN:READ'] };
+    const query = { taskType: 'PSD_TEMPLATE', sortBy: 'totalFileCount', sortOrder: 'desc', limit: 1 };
+    expect((await service.listTasks(query, auth)).items[0].listing.asin).toBe('B002');
+    expect(repository.list).toHaveBeenCalledWith(expect.objectContaining({ sortBy: 'totalFileCount' }), { paginate: false });
+    expect((await service.listTasks({ ...query, sortOrder: 'asc' }, auth)).items[0].listing.asin).toBe('B001');
+    repository.list.mockResolvedValue({ items: tasks, total: 3, page: 2, limit: 1 });
+    const page2 = await service.listTasks({ ...query, page: 2 }, auth);
+    expect(page2.items[0].listing.asin).toBe('B003');
+    expect(page2.pagination).toEqual({ page: 2, limit: 1, total: 3 });
+  });
   test('PSD task rows include batched ASIN file totals across pages within seller scope', async () => {
     const auth = { accountId: 'seller-a', scopes: [{ roles: ['SALES'], scopeType: 'team', permissions: ['DESIGN:READ'] }] };
     hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ employeeCode: 'J2502' });
