@@ -14,7 +14,7 @@ function firstValue(...values) {
 
 function outputUrlForSlot(fileChecks = [], slotKey = 'FRONT') {
   const check = fileChecks.find((entry) => String(entry.slotKey || '').toUpperCase() === slotKey)
-    || fileChecks.find((entry) => entry.outputVendorUrl || entry.outputUrl);
+    || (slotKey === 'FRONT' ? fileChecks.find((entry) => entry.outputVendorUrl || entry.outputUrl) : null);
   return firstValue(
     check?.outputVendorUrl,
     check?.outputUrl,
@@ -68,6 +68,7 @@ function buildMerchizeItem(snapshot = {}) {
     currency: item.price?.currency || 'USD',
     image: itemImage(snapshot),
     design_front: outputUrlForSlot(snapshot.fileChecks || [], 'FRONT'),
+    design_back: outputUrlForSlot(snapshot.fileChecks || [], 'BACK'),
     attributes: [
       { name: 'product', option: title },
       ...(printMethod ? [{ name: 'Print Method', option: String(printMethod) }] : []),
@@ -138,10 +139,10 @@ async function submitPayload(payload, { credential } = {}) {
     body: JSON.stringify(payload),
   });
   const body = await response.json().catch(async () => ({ message: await response.text().catch(() => '') }));
-  if (!response.ok || body.success === false) {
+  if (!response.ok || body.success === false || body.data?.status === 'failed') {
     throw appError('Merchize rejected order', httpStatus.CONFLICT, errorCodes.CONFLICT_ERROR, {
       statusCode: response.status,
-      message: body.message || null,
+      message: body.data?.error || body.message || null,
       response: body,
     });
   }

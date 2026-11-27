@@ -5,6 +5,14 @@ const repository = require('../../../src/modules/vendorSubmission/repositories/v
 const { allocate } = require('../../../src/modules/vendorSubmission/services/vendorOrderId.service');
 
 describe('vendor client order IDs', () => {
+  test('continues legacy Merchize retry IDs across reset submissions', async () => {
+    repository.listHistory.mockResolvedValue([{ _id: 'old', status: 'CANCELLED', vendorExternalOrderId: 'remote-id', payloadSnapshot: { merchizeExternalOrderId: '113-ORDER-R2' } }]);
+    expect(await allocate(submission, 'MERCHIZE', 'vendor')).toBe('113-ORDER-R3');
+  });
+  test('uses R2 after a cancelled first Merchize submission', async () => {
+    repository.listHistory.mockResolvedValue([{ _id: 'old', status: 'CANCELLED', vendorExternalOrderId: 'remote-id', submitAttemptCount: 1 }]);
+    expect(await allocate(submission, 'MERCHIZE', 'vendor')).toBe('113-ORDER-R2');
+  });
   const submission = { _id: 'new', orderId: 'order', payloadSnapshot: { orderItem: { externalOrderId: '113-ORDER' } } };
   beforeEach(() => {
     jest.resetAllMocks();

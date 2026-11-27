@@ -9,7 +9,7 @@ async function listHistory(orderId, provider, vendorId) {
       { 'payloadSnapshot.vendorProduct.vendor.id': String(vendorId) },
       { 'payloadSnapshot.vendorProduct.vendor._id': String(vendorId) },
     ],
-  }).select('status submitAttemptCount submitOperationKey vendorExternalOrderId payloadSnapshot.vendorClientOrderId payloadSnapshot.mangoteeExternalOrderId payloadSnapshot.bundledSubmissionIds').lean();
+  }).select('status submitAttemptCount submitOperationKey vendorExternalOrderId payloadSnapshot.vendorClientOrderId payloadSnapshot.mangoteeExternalOrderId payloadSnapshot.merchizeExternalOrderId payloadSnapshot.bundledSubmissionIds').lean();
 }
 
 async function nextSequence(scope, historicalFloor) {

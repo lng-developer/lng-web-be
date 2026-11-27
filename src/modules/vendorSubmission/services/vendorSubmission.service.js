@@ -69,15 +69,6 @@ function extractVendorCost(provider, response) {
   };
 }
 
-function merchizeExternalOrderId(submission = {}) {
-  const snapshot = submission.payloadSnapshot || {};
-  const base = snapshot.orderItem?.externalOrderId
-    || snapshot.orderItemSnapshot?.externalOrderId
-    || snapshot.externalOrderId;
-  const attempt = Number(submission.submitAttemptCount) || 1;
-  return attempt > 1 ? `${base}-R${attempt}` : base;
-}
-
 function forbidden() {
   return appError('Forbidden', httpStatus.FORBIDDEN, errorCodes.AUTHORIZATION_ERROR);
 }
@@ -1251,22 +1242,17 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
   });
   if (!claimed) throw conflict('Vendor submission is already being processed');
 
-  if (adapter.provider === 'MERCHIZE') {
-    claimed = await repository.updateById(submissionId, {
-      payloadSnapshot: {
-        ...(claimed.payloadSnapshot || {}),
-        merchizeExternalOrderId: merchizeExternalOrderId(claimed),
-      },
-    });
-  }
-
   let submitResult;
   let dispatchStarted = false;
   try {
-    if (['MANGOTEE', 'PRINTWAY'].includes(provider)) {
+    if (['MANGOTEE', 'PRINTWAY', 'MERCHIZE'].includes(provider)) {
       const vendorClientOrderId = await vendorOrderId.allocate(claimed, provider, vendorId);
       const reserved = await repository.transitionStatus(submissionId, [vendorSubmissionStatuses.SUBMITTING], {
-        payloadSnapshot: { ...claimed.payloadSnapshot, vendorClientOrderId },
+        payloadSnapshot: {
+          ...claimed.payloadSnapshot,
+          vendorClientOrderId,
+          ...(provider === 'MERCHIZE' ? { merchizeExternalOrderId: vendorClientOrderId } : {}),
+        },
       });
       if (!reserved) throw conflict('Vendor submission changed before dispatch');
       claimed = reserved;
@@ -1283,7 +1269,7 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
     const vendorHttpStatus = Number(error?.details?.statusCode);
     const ambiguousResponse = ['MANGOTEE', 'PRINTWAY'].includes(provider)
       && (vendorHttpStatus >= 500 || vendorHttpStatus === 408);
-    const knownUnsent = ['MANGOTEE', 'PRINTWAY'].includes(provider) && !dispatchStarted;
+    const knownUnsent = ['MANGOTEE', 'PRINTWAY', 'MERCHIZE'].includes(provider) && !dispatchStarted;
     if (knownUnsent || (!ambiguousResponse && (error?.details?.response || error?.statusCode === 400))) {
       const failed = await repository.transitionStatus(submissionId, [vendorSubmissionStatuses.SUBMITTING], {
         status: vendorSubmissionStatuses.FAILED,
