@@ -1,4 +1,5 @@
 const fs = require('fs');
+const { createHash } = require('crypto');
 const { pipeline } = require('stream/promises');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
@@ -69,8 +70,20 @@ async function uploadMyProfileAvatar(req, res) {
   });
 }
 
-async function streamProfileAvatar(res, readAvatar) {
+async function streamProfileAvatar(req, res, readAvatar) {
   await readAvatar(async ({ mediaAsset, localPath }) => {
+    // Revalidate private avatars so replacements and access changes take effect.
+    res.setHeader('Cache-Control', 'private, no-cache');
+    res.setHeader('Vary', 'Authorization, Cookie');
+    const assetId = mediaAsset._id || mediaAsset.id;
+    if (assetId) {
+      const etag = `"${createHash('sha256').update(JSON.stringify([String(assetId), mediaAsset.updatedAt, mediaAsset.size])).digest('hex')}"`;
+      res.setHeader('ETag', etag);
+      if ((req.headers?.['if-none-match'] || '').split(',').map((value) => value.trim().replace(/^W\//, '')).includes(etag)) {
+        res.status(304).end();
+        return;
+      }
+    }
     res.setHeader('Content-Type', mediaAsset.mimeType || 'application/octet-stream');
     if (Number.isInteger(mediaAsset.size)) res.setHeader('Content-Length', mediaAsset.size);
     res.status(httpStatus.OK);
@@ -84,7 +97,7 @@ async function streamProfileAvatar(res, readAvatar) {
 }
 
 async function getProfileAvatar(req, res) {
-  await streamProfileAvatar(res, (reader) => service.withProfileAvatar(
+  await streamProfileAvatar(req, res, (reader) => service.withProfileAvatar(
     req.params.profileId,
     req.auth,
     reader,
@@ -92,7 +105,7 @@ async function getProfileAvatar(req, res) {
 }
 
 async function getMyProfileAvatar(req, res) {
-  await streamProfileAvatar(res, (reader) => service.withMyProfileAvatar(req.auth, reader));
+  await streamProfileAvatar(req, res, (reader) => service.withMyProfileAvatar(req.auth, reader));
 }
 
 async function updateProfile(req, res) {

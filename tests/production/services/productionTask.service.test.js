@@ -24,6 +24,7 @@ jest.mock('../../../src/modules/order/public', () => ({
   findItemById: jest.fn(),
   findItemsByIds: jest.fn(),
   findItemIds: jest.fn(),
+  findItemListingRefs: jest.fn(),
   transitionItemStatus: jest.fn(),
   updateOrderWorkbenchItem: jest.fn(),
 }));
@@ -107,6 +108,7 @@ jest.mock('../../../src/modules/production/repositories/productionTask.repositor
   listByOrderItemIds: jest.fn(),
   listPsdBlockedByExternalOrderId: jest.fn(),
   listPsdBlockedByListingId: jest.fn(),
+  listPsdBlockedByListingIds: jest.fn(),
   listPsdBlockedByOrderItemIds: jest.fn(),
   listSummariesByOrderItemIds: jest.fn(),
   listQcPassedForWorkScore: jest.fn(),
@@ -5134,5 +5136,43 @@ describe('productionTask.service', () => {
 
     expect(result).toMatchObject({ items: [], total: 0 });
     expect(repository.list).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('batched PSD listing context', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test('50 listings still use only three bulk reads and deduplicate matching tasks', async () => {
+    const ids = Array.from({ length: 50 }, (_, index) => (index + 1).toString(16).padStart(24, '0'));
+    const tasks = ids.map((listingId) => ({ _id: listingId, orderItemId: listingId,
+      listingSnapshot: { id: listingId }, orderItemSnapshot: { externalOrderId: listingId } }));
+    orderPublic.findItemListingRefs.mockResolvedValue(ids.map((id) => ({ _id: id, listingId: id })));
+    repository.listPsdBlockedByListingIds.mockResolvedValue(tasks);
+    repository.listPsdBlockedByOrderItemIds.mockResolvedValue(tasks);
+    expect(await service.listPsdBlockedTasksByListings(ids)).toHaveLength(50);
+    expect(orderPublic.findItemListingRefs).toHaveBeenCalledTimes(1);
+    expect(repository.listPsdBlockedByListingIds).toHaveBeenCalledTimes(1);
+    expect(repository.listPsdBlockedByOrderItemIds).toHaveBeenCalledTimes(1);
+  });
+
+  test('uses three bulk reads and preserves snapshot and current-listing membership', async () => {
+    const a = '660000000000000000000501', b = '660000000000000000000502';
+    const itemId = '660000000000000000000601';
+    const task = { _id: '660000000000000000000701', orderItemId: itemId,
+      listingSnapshot: { id: a }, orderItemSnapshot: { externalOrderId: 'ORDER-1' }, blockers: ['PSD_MISSING'] };
+    orderPublic.findItemListingRefs.mockResolvedValue([{ _id: itemId, listingId: b }]);
+    repository.listPsdBlockedByListingIds.mockResolvedValue([task]);
+    repository.listPsdBlockedByOrderItemIds.mockResolvedValue([task]);
+    const rows = await service.listPsdBlockedTasksByListings([a, b, a]);
+    expect(rows.map(r => [r.listingId, r.externalOrderId])).toEqual([[a, 'ORDER-1'], [b, 'ORDER-1']]);
+    expect(orderPublic.findItemListingRefs).toHaveBeenCalledWith([a, b]);
+    expect(repository.listPsdBlockedByListingIds).toHaveBeenCalledWith([a, b]);
+    expect(repository.listPsdBlockedByOrderItemIds).toHaveBeenCalledWith([itemId]);
+  });
+  test('empty input performs no work', async () => {
+    repository.listPsdBlockedByListingIds.mockClear();
+    expect(await service.listPsdBlockedTasksByListings([])).toEqual([]);
+    expect(repository.listPsdBlockedByListingIds).not.toHaveBeenCalled();
   });
 });
