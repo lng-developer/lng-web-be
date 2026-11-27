@@ -1072,6 +1072,18 @@ describe('shipment.service', () => {
     expect(repository.updateStatusIfCurrent).not.toHaveBeenCalled();
   });
 
+  test.each(['TRACKING_PENDING', 'SHIPPED', 'DELIVERED'])('local cancellation stops %s shipment without claiming remote cancellation', async (status) => {
+    repository.findById.mockResolvedValueOnce({ ...shipment, status });
+    repository.updateStatusIfCurrent.mockResolvedValueOnce({ ...shipment, status: 'CANCELLED' });
+    const result = await service.updateStatus(shipmentId, { status: 'CANCELLED', note: 'Local cancellation' }, {
+      system: true, localOrderCancellation: true,
+    });
+    expect(result.status).toBe('CANCELLED');
+    expect(repository.updateStatusIfCurrent).toHaveBeenCalledWith(shipmentId, status, expect.objectContaining({ status: 'CANCELLED' }));
+    expect(vendorSubmissionPublic.cancelAfterExternalCancellation).not.toHaveBeenCalled();
+    expect(getTrackingAdapter).not.toHaveBeenCalled();
+  });
+
   test('summarizes shipped shipments by order item ids in one repository call', async () => {
     const result = await service.summarizeShippedByOrderItemIds([
       orderItemId,

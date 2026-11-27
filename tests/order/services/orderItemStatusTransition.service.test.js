@@ -30,6 +30,10 @@ const service = require('../../../src/modules/order/services/orderItemStatusTran
 const orderPublic = require('../../../src/modules/order/public');
 
 describe('orderItemStatusTransition.service', () => {
+  test.each(['SENT_TO_VENDOR', 'TRACKING_PENDING', 'SHIPPED', 'FAILED', 'REFUNDED'])('allows explicit local cancellation from %s', (status) => {
+    expect(service.canTransition(status, 'CANCELLED', { localOrderCancellation: true })).toBe(true);
+    expect(service.canTransition(status, 'CANCELLED')).toBe(false);
+  });
   const orderItemId = '660000000000000000000401';
   const orderId = '660000000000000000000301';
 

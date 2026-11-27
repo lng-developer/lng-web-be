@@ -811,6 +811,15 @@ describe('productionTask.service', () => {
     expect(result).toBeNull();
   });
 
+  test('local order cancellation cancels an already sent production task', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({ _id: taskId, orderId, orderItemId, shopId, status: 'SENT_TO_VENDOR' });
+    vendorSubmissionPublic.getByProductionTaskId.mockResolvedValueOnce({ id: vendorSubmissionId, status: 'CANCELLED' });
+    repository.cancelTask.mockResolvedValueOnce({ _id: taskId, orderId, orderItemId, shopId, status: 'CANCELLED' });
+    const result = await service.cancelTaskByOrderItem(orderItemId, {}, { system: true, localOrderCancellation: true });
+    expect(result.status).toBe('CANCELLED');
+    expect(repository.cancelTask).toHaveBeenCalledWith(taskId, expect.objectContaining({ allowSentToVendor: true }));
+  });
+
   test('cancelTaskByOrderItem is idempotent when task is already cancelled', async () => {
     repository.findByOrderItem.mockResolvedValueOnce({
       _id: taskId,
