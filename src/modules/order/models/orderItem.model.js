@@ -106,6 +106,11 @@ const orderItemSchema = new mongoose.Schema(
       default: 1,
       validate: integerValidator,
     },
+    marketplaceQuantity: {
+      type: Number,
+      min: 1,
+      validate: { validator: (value) => value == null || Number.isSafeInteger(value), message: 'marketplaceQuantity must be an integer' },
+    },
     quantityOverride: {
       type: Number,
       default: null,
