@@ -204,7 +204,10 @@ async function receiveVendorWebhook(provider, req) {
     }
     const isLateCancellation = shipmentStatus === shipmentStatuses.CANCELLED
       && [shipmentStatuses.DELIVERED, shipmentStatuses.RETURNED].includes(existing?.status);
-    const canApplyStatus = existing && (
+    const trackingChanged = normalized.trackingNumber
+      && existing?.trackingNumber !== normalized.trackingNumber;
+    const statusOnlyTransition = [shipmentStatuses.CANCELLED, shipmentStatuses.RETURNED].includes(shipmentStatus);
+    const canApplyStatus = existing && (!trackingChanged || statusOnlyTransition) && (
       existing.status === shipmentStatus
       || isLateCancellation
       || (shipmentStatus === shipmentStatuses.DELIVERED && existing.status === shipmentStatuses.SHIPPED)
