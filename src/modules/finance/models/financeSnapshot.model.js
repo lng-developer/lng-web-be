@@ -26,12 +26,14 @@ const nullableMoneyField = {
 };
 
 const costLineSchema = new mongoose.Schema({
+  currency: { type: String, default: null },
   code: { type: String, required: true, trim: true, uppercase: true },
   label: { type: String, trim: true, default: null },
   amount: { type: Number, required: true, validate: integerValidator },
 }, { _id: false });
 
 const calculationHistorySchema = new mongoose.Schema({
+  calculationVersion: { type: Number, default: 1 },
   calculatedAt: { type: Date, required: true },
   snapshotStatus: { type: String, enum: Object.values(financeSnapshotStatuses), required: true },
   costStatus: { type: String, enum: Object.values(financeCostStatuses), required: true },
@@ -39,6 +41,7 @@ const calculationHistorySchema = new mongoose.Schema({
 }, { _id: false });
 
 const financeSnapshotSchema = new mongoose.Schema({
+  estimatedCostCurrency: { type: String, default: null },
   orderId: { type: mongoose.Schema.Types.ObjectId, required: true },
   orderItemId: { type: mongoose.Schema.Types.ObjectId, required: true, unique: true },
   orderedAt: { type: Date, default: null, index: true },
@@ -81,6 +84,14 @@ const financeSnapshotSchema = new mongoose.Schema({
   currency: { type: String, trim: true, uppercase: true, minlength: 3, maxlength: 3, default: 'USD' },
   baseCostAmount: nullableMoneyField,
   totalCostAmount: nullableMoneyField,
+  calculationVersion: { type: Number, default: 1 },
+  estimatedFulfillmentCostAmount: nullableMoneyField,
+  effectiveFulfillmentCostAmount: nullableMoneyField,
+  costVarianceAmount: nullableMoneyField,
+  recognizedNetRevenueAmount: nullableMoneyField,
+  profitBeforeAdsAmount: nullableMoneyField,
+  costSource: { type: String, enum: ['ACTUAL', 'ESTIMATED', 'MISSING'], default: null },
+  costComponents: { type: [costLineSchema], default: [] },
   actualVendorBaseCostAmount: nullableMoneyField,
   actualVendorShippingAmount: nullableMoneyField,
   actualVendorTaxAmount: nullableMoneyField,
@@ -88,6 +99,7 @@ const financeSnapshotSchema = new mongoose.Schema({
   actualVendorCurrency: { type: String, trim: true, uppercase: true, default: null },
   actualVendorSource: { type: String, trim: true, uppercase: true, default: null },
   actualVendorCapturedAt: { type: Date, default: null },
+  actualVendorAllocation: { type: mongoose.Schema.Types.Mixed, default: null },
   costLines: { type: [costLineSchema], default: [] },
   costStatus: {
     type: String,

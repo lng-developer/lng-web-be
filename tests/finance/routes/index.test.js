@@ -237,7 +237,7 @@ describe('finance routes', () => {
     expect(service.getOrderSummary).toHaveBeenCalledWith(orderId, expect.objectContaining({
       permissions: ['FINANCE:READ'], source: 'HTTP',
       auditContext: expect.objectContaining({ requestId: expect.any(String), ipAddress: '::1' }),
-    }));
+    }), {});
   });
 
   test('POST import transactions requires FINANCE:WRITE and accepts multipart file', async () => {

@@ -43,6 +43,7 @@ jest.mock('../../../src/shared/utils/logger', () => ({
 }));
 
 jest.mock('../../../src/modules/vendorSubmission/repositories/vendorSubmission.repository', () => ({
+  listCostBundle: jest.fn(),
   create: jest.fn(),
   findActiveByProductionTask: jest.fn(),
   findById: jest.fn(),
@@ -951,6 +952,14 @@ describe('vendorSubmission.service', () => {
     expect(result.status).toBe('SUBMITTED');
   });
 
+  test('preview of an already submitted order never repairs or writes costs', async () => {
+    repository.findById.mockResolvedValueOnce({ ...submission, status: 'SUBMITTED', submittedResponse: { total: 10 } });
+    await service.submitToVendor(submissionId, {}, { permissions: ['VENDOR_SUBMISSIONS:WRITE'], accountId: actorId });
+    expect(productionPublic.markSentToVendor).not.toHaveBeenCalled();
+    expect(shipmentPublic.ensureFromVendorSubmission).not.toHaveBeenCalled();
+    expect(repository.transitionStatus).not.toHaveBeenCalled();
+  });
+
   test('reconciles a remotely found order and repairs production handoff', async () => {
     repository.findById.mockResolvedValueOnce({ ...submission, status: 'NEEDS_REVIEW' });
     repository.transitionStatus.mockResolvedValueOnce({
@@ -1149,4 +1158,24 @@ describe('vendorSubmission.service', () => {
     const patch = repository.transitionStatus.mock.calls.find(([, , update]) => update.status === 'SUBMITTED')[2];
     expect(patch.submittedResponse).toEqual({ success: true });
   });
+});
+
+
+test('replays a submitted vendor bundle with conserved per-item costs', async () => {
+  const primary = { _id: 'a', orderId: 'order', shopId: 'shop', orderItemId: 'item-a', status: 'SUBMITTED', provider: 'MANGOTEE', vendorExternalOrderId: 'remote', submittedResponse: { data: { total: 35.64, subtotal: 25.59, shipping_fee: 10.05 } }, payloadSnapshot: { bundledSubmissionIds: ['a', 'b', 'c'], orderItem: { quantity: 1, price: { currency: 'USD' } } } };
+  const siblings = ['b', 'c'].map(id => ({ ...primary, _id: id, orderItemId: `item-${id}`, payloadSnapshot: { orderItem: { quantity: 1, price: { currency: 'USD' } } } }));
+  repository.findById.mockImplementation(async id => [primary, ...siblings].find(row => row._id === id));
+  repository.updateById.mockImplementation(async (id, patch) => ({ ...[primary, ...siblings].find(row => row._id === id), ...patch }));
+  const beforeWrites = repository.updateById.mock.calls.length;
+  repository.findById.mockResolvedValueOnce(null);
+  await expect(service.previewVendorCosts(primary)).rejects.toThrow('Vendor cost bundle needs reconciliation');
+  const preview = await service.previewVendorCosts(primary);
+  expect(preview.map(row => row.vendorCost.totalAmount)).toEqual([1188, 1188, 1188]);
+  expect(repository.updateById.mock.calls).toHaveLength(beforeWrites);
+  await service.syncVendorCosts(primary);
+  const costs = require('../../../src/modules/finance/public').updateActualVendorCost.mock.calls.slice(-3).map(call => call[1].totalAmount);
+  expect(costs).toEqual([1188, 1188, 1188]);
+  repository.listCostBundle.mockResolvedValue([primary, ...siblings]);
+  await service.syncVendorCosts(siblings[0]);
+  expect(require('../../../src/modules/finance/public').updateActualVendorCost.mock.calls.slice(-3).map(call => call[1].totalAmount)).toEqual([1188, 1188, 1188]);
 });

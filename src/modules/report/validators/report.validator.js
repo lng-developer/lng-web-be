@@ -14,6 +14,7 @@ function validate(schema, payload) {
 }
 
 const baseReportQuerySchema = Joi.object({
+  currency: Joi.string().trim().uppercase().length(3),
   externalOrderId: Joi.string().trim().max(255),
   dateFrom: Joi.date().iso(),
   dateTo: Joi.date().iso().min(Joi.ref('dateFrom')),

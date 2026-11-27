@@ -2,6 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const mongoose = require('mongoose');
+jest.mock('../../src/modules/finance/repositories/financeRecalculationRequest.repository', () => ({ prepareGuard: jest.fn(), lockOrder: jest.fn() }));
 
 jest.mock('../../src/modules/order/public', () => ({
   findById: jest.fn(),

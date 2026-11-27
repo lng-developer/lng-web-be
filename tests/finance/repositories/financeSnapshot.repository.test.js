@@ -23,6 +23,13 @@ describe('financeSnapshot.repository', () => {
     expect(repository.buildFilter({ shopIds: [] })).toEqual({ shopId: { $in: [] } });
   });
 
+  test('intersects a selected shop with authorized shops', () => {
+    const selected = '660000000000000000000201';
+    const other = '660000000000000000000202';
+    expect(repository.buildFilter({ shopId: selected, shopIds: [selected, other] }).shopId.$in.map(String)).toEqual([selected]);
+    expect(repository.buildFilter({ shopId: selected, shopIds: [other] }).shopId.$in).toEqual([]);
+  });
+
   test('uses order date rather than calculation time for ORDERED_AT profitability filters', () => {
     const dateFrom = new Date('2026-07-01T00:00:00.000Z');
     const dateTo = new Date('2026-07-31T23:59:59.999Z');
@@ -193,10 +200,10 @@ describe('financeSnapshot.repository', () => {
     const project = pipeline.find((stage) => stage.$project).$project;
 
     expect(project.grossProfitAmount).toEqual({
-      $cond: [{ $eq: ['$missingCostCount', 0] }, '$grossProfitAmount', null],
+      $cond: [{ $and: [{ $eq: ['$missingCostCount', 0] }, { $eq: ['$missingProfitCount', 0] }] }, '$grossProfitAmount', null],
     });
     expect(project.grossMarginBps.$cond[0]).toEqual({
-      $and: [{ $eq: ['$missingCostCount', 0] }, { $gt: ['$revenueAmount', 0] }],
+      $and: [{ $eq: ['$missingCostCount', 0] }, { $eq: ['$missingProfitCount', 0] }, { $gt: ['$revenueAmount', 0] }],
     });
   });
 
@@ -355,7 +362,7 @@ describe('financeSnapshot.repository', () => {
     );
   });
 
-  test('filters paginated order rows by cost coverage without changing the coverage summary', async () => {
+  test('filters both paginated rows and summary by the same cost coverage', async () => {
     FinanceSnapshot.aggregate.mockResolvedValueOnce([{ items: [], total: [], summaryByCurrency: [] }]);
 
     await repository.listOrderProfitability({ costCoverage: 'COMPLETE' });
@@ -363,6 +370,6 @@ describe('financeSnapshot.repository', () => {
     const facet = FinanceSnapshot.aggregate.mock.calls.at(-1)[0].find((stage) => stage.$facet).$facet;
     expect(facet.items).toEqual(expect.arrayContaining([{ $match: { missingCostCount: 0 } }]));
     expect(facet.total).toEqual(expect.arrayContaining([{ $match: { missingCostCount: 0 } }]));
-    expect(facet.summaryByCurrency).not.toEqual(expect.arrayContaining([{ $match: { missingCostCount: 0 } }]));
+    expect(facet.summaryByCurrency).toEqual(expect.arrayContaining([{ $match: { missingCostCount: 0 } }]));
   });
 });

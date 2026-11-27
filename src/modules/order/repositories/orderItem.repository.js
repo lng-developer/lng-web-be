@@ -87,6 +87,29 @@ async function pageIds(after, limit) {
   return rows.map((row) => row._id);
 }
 
+async function pageFinanceItems(query = {}, after, limit = 500) {
+  const { dateFrom, dateTo, ...scope } = query;
+  const filter = buildFilter(scope);
+  if (after) filter._id = { $gt: toObjectId(after) };
+  if (query.orderItemId) filter._id = toObjectId(query.orderItemId);
+  if (Array.isArray(query.orderItemIds)) filter._id = { $in: query.orderItemIds.map(toObjectId), ...(after ? { $gt: toObjectId(after) } : {}) };
+  if (Array.isArray(query.shopIds)) filter.shopId = { $in: query.shopIds.filter(id => !query.shopId || String(id) === String(query.shopId)).map(toObjectId) };
+  if (query.currency) filter['price.currency'] = query.currency;
+  if (query.sellerEmployeeCode) filter.sku = { $regex: `^${escapeRegex(query.sellerEmployeeCode)}(?:-|$)`, $options: 'i' };
+  const dates = {};
+  if (dateFrom) dates.$gte = new Date(dateFrom);
+  if (dateTo) dates.$lte = new Date(dateTo);
+  return OrderItem.aggregate([
+    { $match: filter },
+    { $lookup: { from: 'orders', localField: 'orderId', foreignField: '_id', as: 'parent' } },
+    { $set: { orderedAt: { $arrayElemAt: ['$parent.orderedAt', 0] } } },
+    ...(Object.keys(dates).length ? [{ $match: { orderedAt: dates } }] : []),
+    { $sort: { _id: 1 } }, { $limit: limit },
+    { $project: { _id: 1, orderId: 1, shopId: 1, salesChannelCode: 1, marketplaceCode: 1,
+      sku: 1, orderedAt: 1, currency: '$price.currency' } },
+  ]);
+}
+
 async function findIds(query = {}) {
   return OrderItem.distinct('_id', buildFilter(query));
 }
@@ -476,6 +499,7 @@ async function findIdsBySellerCode(employeeCode) {
 }
 
 module.exports = {
+  pageFinanceItems,
   findItemListingRefs,
   updateQuantity,
   findIdsBySellerCode,

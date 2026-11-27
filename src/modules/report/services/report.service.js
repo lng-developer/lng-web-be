@@ -1,3 +1,4 @@
+const { profitStages } = require('./reportProfitStages');
 const authPublic = require('../../auth/public');
 const financePublic = require('../../finance/public');
 const hrPublic = require('../../hr/public');
@@ -93,6 +94,7 @@ function systemContext(authContext = {}) {
 }
 
 async function resolveScopedAdsQuery(scopedQuery, authContext = {}) {
+  if (scopedQuery && ['financialStatus', 'costCoverage', 'costStatus', 'externalOrderId', 'orderId', 'teamId', 'departmentId'].some(key => scopedQuery[key])) return null;
   if (!scopedQuery || hasGlobalReportRead(authContext) || !scopedQuery.accessOr) return scopedQuery;
   const { accessOr, ...query } = scopedQuery;
   const shopIds = accessOr.map((condition) => condition.shopId).filter(Boolean);
@@ -127,12 +129,24 @@ function sellerPerformanceKey(row = {}) {
   return [row.sellerEmployeeCode || 'UNASSIGNED', row.currency || 'USD'].join('|');
 }
 
+function operatingScope(row, query) {
+  const unsupported = row.currency !== 'USD' || ['shopId', 'shopIds', 'salesChannelCode', 'marketplaceCode', 'financialStatus', 'orderId', 'externalOrderId'].some(key => query[key]);
+  return unsupported || row.operatingCostCoverage === 'MISSING'
+    ? { ...row, operatingCostCoverage: 'MISSING', profitAfterOperatingCostsAmount: null } : row;
+}
+
+function reportDayCount(query) {
+  if (!query.dateFrom || !query.dateTo) return null;
+  const key = value => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date(value));
+  return Math.round((new Date(key(query.dateTo)) - new Date(key(query.dateFrom))) / 86400000) + 1;
+}
+
 function sellerDailyKey(row = {}) {
   return [row.date || '', row.sellerEmployeeCode || 'UNASSIGNED', row.currency || 'USD'].join('|');
 }
 
-function mergeSellerPerformanceWithAds(sellerRows = [], adsRows = [], { includeAdOnly = false } = {}) {
-  const rows = new Map((sellerRows || []).map((row) => [sellerPerformanceKey(row), { ...row }]));
+function mergeSellerPerformanceWithAds(sellerRows = [], adsRows = [], { includeAdOnly = false, expectedDays = null } = {}) {
+  const rows = new Map((sellerRows || []).map((row) => [sellerPerformanceKey(row), { ...row, ...profitStages(row) }]));
   (adsRows || []).forEach((adsRow) => {
     const key = sellerPerformanceKey(adsRow);
     const current = rows.get(key);
@@ -169,6 +183,7 @@ function mergeSellerPerformanceWithAds(sellerRows = [], adsRows = [], { includeA
         : grossProfitAmount - Number(row.refundAmount || 0) - Number(row.operatingCostAmount || 0);
     rows.set(key, {
       ...row,
+      ...profitStages(row, totalAdSpendAmount, expectedDays !== null && new Set(adsRow.dateKeys || []).size === expectedDays),
       adSpendAmount: totalAdSpendAmount,
       grossProfitAmount,
       netProfitAmount,
@@ -211,13 +226,15 @@ async function getTeamBySellerEmployeeCode(adsRows = []) {
   );
 }
 
-function mergeTeamPerformanceWithAds(teamRows = [], adsRows = [], teamBySellerCode = new Map()) {
-  const rows = new Map((teamRows || []).map((row) => [teamPerformanceKey(row), { ...row }]));
+function mergeTeamPerformanceWithAds(teamRows = [], adsRows = [], teamBySellerCode = new Map(), expectedDays = null) {
+  const rows = new Map((teamRows || []).map((row) => [teamPerformanceKey(row), { ...row, ...profitStages(row) }]));
   const sellersByTeam = new Map();
+  const incompleteTeams = new Set();
   (adsRows || []).forEach((adsRow) => {
     const organization = teamBySellerCode.get(adsRow.sellerEmployeeCode);
     if (!organization?.team?.id) return;
     const key = teamPerformanceKey({ teamId: organization.team.id, currency: adsRow.currency });
+    if (expectedDays === null || new Set(adsRow.dateKeys || []).size !== expectedDays) incompleteTeams.add(key);
     const current = rows.get(key) || {
       teamId: organization.team.id,
       teamName: organization.team.name,
@@ -254,6 +271,7 @@ function mergeTeamPerformanceWithAds(teamRows = [], adsRows = [], teamBySellerCo
         : grossProfitAmount - Number(current.refundAmount || 0) - Number(current.operatingCostAmount || 0);
     rows.set(key, {
       ...current,
+      ...profitStages(current, totalAdSpendAmount),
       adSpendAmount: totalAdSpendAmount,
       grossProfitAmount,
       netProfitAmount,
@@ -272,6 +290,7 @@ function mergeTeamPerformanceWithAds(teamRows = [], adsRows = [], teamBySellerCo
   return [...rows.entries()]
     .map(([key, row]) => ({
       ...row,
+      ...profitStages(row, row.adSpendAmount ?? null, !incompleteTeams.has(key) && Boolean(row.sellerEmployeeCodes?.length) && row.sellerEmployeeCodes.every(code => sellersByTeam.get(key)?.has(code))),
       activeSellerCount: Math.max(Number(row.activeSellerCount || 0), sellersByTeam.get(key)?.size || 0),
     }))
     .sort((left, right) => teamPerformanceKey(left).localeCompare(teamPerformanceKey(right)));
@@ -377,7 +396,7 @@ async function getAdsSellerDaily(query = {}, authContext) {
 async function getFinanceDailyProfit(query = {}, authContext) {
   const reportQuery = applyReportScope(query, authContext, { financeDimensions: true });
   const adsQuery = await resolveScopedAdsQuery(reportQuery, authContext);
-  const scopedQuery = reportQuery && adsQuery ? { ...reportQuery, ...adsQuery } : null;
+  const scopedQuery = reportQuery ? { ...reportQuery, ...(adsQuery || { excludeAds: true }) } : null;
   const result = scopedQuery
     ? (await financePublic.summarizeDailyProfit(scopedQuery, systemContext(authContext))).map(toFinanceDailyProfitDto)
     : [];
@@ -388,12 +407,7 @@ async function getFinanceOrderProfitability(query = {}, authContext) {
   const scopedQuery = applyReportScope(query, authContext, { financeDimensions: true });
   if (!scopedQuery) return { items: [], pagination: { total: 0, page: 1, limit: 20 }, summaryByCurrency: [] };
   const itemQuery = query.externalOrderId ? { externalOrderId: query.externalOrderId } : {};
-  if (query.financialStatus === 'CANCELLED') {
-    itemQuery.externalStatus = ['CANCELLED', 'CANCELED', 'PARTIALLY_CANCELLED'];
-  }
-  const hasItemFilter = query.externalOrderId || itemQuery.externalStatus
-    ? true
-    : false;
+  const hasItemFilter = Boolean(query.externalOrderId);
   const orderItemIds = hasItemFilter
     ? await orderPublic.findItemIds(itemQuery)
     : null;
@@ -401,7 +415,7 @@ async function getFinanceOrderProfitability(query = {}, authContext) {
     return { items: [], pagination: { total: 0, page: query.page || 1, limit: query.limit || 20 }, summaryByCurrency: [] };
   }
   const financeQuery = orderItemIds
-    ? { ...scopedQuery, orderItemIds, ...(itemQuery.externalStatus ? { financialStatus: undefined } : {}) }
+    ? { ...scopedQuery, orderItemIds }
     : scopedQuery;
   const result = await financePublic.summarizeOrderProfitability(
     financeQuery,
@@ -421,8 +435,8 @@ async function getFinanceBySeller(query = {}, authContext) {
     financePublic.summarizeBySeller(scopedQuery, systemContext(authContext)),
     canReadAdsForScope ? financePublic.summarizeAdsBySeller(adsQuery, systemContext(authContext)) : Promise.resolve([]),
   ]);
-  const result = mergeSellerPerformanceWithAds(sellerRows, adsRows, { includeAdOnly: canReadAdsForScope }).map(
-    toFinanceBySellerDto,
+  const result = mergeSellerPerformanceWithAds(sellerRows, adsRows, { includeAdOnly: canReadAdsForScope, expectedDays: reportDayCount(query) }).map(
+    row => toFinanceBySellerDto(operatingScope(row, scopedQuery)),
   );
   return result;
 }
@@ -438,7 +452,7 @@ async function getFinanceSellerDaily(query = {}, authContext) {
       ? financePublic.summarizeAdsSellerDaily(adsQuery, systemContext(authContext))
       : Promise.resolve([]),
   ]);
-  const rows = new Map((sellerRows || []).map((row) => [sellerDailyKey(row), { ...row, adSpendAmount: 0 }]));
+  const rows = new Map((sellerRows || []).map((row) => [sellerDailyKey(row), { ...row, ...profitStages(row), adSpendAmount: 0 }]));
   const sellerNameByCode = new Map();
   const sellerAccountIdByCode = new Map();
   (sellerRows || []).forEach((row) => {
@@ -487,6 +501,7 @@ async function getFinanceSellerDaily(query = {}, authContext) {
         refundAmount: 0,
         discountAmount: 0,
         taxAmount: 0,
+        ...profitStages({ grossProfitAmount: 0, operatingCostCoverage: 'MISSING' }, adSpendAmount), operatingCostCoverage: 'MISSING',
         grossProfitAmount: -adSpendAmount,
         partialGrossProfitAmount: -adSpendAmount,
         operatingCostAmount: 0,
@@ -532,6 +547,7 @@ async function getFinanceSellerDaily(query = {}, authContext) {
         : partialGrossProfitAmount - Number(current.refundAmount || 0) - proratedOperatingCost;
     rows.set(key, {
       ...current,
+      ...profitStages(current, adSpendAmount),
       adSpendAmount,
       grossProfitAmount,
       netProfitAmount,
@@ -545,7 +561,7 @@ async function getFinanceSellerDaily(query = {}, authContext) {
   });
   return [...rows.values()]
     .sort((left, right) => sellerDailyKey(left).localeCompare(sellerDailyKey(right)))
-    .map(toFinanceSellerDailyDto);
+    .map(row => toFinanceSellerDailyDto(operatingScope(row, scopedQuery)));
 }
 
 async function getFinanceByTeam(query = {}, authContext) {
@@ -563,7 +579,8 @@ async function getFinanceByTeam(query = {}, authContext) {
     teamRows,
     adsRows,
     canReadAdsForScope ? await getTeamBySellerEmployeeCode(adsRows) : new Map(),
-  ).map(toFinanceByTeamDto);
+    reportDayCount(query),
+  ).map(row => toFinanceByTeamDto(operatingScope(row, scopedQuery)));
   return result;
 }
 
@@ -706,8 +723,9 @@ async function exportReportCsv(query = {}, authContext) {
         'Currency',
         'Items',
         'Revenue (minor)',
-        'Gross profit (minor)',
-        'Net profit (minor)',
+        'Profit before ads (minor)',
+        'Profit after ads (minor)',
+        'Profit after ads and operating costs (minor)',
         'Missing cost',
       ],
       ...daily.map((row) => [
@@ -717,8 +735,9 @@ async function exportReportCsv(query = {}, authContext) {
         row.currency,
         row.itemCount,
         row.revenueAmount,
-        row.grossProfitAmount,
-        row.netProfitAmount,
+        row.profitBeforeAdsAmount,
+        row.profitAfterAdsAmount,
+        row.profitAfterOperatingCostsAmount,
         row.missingCostCount,
       ]),
     ]),
@@ -730,7 +749,8 @@ async function exportReportCsv(query = {}, authContext) {
         'Currency',
         'Items',
         'Revenue (minor)',
-        'Net profit (minor)',
+        'Profit after ads (minor)',
+        'Profit after ads and operating costs (minor)',
         'Net margin bps',
         'Missing cost',
       ],
@@ -740,8 +760,9 @@ async function exportReportCsv(query = {}, authContext) {
         row.currency,
         row.itemCount,
         row.revenueAmount,
-        row.netProfitAmount,
-        row.netMarginBps,
+        row.profitAfterAdsAmount,
+        row.profitAfterOperatingCostsAmount,
+        row.profitAfterOperatingCostsMarginBps,
         row.missingCostCount,
       ]),
     ]),
@@ -755,7 +776,8 @@ async function exportReportCsv(query = {}, authContext) {
         'Sellers',
         'Items',
         'Revenue (minor)',
-        'Net profit (minor)',
+        'Profit after ads (minor)',
+        'Profit after ads and operating costs (minor)',
         'Net margin bps',
       ],
       ...teams.map((row) => [
@@ -766,8 +788,9 @@ async function exportReportCsv(query = {}, authContext) {
         row.activeSellerCount,
         row.itemCount,
         row.revenueAmount,
-        row.netProfitAmount,
-        row.netMarginBps,
+        row.profitAfterAdsAmount,
+        row.profitAfterOperatingCostsAmount,
+        row.profitAfterOperatingCostsMarginBps,
       ]),
     ]),
     csvRows([

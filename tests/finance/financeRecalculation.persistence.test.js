@@ -5,6 +5,7 @@ jest.mock('../../src/config/queue', () => ({ createQueue: () => ({ add: mockAdd 
 jest.mock('../../src/modules/order/public', () => ({ findItemById: jest.fn(), pageItemIds: jest.fn(), findItemsByIds: jest.fn(), listItemsByOrder: jest.fn() }));
 jest.mock('../../src/modules/mapping/public', () => ({ getFulfillmentPlanForOrderItem: jest.fn(), listFulfillmentPlansForOrderItems: jest.fn() }));
 jest.mock('../../src/modules/shipment/public', () => ({ getShipmentByOrderItem: jest.fn() }));
+jest.mock('../../src/modules/vendorSubmission/public', () => ({ previewCostForOrderItem: jest.fn().mockResolvedValue(null) }));
 
 const config = require('../../src/config');
 const order = require('../../src/modules/order/public');
@@ -121,8 +122,66 @@ test('manual order, item and vendor writes serialize through the order guard', a
   ]);
   const snapshot = await Snapshot.findOne({ orderItemId: item._id }).lean();
   expect(snapshot.actualVendorTotalAmount).toBe(1500);
-  expect(snapshot.calculationHistory).toHaveLength(3);
+  expect(snapshot.calculationHistory).toHaveLength(4);
   expect(await Audit.countDocuments()).toBe(3);
+});
+
+test('stale vendor events and replacement identities cannot erase an incurred charge', async () => {
+  const item = source();
+  await service.recalculateOrderItem(item._id, { system: true });
+  const cost = { totalAmount: 1500, currency: 'USD', capturedAt: new Date('2026-11-27T10:00:00Z'), allocation: { vendorOrderId: 'remote-1' } };
+  await service.updateActualVendorCost(item._id, cost);
+  await service.updateActualVendorCost(item._id, { ...cost, totalAmount: 100, capturedAt: new Date('2026-11-26T10:00:00Z') });
+  expect((await Snapshot.findOne({ orderItemId: item._id }).lean()).actualVendorTotalAmount).toBe(1500);
+  await expect(service.updateActualVendorCost(item._id, { ...cost, totalAmount: 100, allocation: { vendorOrderId: 'replacement' } })).rejects.toThrow('reconciliation');
+});
+
+test('canonical backfill dry-run is read-only and apply/rollback preserve guarded snapshots', async () => {
+  const item = source();
+  const plan = { costEstimate: { totalAmount: 2000, lines: [{ code: 'BASE_COST', amount: 1700 }] } };
+  mapping.getFulfillmentPlanForOrderItem.mockResolvedValueOnce(plan).mockResolvedValueOnce(plan).mockResolvedValueOnce(plan);
+  await service.recalculateOrderItem(item._id, { system: true });
+  await Snapshot.updateOne({ orderItemId: item._id }, { $set: { calculationVersion: 1, grossProfitAmount: -1000 } });
+  const before = await Snapshot.findOne({ orderItemId: item._id }).lean();
+  const { runBackfill, rollbackBackfill } = require('../../src/modules/finance/services/financeCanonicalBackfill.service');
+  const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(item.orderedAt);
+  const options = { database: mongoose.connection.name, expectDatabase: mongoose.connection.name, seller: '1', from: date, to: date };
+  const manifest = await runBackfill(options);
+  expect(manifest.entries[0]).toMatchObject({ status: 'READY', after: { profitBeforeAdsAmount: 2250 } });
+  expect(await Snapshot.findOne({ orderItemId: item._id }).lean()).toEqual(before);
+  await runBackfill({ ...options, resume: manifest, apply: true }, { save: jest.fn() });
+  expect(manifest.entries[0].status).toBe('APPLIED');
+  expect((await Snapshot.findOne({ orderItemId: item._id }).lean()).profitBeforeAdsAmount).toBe(2250);
+  expect(await Audit.countDocuments({ action: 'FINANCE_CANONICAL_BACKFILL_APPLIED' })).toBe(1);
+  await rollbackBackfill({ ...options, resume: manifest }, { save: jest.fn() });
+  expect(manifest.entries[0].status).toBe('ROLLED_BACK');
+  expect((await Snapshot.findOne({ orderItemId: item._id }).lean()).grossProfitAmount).toBe(-1000);
+});
+
+test('default worker configuration serializes concurrent vendor events and identical replay preserves revision', async () => {
+  config.finance.durableRecalculationEnabled = false;
+  try {
+    const item = source();
+    await service.recalculateOrderItem(item._id, { system: true });
+    const latest = { totalAmount: 1500, currency: 'USD', capturedAt: new Date('2026-11-27T12:00:00Z') };
+    await Promise.all([
+      service.updateActualVendorCost(item._id, latest),
+      service.updateActualVendorCost(item._id, { ...latest, totalAmount: 100, capturedAt: new Date('2026-11-26T12:00:00Z') }),
+    ]);
+    const before = await Snapshot.findOne({ orderItemId: item._id }).lean();
+    expect(before.actualVendorTotalAmount).toBe(1500);
+    await service.updateActualVendorCost(item._id, latest);
+    const after = await Snapshot.findOne({ orderItemId: item._id }).lean();
+    expect(after.updatedAt).toEqual(before.updatedAt);
+    expect(after.calculationHistory).toEqual(before.calculationHistory);
+  } finally { config.finance.durableRecalculationEnabled = true; }
+});
+
+test('vendor charge arriving before the initial snapshot is retained', async () => {
+  const item = source();
+  await service.updateActualVendorCost(item._id, { totalAmount: 1200, currency: 'USD', source: 'MANGOTEE_ORDER_RESPONSE' });
+  const snapshot = await Snapshot.findOne({ orderItemId: item._id }).lean();
+  expect(snapshot).toMatchObject({ actualVendorTotalAmount: 1200, effectiveFulfillmentCostAmount: 1200, profitBeforeAdsAmount: 3050 });
 });
 
 test('rolling cursor repairs an existing stale snapshot after a source write with no request', async () => {
