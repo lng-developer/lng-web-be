@@ -81,9 +81,10 @@ async function recalculateOrdersBulk(req, res) {
 }
 
 async function getOrderSummary(req, res) {
+  const query = assertValid(listSnapshotsQuerySchema, req.query);
   res.status(httpStatus.OK).json({
     success: true,
-    data: await service.getOrderSummary(req.params.orderId, auditAuth(req)),
+    data: await service.getOrderSummary(req.params.orderId, auditAuth(req), query),
   });
 }
 

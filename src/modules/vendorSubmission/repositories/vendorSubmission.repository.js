@@ -81,6 +81,10 @@ async function findById(submissionId) {
   return VendorSubmission.findById(submissionId).lean();
 }
 
+function listCostBundle({ provider, vendorExternalOrderId, orderId, shopId }) {
+  return VendorSubmission.find({ provider, vendorExternalOrderId, orderId, shopId }).lean();
+}
+
 async function findActiveByProductionTask(productionTaskId) {
   return VendorSubmission.findOne({
     productionTaskId,
@@ -370,6 +374,7 @@ async function transitionStatus(submissionId, fromStatuses, patch) {
 }
 
 module.exports = {
+  listCostBundle,
   buildFilter,
   claimReadyForSubmit,
   create,

@@ -513,7 +513,7 @@ describe('report.service', () => {
     );
   });
 
-  test('order profitability filters legacy cancelled snapshots by marketplace status', async () => {
+  test('order profitability uses the same canonical cancelled filter as Finance', async () => {
     orderPublic.findItemIds.mockResolvedValueOnce(['660000000000000000000702']);
     financePublic.summarizeOrderProfitability.mockResolvedValueOnce({
       items: [], pagination: { total: 0, page: 1, limit: 20 },
@@ -521,11 +521,9 @@ describe('report.service', () => {
 
     await service.getFinanceOrderProfitability({ financialStatus: 'CANCELLED' }, scopedAuth);
 
-    expect(orderPublic.findItemIds).toHaveBeenCalledWith({
-      externalStatus: ['CANCELLED', 'CANCELED', 'PARTIALLY_CANCELLED'],
-    });
+    expect(orderPublic.findItemIds).not.toHaveBeenCalled();
     expect(financePublic.summarizeOrderProfitability).toHaveBeenCalledWith(
-      { shopIds: [shopId], orderItemIds: ['660000000000000000000702'], financialStatus: undefined },
+      { shopIds: [shopId], financialStatus: 'CANCELLED' },
       expect.any(Object),
     );
   });
@@ -753,6 +751,22 @@ describe('report.service', () => {
       expect.objectContaining({ system: true, source: 'REPORT' }),
     );
     expect(result).toEqual([expect.objectContaining({ teamId: null, itemCount: 1, grossProfitAmount: 500 })]);
+  });
+
+  test('unsupported ads scope preserves authorized pre-ads daily rows', async () => {
+    financePublic.summarizeDailyProfit.mockResolvedValueOnce([{ currency: 'USD', grossProfitAmount: 500, profitBeforeAdsAmount: 500 }]);
+    const result = await service.getFinanceDailyProfit({ teamId: 'team' }, { permissions: ['REPORTS:READ'] });
+    expect(financePublic.summarizeDailyProfit).toHaveBeenCalledWith(expect.objectContaining({ teamId: 'team', excludeAds: true }), expect.any(Object));
+    expect(result[0]).toMatchObject({ profitBeforeAdsAmount: 500, profitAfterAdsAmount: null });
+  });
+
+  test('one seller ad record cannot complete a two-seller team', async () => {
+    financePublic.summarizeByTeam.mockResolvedValueOnce([{ teamId: 'team', currency: 'USD', grossProfitAmount: 1000, activeSellerCount: 2, sellerEmployeeCodes: ['A', 'B'] }]);
+    financePublic.summarizeAdsBySeller.mockResolvedValueOnce([{ sellerEmployeeCode: 'A', currency: 'USD', spendAmount: 100, dateKeys: ['2026-11-24'] }]);
+    hrPublic.listEmployeeProfilesByEmployeeCodes.mockResolvedValueOnce([{ accountId: 'account', employeeCode: 'A' }]);
+    organizationPublic.listAccountOrganizationSummaries.mockResolvedValueOnce([{ accountId: 'account', team: { id: 'team' } }]);
+    const result = await service.getFinanceByTeam({ dateFrom: '2026-11-24T00:00:00+07:00', dateTo: '2026-11-24T23:59:59+07:00' }, { permissions: ['REPORTS:READ'] });
+    expect(result[0]).toMatchObject({ activeSellerCount: 2, profitBeforeAdsAmount: 1000, profitAfterAdsAmount: null, adsCoverage: 'PARTIAL' });
   });
 
   test('finance by team includes ads-only sellers in their organization team', async () => {

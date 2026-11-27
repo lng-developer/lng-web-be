@@ -1,4 +1,6 @@
+jest.mock('../../../src/modules/finance/repositories/financeRecalculationRequest.repository', () => ({ prepareGuard: jest.fn(), lockOrder: jest.fn() }));
 jest.mock('../../../src/modules/order/public', () => ({
+  pageFinanceItems: jest.fn().mockResolvedValue([]),
   findById: jest.fn(),
   findItemById: jest.fn(),
   findItemIds: jest.fn(),
@@ -25,6 +27,7 @@ jest.mock('../../../src/modules/organization/public', () => ({
 }));
 
 jest.mock('../../../src/modules/finance/repositories/financeSnapshot.repository', () => ({
+  listCalculationTimes: jest.fn().mockResolvedValue([]),
   findByOrderItem: jest.fn(),
   list: jest.fn(),
   listByOrder: jest.fn(),
@@ -62,6 +65,16 @@ const financeImportRepository = require('../../../src/modules/finance/repositori
 const auditPublic = require('../../../src/modules/audit/public');
 const service = require('../../../src/modules/finance/services/financeSnapshot.service');
 
+test('canonical P&L keeps internal fee separate and preserves vendor shipping', () => {
+  const pnl = service.calculateOrderPnl({
+    customerPaidAmount: 9240, netRevenueAmount: 9240, feeAmount: 677,
+    actualVendorTotalAmount: 3564, actualVendorBaseCostAmount: 2559,
+    actualVendorShippingAmount: 1005, totalCostAmount: 3814,
+    costLines: [{ code: 'LNG_FULFILLMENT_FEE', amount: 100 }],
+  });
+  expect(pnl).toMatchObject({ totalCostAmount: 3664, baseCostAmount: 2559, profitAmount: 4899 });
+});
+
 describe('financeSnapshot.service', () => {
   const orderId = '660000000000000000140001';
   const orderItemId = '660000000000000000140002';
@@ -71,6 +84,47 @@ describe('financeSnapshot.service', () => {
   const vendorCostCenterId = '660000000000000000140006';
   const shipmentId = '660000000000000000140007';
   let transactionSession;
+
+  test('operating costs use Vietnam report days rather than UTC boundary dates', async () => {
+    repository.summarizeBySeller.mockResolvedValueOnce([{ sellerAccountId: 'seller', currency: 'USD', revenueAmount: 10000, grossProfitAmount: 6000 }]);
+    authPublic.listOperatingCostAccounts.mockResolvedValueOnce([{ _id: 'seller', operatingCostAmount: 100,
+      operatingCostStartedAt: '2026-11-21T00:00:00+07:00', deactivatedAt: '2026-11-27T23:59:59+07:00' }]);
+    const [row] = await service.summarizeBySeller({ dateFrom: '2026-11-21T00:00:00+07:00', dateTo: '2026-11-27T23:59:59+07:00' });
+    expect(row).toMatchObject({ operatingCostAmount: 700, operatingCostDays: 7 });
+  });
+
+  test('missing source snapshots invalidate totals only within the authorized seller scope', async () => {
+    orderPublic.pageFinanceItems.mockResolvedValueOnce([
+      { _id: orderItemId, orderId, shopId, sku: 'J2508-A', currency: 'USD', orderedAt: new Date('2026-11-24T12:00:00Z') },
+      { _id: '660000000000000000140099', orderId, shopId, sku: 'OTHER-A', currency: 'EUR', orderedAt: new Date('2026-11-24T12:00:00Z') },
+    ]);
+    hrPublic.getEmployeeProfileByEmployeeCode.mockImplementation(async code => ({ accountId: code === 'J2508' ? '660000000000000000140008' : '660000000000000000140088' }));
+    repository.summarizeBySeller.mockResolvedValue([{ sellerEmployeeCode: 'J2508', currency: 'USD', grossProfitAmount: 500, itemCount: 1 }]);
+    const rows = await service.summarizeBySeller({ dateFrom: '2026-11-24', dateTo: '2026-11-25', accessOr: [{ sellerAccountId: '660000000000000000140008' }] });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ missingSnapshotCount: 1, itemCount: 2, grossProfitAmount: null });
+    expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
+  });
+
+  test('order detail exposes the missing sibling instead of a complete profit', async () => {
+    repository.listByOrder.mockResolvedValue([{ orderId, orderItemId, shopId, currency: 'USD', totalCostAmount: 100, grossProfitAmount: 500 }]);
+    orderPublic.pageFinanceItems.mockResolvedValueOnce([{ _id: '660000000000000000140099', orderId, shopId, sku: 'J2508-X', currency: 'USD' }]);
+    orderPublic.findItemsByIds.mockResolvedValue([]);
+    const result = await service.getOrderSummary(orderId, { system: true });
+    expect(result).toMatchObject({ itemCount: 2, missingSnapshotCount: 1, grossProfitAmount: null, totalCostAmount: null });
+    expect(result.snapshots.some(row => row.missingSnapshot)).toBe(true);
+  });
+
+  test('exports item rows from every repository page even when UI groups orders', async () => {
+    const row = { _id: 'snapshot', orderId, orderItemId, shopId, currency: 'USD' };
+    repository.list.mockResolvedValueOnce({ items: [row], total: 2, page: 1, limit: 1 })
+      .mockResolvedValueOnce({ items: [{ ...row, orderItemId: '660000000000000000140099' }], total: 2, page: 2, limit: 1 });
+    repository.summarizeOrderPnl.mockResolvedValue([]);
+    orderPublic.findItemsByIds.mockResolvedValue([]);
+    const csv = await service.exportSnapshotsCsv({ groupBy: 'ORDER' }, { system: true });
+    expect(csv).toContain('660000000000000000140099');
+    expect(repository.list.mock.calls.slice(-2).map(call => call[0].groupBy)).toEqual(['ITEM', 'ITEM']);
+  });
 
   test('does not audit finance reads', async () => {
     const auth = {
@@ -145,6 +199,8 @@ describe('financeSnapshot.service', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    orderPublic.pageFinanceItems.mockResolvedValue([]);
+    repository.listCalculationTimes.mockResolvedValue([]);
     transactionSession = { withTransaction: jest.fn(async (callback) => callback()), endSession: jest.fn() };
     jest.spyOn(mongoose, 'startSession').mockResolvedValue(transactionSession);
     authPublic.canAccessScope.mockReturnValue(true);
@@ -260,7 +316,7 @@ describe('financeSnapshot.service', () => {
   });
 
   test('exposes order P&L using the full fulfillment cost', async () => {
-    orderPublic.findItemById.mockResolvedValueOnce({
+    orderPublic.findItemById.mockResolvedValue({
       ...item,
       price: { ...item.price, itemPriceAmount: 10000, shippingPriceAmount: 0, itemPromotionDiscountAmount: 300 },
       externalData: { finance: { feeAmount: 900, refundAmount: 200 } },
@@ -302,8 +358,8 @@ describe('financeSnapshot.service', () => {
       marketplaceFeeAmount: 300,
       refundAmount: 200,
       discountAmount: 100,
-      baseCostAmount: 953,
-      additionalFulfillmentCostAmount: 425,
+      baseCostAmount: 853,
+      additionalFulfillmentCostAmount: 525,
       totalCostAmount: 1378,
       totalDeductionAmount: 1978,
       profitAmount: 2002,
@@ -375,7 +431,7 @@ describe('financeSnapshot.service', () => {
   });
 
   test('recalculate estimates a 15 percent fee only when no actual fee is available', async () => {
-    orderPublic.findItemById.mockResolvedValueOnce({ ...item, externalData: {} });
+    orderPublic.findItemById.mockResolvedValue({ ...item, externalData: {} });
 
     await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] });
 
@@ -487,7 +543,7 @@ describe('financeSnapshot.service', () => {
   test('recalculateOrders handles partial failures gracefully', async () => {
     const invalidOrderId = 'invalid-order-id';
     orderPublic.listItemsByOrder.mockResolvedValueOnce([item]);
-    orderPublic.findItemById.mockResolvedValueOnce(item);
+    orderPublic.findItemById.mockResolvedValue(item);
     mappingPublic.getFulfillmentPlanForOrderItem.mockResolvedValueOnce(fulfillmentPlan);
 
     const result = await service.recalculateOrders([orderId, invalidOrderId], { permissions: ['FINANCE:WRITE'] });
@@ -524,7 +580,7 @@ describe('financeSnapshot.service', () => {
   test('order recalculation aborts before audit when a later item upsert fails', async () => {
     const secondOrderItemId = '660000000000000000140222';
     orderPublic.listItemsByOrder.mockResolvedValueOnce([item, { ...item, _id: secondOrderItemId }]);
-    orderPublic.findItemById.mockResolvedValueOnce(item).mockResolvedValueOnce({ ...item, _id: secondOrderItemId });
+    orderPublic.findItemById.mockResolvedValue(item).mockResolvedValueOnce({ ...item, _id: secondOrderItemId });
     repository.upsertByOrderItem
       .mockImplementationOnce(async (_id, payload) => ({ _id: '660000000000000000140099', ...payload }))
       .mockRejectedValueOnce(new Error('second snapshot failed'));
@@ -630,7 +686,7 @@ describe('financeSnapshot.service', () => {
   });
 
   test('recalculates cancelled item with zero fulfillment cost and calculated profit', async () => {
-    orderPublic.findItemById.mockResolvedValueOnce({
+    orderPublic.findItemById.mockResolvedValue({
       ...item,
       externalStatus: 'CANCELLED',
       status: 'CANCELLED',
@@ -649,7 +705,7 @@ describe('financeSnapshot.service', () => {
         costStatus: 'PRESENT',
         snapshotStatus: 'ESTIMATED',
         financialStatus: 'CANCELLED',
-        grossProfitAmount: -192,
+        grossProfitAmount: -92,
         profitStatus: 'ACTUAL',
       }),
       { session: transactionSession },
@@ -658,12 +714,12 @@ describe('financeSnapshot.service', () => {
       snapshotStatus: 'ESTIMATED',
       cost: { baseCostAmount: 0, totalCostAmount: 0, costStatus: 'PRESENT' },
       revenue: { financialStatus: 'CANCELLED', customerPaidAmount: 3980, refundAmount: 3442 },
-      margin: { grossProfitAmount: -192 },
+      margin: { grossProfitAmount: -92 },
     });
   });
 
-  test('recalculates unshipped refunded item with zero fulfillment cost and calculated profit', async () => {
-    orderPublic.findItemById.mockResolvedValueOnce({
+  test('recalculates unshipped refunded item without treating missing tracking as evidence of zero production cost', async () => {
+    orderPublic.findItemById.mockResolvedValue({
       ...item,
       externalStatus: 'Refunded',
       status: 'TRACKING_PENDING',
@@ -678,21 +734,21 @@ describe('financeSnapshot.service', () => {
     expect(repository.upsertByOrderItem).toHaveBeenCalledWith(
       orderItemId,
       expect.objectContaining({
-        baseCostAmount: 0,
-        totalCostAmount: 0,
+        baseCostAmount: 1200,
+        totalCostAmount: 1228,
         costStatus: 'PRESENT',
         snapshotStatus: 'ESTIMATED',
         financialStatus: 'REFUNDED',
-        grossProfitAmount: -192,
-        profitStatus: 'ACTUAL',
+        grossProfitAmount: -1420,
+        profitStatus: 'ESTIMATED',
       }),
       { session: transactionSession },
     );
     expect(result).toMatchObject({
       snapshotStatus: 'ESTIMATED',
-      cost: { baseCostAmount: 0, totalCostAmount: 0, costStatus: 'PRESENT' },
+      cost: { baseCostAmount: 1200, totalCostAmount: 1228, costStatus: 'PRESENT' },
       revenue: { financialStatus: 'REFUNDED', customerPaidAmount: 3980, refundAmount: 3980 },
-      margin: { grossProfitAmount: -192 },
+      margin: { grossProfitAmount: -1420 },
     });
   });
 
@@ -712,7 +768,7 @@ describe('financeSnapshot.service', () => {
   });
 
   test('missing order item returns not found', async () => {
-    orderPublic.findItemById.mockResolvedValueOnce(null);
+    orderPublic.findItemById.mockResolvedValue(null);
 
     await expect(service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] })).rejects.toMatchObject({
       statusCode: 404,
@@ -828,7 +884,7 @@ describe('financeSnapshot.service', () => {
   test('summarizeDaily delegates daily aggregation to repository', async () => {
     repository.summarizeDaily.mockResolvedValueOnce([{ date: '2026-07-11', itemCount: 1 }]);
 
-    await expect(service.summarizeDaily({ shopId })).resolves.toEqual([{ date: '2026-07-11', itemCount: 1 }]);
+    await expect(service.summarizeDaily({ shopId })).resolves.toEqual([{ date: '2026-07-11', itemCount: 1, missingSnapshotCount: 0 }]);
     expect(repository.summarizeDaily).toHaveBeenCalledWith({ shopId });
   });
 
@@ -924,24 +980,27 @@ describe('financeSnapshot.service', () => {
 
   test('listOrderProfitability delegates paginated order P&L to the repository', async () => {
     repository.listOrderProfitability.mockResolvedValueOnce({
+      summaryByCurrency: [],
       items: [],
       pagination: { total: 0, page: 1, limit: 20 },
     });
 
     await expect(service.listOrderProfitability({ shopId })).resolves.toEqual({
+      summaryByCurrency: [],
       items: [],
       pagination: { total: 0, page: 1, limit: 20 },
     });
     expect(repository.listOrderProfitability).toHaveBeenCalledWith({ shopId });
   });
 
-  test('merges duplicate external order rows in profitability output', async () => {
+  test('preserves repository grouping, full-filter totals and statuses after pagination', async () => {
     repository.listOrderProfitability.mockResolvedValueOnce({
       items: [
         { orderItemIds: ['item-a'], orderId: 'order-a', shopId, externalOrderId: null, currency: 'USD', itemCount: 1, revenueAmount: 1000, netRevenueAmount: 900, totalCostAmount: 500, profitAmount: 400, missingCostCount: 0 },
         { orderItemIds: ['item-b'], orderId: 'order-b', shopId, externalOrderId: null, currency: 'USD', itemCount: 1, revenueAmount: 2000, netRevenueAmount: 1800, totalCostAmount: 700, profitAmount: 1100, missingCostCount: 0 },
       ],
-      pagination: { total: 2, page: 1, limit: 20 },
+      pagination: { total: 40, page: 1, limit: 2 },
+      summaryByCurrency: [{ currency: 'USD', refundAmount: 5185 }],
     });
     orderPublic.findItemsByIds.mockResolvedValueOnce([
       { _id: 'item-a', externalOrderId: '111-4184816-4909046' },
@@ -950,9 +1009,10 @@ describe('financeSnapshot.service', () => {
 
     const result = await service.listOrderProfitability({ shopId });
 
-    expect(result.items).toHaveLength(1);
-    expect(result.items[0]).toMatchObject({ externalOrderId: '111-4184816-4909046', itemCount: 2, revenueAmount: 3000, totalCostAmount: 1200, profitAmount: 1500 });
-    expect(result.pagination.total).toBe(1);
+    expect(result.items).toHaveLength(2);
+    expect(result.items[0]).toMatchObject({ externalOrderId: '111-4184816-4909046', itemCount: 1, revenueAmount: 1000 });
+    expect(result.pagination.total).toBe(40);
+    expect(result.summaryByCurrency).toEqual([{ currency: 'USD', refundAmount: 5185, missingSnapshotCount: 0 }]);
   });
 
   test('applies the active account operating cost on the report day', async () => {
@@ -1092,3 +1152,16 @@ describe('financeSnapshot.service', () => {
   });
 });
 const mongoose = require('mongoose');
+
+
+test('import adapters feed canonical revenue without double discounts or tax/gift-wrap inclusion', () => {
+  const { mapAmazonOrderReportRowsToExternalOrderDtos: amazon } = require('../../../src/modules/integration/externalOrderImport/sources/manualExcel/amazonOrderReport.mapper');
+  const { mapEtsySoldOrderItemRowsToExternalOrderDtos: etsy } = require('../../../src/modules/integration/externalOrderImport/sources/manualExcel/etsySoldOrderItems.mapper');
+  const { calculateSnapshotFinancials } = require('../../../src/modules/finance/services/financeCalculation.service');
+  const [amazonOrder] = amazon([{ 'order-id': 'order', 'order-item-id': 'item', currency: 'USD', 'item-price': '100', 'shipping-price': '5', 'item-tax': '7', 'gift-wrap-price': '3', 'item-promotion-discount': '10' }]);
+  const [etsyOrder] = etsy([{ 'Order ID': 'order', 'Transaction ID': 'item', Currency: 'USD', 'Item Total': '90', Price: '100', 'LNG Order Discount': '10', 'Order Sales Tax': '7' }]);
+  const amazonRevenue = service.calculateRevenue(amazonOrder.items[0], { feeAmount: 0 });
+  expect(amazonRevenue).toMatchObject({ customerPaidAmount: 10500, taxAmount: 700, giftWrapAmount: 300, discountAmount: 1000 });
+  expect(calculateSnapshotFinancials(amazonRevenue).recognizedNetRevenueAmount).toBe(9500);
+  expect(calculateSnapshotFinancials(service.calculateRevenue(etsyOrder.items[0], { feeAmount: 0 })).recognizedNetRevenueAmount).toBe(9000);
+});

@@ -26,6 +26,8 @@ function validate(schema, payload) {
 }
 
 const listSnapshotsQuerySchema = Joi.object({
+  currency: Joi.string().trim().uppercase().length(3),
+  groupBy: Joi.string().valid('ORDER', 'ITEM'),
   orderId: objectId,
   externalOrderId: Joi.string().trim().max(255),
   orderItemId: objectId,

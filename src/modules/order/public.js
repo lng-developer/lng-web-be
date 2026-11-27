@@ -26,6 +26,7 @@ const publicPort = {
   findOrderByFinanceIdentity: orderRepository.findByFinanceIdentity,
   findItemById: orderItemRepository.findById,
   pageItemIds: orderItemRepository.pageIds,
+  pageFinanceItems: orderItemRepository.pageFinanceItems,
   findItemIds: orderItemRepository.findIds,
   findItemsByIds: orderItemRepository.findByIds,
   findItemsForMarketplaceConfirmation: require('./services/orderMarketplaceQuantity.service').findItemsForMarketplaceConfirmation,

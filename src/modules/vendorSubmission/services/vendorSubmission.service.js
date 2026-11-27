@@ -1,3 +1,4 @@
+const { allocateVendorOrderCost } = require('./vendorCostAllocation.service');
 const AppError = require('../../../shared/errors/appError');
 const errorCodes = require('../../../shared/constants/errorCodes');
 const httpStatus = require('../../../shared/constants/httpStatus');
@@ -50,15 +51,13 @@ function moneyToMinorUnits(value) {
   return Number.isFinite(amount) ? Math.round(amount * 100) : null;
 }
 
-const SYSTEM_BASE_COST_MARKUP_AMOUNT = 100;
-
 function extractVendorCost(provider, response) {
   if (String(provider || '').toUpperCase() !== 'MANGOTEE') return null;
   const data = response?.data || response?.result || response || {};
   const vendorBaseCostAmount = moneyToMinorUnits(data.subtotal);
   return {
     vendorBaseCostAmount,
-    baseCostAmount: vendorBaseCostAmount === null ? null : vendorBaseCostAmount + SYSTEM_BASE_COST_MARKUP_AMOUNT,
+    baseCostAmount: vendorBaseCostAmount,
     shippingAmount: moneyToMinorUnits(data.shipping_fee),
     taxAmount: moneyToMinorUnits(data.ioss_fee ?? data.tax),
     additionalFeesAmount: moneyToMinorUnits(data.box_fee),
@@ -624,6 +623,10 @@ async function markSubmitted(submissionId, authContext) {
   assertCanAccessShop(submission.shopId, vendorSubmissionPermissions.WRITE, authContext);
   await orderPublic.assertMarketplaceAllowsFulfillment(submission.orderId, submission.orderItemId);
   if (submission.status === vendorSubmissionStatuses.SUBMITTED) {
+    if (submission.submittedResponse) {
+      await syncBundledSiblingSubmissionsOnSuccess(submission, { externalId: submission.vendorExternalOrderId, response: submission.submittedResponse }, { provider: submission.provider }, authContext);
+      await syncVendorCosts(submission);
+    }
     await repairProductionHandoff(submission, authContext);
     return toVendorSubmissionDto(submission, { detail: true });
   }
@@ -1064,6 +1067,64 @@ async function retry(submissionId, payload = {}, authContext) {
   return toVendorSubmissionDto(updated, { detail: true });
 }
 
+async function previewVendorCosts(primary) {
+  if (primary.provider !== 'MANGOTEE' || !primary.vendorExternalOrderId) return [];
+  const members = await repository.listCostBundle(primary) || [];
+  if (members.length > 1) {
+    const owner = members.find(row => row.payloadSnapshot?.bundledSubmissionIds?.length === members.length
+      && members.every(member => row.payloadSnapshot.bundledSubmissionIds.map(String).includes(String(member._id || member.id))));
+    if (!owner) throw conflict('Vendor cost bundle has no complete source membership');
+    primary = owner;
+  }
+  const cost = extractVendorCost(primary.provider, primary.submittedResponse);
+  if (!cost || cost.totalAmount === null) return [];
+  const primaryId = String(primary._id || primary.id);
+  const ids = [...new Set([primaryId, ...(primary.payloadSnapshot?.bundledSubmissionIds || []).map(String)])];
+  const submissions = await Promise.all(ids.map(id => id === primaryId ? primary : repository.findById(id)));
+  if (submissions.some(row => !row || String(row.orderId) !== String(primary.orderId)
+    || String(row.shopId) !== String(primary.shopId) || row.status !== vendorSubmissionStatuses.SUBMITTED
+    || row.vendorExternalOrderId !== primary.vendorExternalOrderId)) throw conflict('Vendor cost bundle needs reconciliation');
+  const items = submissions.map(row => ({
+    orderItemId: String(row.orderItemId),
+    currency: row.payloadSnapshot?.orderItem?.price?.currency || row.payloadSnapshot?.orderItem?.currency || row.payloadSnapshot?.vendorCostCenter?.currency,
+    estimatedAmount: row.payloadSnapshot?.costEstimate?.totalAmount
+      ?? (row.payloadSnapshot?.vendorCostCenter?.baseCostAmount != null
+        ? row.payloadSnapshot.vendorCostCenter.baseCostAmount * row.payloadSnapshot.fulfillQty : null),
+    quantity: row.payloadSnapshot?.fulfillQty ?? row.payloadSnapshot?.orderItem?.quantity,
+  }));
+  const allocate = amount => allocateVendorOrderCost({ vendorOrderId: primary.vendorExternalOrderId,
+    currency: cost.currency, totalAmount: amount, items, sourceVersion: primary.submittedAt || null });
+  // A single item needs no weighting, but still retains source evidence.
+  if (items.length === 1) items[0].quantity = 1;
+  const result = allocate(cost.totalAmount);
+  const components = Object.fromEntries(['vendorBaseCostAmount', 'shippingAmount', 'taxAmount', 'additionalFeesAmount']
+    .map(key => [key, cost[key] == null ? null : allocate(cost[key]).allocations]));
+  return submissions.map(row => {
+    const itemId = String(row.orderItemId);
+    const vendorCost = { ...cost, capturedAt: primary.submittedAt || primary.vendorCost?.capturedAt || null,
+      totalAmount: result.allocations.find(part => part.orderItemId === itemId).totalAmount,
+      allocation: result.provenance,
+    };
+    for (const [key, shares] of Object.entries(components)) vendorCost[key] = shares?.find(part => part.orderItemId === itemId)?.totalAmount ?? null;
+    vendorCost.baseCostAmount = vendorCost.vendorBaseCostAmount;
+    return { submissionId: String(row._id || row.id), orderItemId: String(row.orderItemId), vendorCost };
+  });
+}
+
+async function previewCostForOrderItem(orderItemId) {
+  const submission = await repository.findByOrderItemId(orderItemId);
+  if (!submission) return null;
+  const rows = await previewVendorCosts(submission);
+  return rows.find(row => row.orderItemId === String(orderItemId)) || null;
+}
+
+async function syncVendorCosts(primary) {
+  for (const row of await previewVendorCosts(primary)) {
+    await repository.updateById(row.submissionId, { vendorCost: row.vendorCost });
+    await financePublic.updateActualVendorCost(row.orderItemId, row.vendorCost);
+  }
+}
+
 async function syncBundledSiblingSubmissionsOnSuccess(primarySubmission, submitResult, adapter, authContext) {
   const bundledSubmissionIds = Array.isArray(primarySubmission.payloadSnapshot?.bundledSubmissionIds)
     ? primarySubmission.payloadSnapshot.bundledSubmissionIds.filter((id) => String(id) !== String(primarySubmission._id || primarySubmission.id))
@@ -1071,7 +1132,6 @@ async function syncBundledSiblingSubmissionsOnSuccess(primarySubmission, submitR
 
   if (!bundledSubmissionIds.length) return;
 
-  const vendorCost = submitResult.response ? extractVendorCost(adapter.provider, submitResult.response) : null;
 
   for (const siblingId of bundledSubmissionIds) {
     try {
@@ -1094,7 +1154,6 @@ async function syncBundledSiblingSubmissionsOnSuccess(primarySubmission, submitR
               payloadSnapshot: { ...sibling.payloadSnapshot, vendorClientOrderId: primarySubmission.payloadSnapshot.vendorClientOrderId },
             } : {}),
             submittedResponse: stripUnsafe(submitResult.response || null),
-            ...(vendorCost ? { vendorCost } : {}),
             submittedBy: authContext?.accountId || null,
             submittedAt: new Date(),
             statusHistory: appendStatusHistory(
@@ -1113,9 +1172,6 @@ async function syncBundledSiblingSubmissionsOnSuccess(primarySubmission, submitR
             changes: { status: { from: sibling.status, to: vendorSubmissionStatuses.SUBMITTED } },
             metadata: { provider: adapter.provider, bundledWith: String(primarySubmission._id || primarySubmission.id) },
           });
-          if (vendorCost) {
-            await financePublic.updateActualVendorCost(siblingUpdated.orderItemId, vendorCost);
-          }
           await repairProductionHandoff(siblingUpdated, authContext);
         }
       }
@@ -1183,6 +1239,11 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
   await orderPublic.assertMarketplaceAllowsFulfillment(submission.orderId, submission.orderItemId);
 
   if (submission.status === vendorSubmissionStatuses.SUBMITTED) {
+    if (dryRun) return toVendorSubmissionDto(submission, { detail: true });
+    if (submission.submittedResponse) {
+      await syncBundledSiblingSubmissionsOnSuccess(submission, { externalId: submission.vendorExternalOrderId, response: submission.submittedResponse }, { provider: submission.provider }, authContext);
+      await syncVendorCosts(submission);
+    }
     await repairProductionHandoff(submission, authContext);
     return toVendorSubmissionDto(submission, { detail: true });
   }
@@ -1315,7 +1376,6 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
     provider: adapter.provider,
     vendorExternalOrderId: submitResult.externalId || null,
     submittedResponse: stripUnsafe(submitResult.response || null),
-    vendorCost: extractVendorCost(adapter.provider, submitResult.response),
     submittedBy: authContext?.accountId || null,
     submittedAt: new Date(),
     statusHistory: appendStatusHistory(submission, vendorSubmissionStatuses.SUBMITTED, authContext, `Submitted to ${adapter.provider}`),
@@ -1326,11 +1386,10 @@ async function submitToVendor(submissionId, payload = {}, authContext) {
     changes: { status: { from: submission.status, to: vendorSubmissionStatuses.SUBMITTED } },
     metadata: { provider: adapter.provider },
   });
-  const vendorCost = extractVendorCost(adapter.provider, submitResult.response);
-  if (vendorCost) await financePublic.updateActualVendorCost(updated.orderItemId, vendorCost);
 
   await repairProductionHandoff(updated, authContext);
   await syncBundledSiblingSubmissionsOnSuccess(updated, submitResult, adapter, authContext);
+  await syncVendorCosts(updated);
 
   return toVendorSubmissionDto(updated, { detail: true });
 }
@@ -1401,6 +1460,9 @@ async function getByProviderExternalOrderId({ provider, vendorExternalOrderId } 
 }
 
 module.exports = {
+  previewVendorCosts,
+  previewCostForOrderItem,
+  syncVendorCosts,
   cancel,
   cancelAfterExternalCancellation,
   createAndSubmitFromProductionTask,

@@ -69,6 +69,7 @@ const vendorSubmissionSchema = new Schema({
     default: null,
   },
   vendorCost: {
+    allocation: { type: Schema.Types.Mixed, default: null },
     vendorBaseCostAmount: { type: Number, default: null },
     baseCostAmount: { type: Number, default: null },
     shippingAmount: { type: Number, default: null },

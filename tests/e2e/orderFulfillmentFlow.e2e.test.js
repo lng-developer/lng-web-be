@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+jest.mock('../../src/modules/finance/repositories/financeRecalculationRequest.repository', () => ({ prepareGuard: jest.fn(), lockOrder: jest.fn() }));
 const authPublic = require('../../src/modules/auth/public');
 const hrPublic = require('../../src/modules/hr/public');
 const orderPublic = require('../../src/modules/order/public');
