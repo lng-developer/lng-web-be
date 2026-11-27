@@ -181,6 +181,17 @@ async function receiveVendorWebhook(provider, req) {
       );
     }
 
+    if (normalizeProviderKey(provider) === 'LNG_GROUP' && body.eventType === 'fulfillment.accepted') {
+      if (submission.status !== 'SUBMITTED') {
+        const result = { reason: 'SUBMISSION_NOT_SUBMITTED', vendorSubmissionId: submission.id };
+        await writeLog({ provider, outcome: vendorWebhookOutcomes.SKIPPED, httpStatus: httpStatus.ACCEPTED, message: result.reason, normalized, submission, rawPayload: body, result, req });
+        return { statusCode: httpStatus.ACCEPTED, data: result };
+      }
+      const result = { eventType: 'fulfillment.accepted', vendorSubmissionId: submission.id, status: submission.status };
+      await writeLog({ provider, outcome: vendorWebhookOutcomes.SUCCESS, httpStatus: httpStatus.OK, message: 'Fulfillment acceptance acknowledged', normalized, submission, rawPayload: body, result, req });
+      return { statusCode: httpStatus.OK, data: result };
+    }
+
     const existing = await shipmentRepository.findActiveByVendorSubmission(submission.id);
     if (existing?.status === shipmentStatuses.CANCELLED) {
       const result = {
