@@ -37,6 +37,7 @@ const bodyByRoute = {
   'POST /api/orders/cases/:caseId/resolve': { resolutionNote: 'Resolved after customer confirmation.' },
   'POST /api/orders/items/:orderItemId/cancel': { reason: 'Customer requested cancellation' },
   'PATCH /api/orders/items/:orderItemId/cs-note': { csNote: 'Confirmed personalization details with customer.' },
+  'PATCH /api/orders/items/:orderItemId/quantity': { quantity: 2, expectedQuantity: 1, reason: 'Buyer selected pack 2' },
   'POST /api/orders/items/:orderItemId/mark-fulfillment-ready': {},
   'POST /api/orders/items/:orderItemId/recheck': {},
   'POST /api/orders/items/:orderItemId/replacement': { reason: 'Print defect', quantity: 1 },
