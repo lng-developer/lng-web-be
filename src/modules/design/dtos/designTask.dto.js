@@ -281,7 +281,16 @@ function toPaginatedResponse(result = {}) {
   };
 }
 
+function toAsinSummaryDto(group, counts = {}) {
+  const totalFileCount = counts.totalFileCount || 0;
+  const scaledFileCount = counts.scaledFileCount || 0;
+  return { asin: group._id, taskCount: group.taskCount,
+    productionTaskCount: counts.productionTaskCount || 0,
+    totalFileCount, scaledFileCount, pendingFileCount: totalFileCount - scaledFileCount };
+}
+
 module.exports = {
+  toAsinSummaryDto,
   toDesignTaskDto,
   toId,
   toPaginatedResponse,

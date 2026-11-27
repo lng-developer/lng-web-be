@@ -3726,6 +3726,46 @@
               }
             },
             {
+              "name": "GET /api/design/tasks/asin-summary",
+              "request": {
+                "description": "Bearer token required. Same scoped permissions and query filters as GET tasks. Forces PSD_TEMPLATE and Amazon ASIN groups, sorted by ASIN before group pagination. Returns data.items with asin, taskCount, productionTaskCount, totalFileCount, scaledFileCount, pendingFileCount and data.pagination {page,limit,total}. Production counts cover all linked non-cancelled tasks in authorized listing/shop pairs; personal sellers are restricted by SKU employee code. File counts are declared CUSTOMER_IMAGE slots (required, input/output present, or scaling status), never PSD template input slots or order quantities. QC rejected outputs remain pending rework; undeclared slots cannot be estimated.",
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/design/tasks/asin-summary?page=1&limit=20",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "design",
+                    "tasks",
+                    "asin-summary"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
               "name": "POST /api/design/tasks",
               "request": {
                 "description": "Bearer token required. Permissions (ANY): DESIGN:WRITE.",

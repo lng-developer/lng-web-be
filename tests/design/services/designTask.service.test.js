@@ -18,6 +18,7 @@ jest.mock('../../../src/modules/media/public', () => ({
 }));
 
 jest.mock('../../../src/modules/production/public', () => ({
+  summarizeScaleFilesByListings: jest.fn(),
   createOrRecheckTaskForOrderItem: jest.fn(),
   listPsdBlockedTasksByExternalOrderId: jest.fn(),
   listPsdBlockedTasksByListing: jest.fn(),
@@ -51,6 +52,7 @@ jest.mock('../../../src/modules/shop/public', () => ({
 }));
 
 jest.mock('../../../src/modules/design/repositories/designTask.repository', () => ({
+  listAsinGroups: jest.fn(),
   create: jest.fn(),
   deleteById: jest.fn(),
   findActiveByListingAndType: jest.fn(),
@@ -92,6 +94,35 @@ const notificationPublic = require('../../../src/modules/notification/public');
 const service = require('../../../src/modules/design/services/designTask.service');
 
 describe('designTask.service', () => {
+  test('ASIN summary intersects requester and own assignment for explicit WORK mixed roles', async () => {
+    repository.listAsinGroups.mockResolvedValue({ items: [], page: 1, limit: 20, total: 0 });
+    productionPublic.summarizeScaleFilesByListings.mockResolvedValue([]);
+    await service.listAsinSummary({}, { accountId: 'worker', permissions: ['DESIGN:WORK', 'DESIGN:PSD_REQUEST'] });
+    expect(repository.listAsinGroups).toHaveBeenCalledWith(expect.objectContaining({
+      taskType: 'PSD_TEMPLATE', assignedDesignerId: 'worker', requestedByAccountIds: ['worker'],
+    }));
+  });
+  test('ASIN summary preserves seller scope, forces PSD tasks and exposes only aggregate DTOs', async () => {
+    const auth = { accountId: 'seller-a', scopes: [{ roles: ['SALES'], scopeType: 'team', permissions: ['DESIGN:READ'] }] };
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ employeeCode: 'J2502' });
+    catalogPublic.findListingIdsBySellerCode.mockResolvedValue(['own-listing']);
+    repository.listAsinGroups.mockResolvedValue({ page: 2, limit: 1, total: 3,
+      items: [{ _id: 'B001', taskCount: 4, listings: [{ listingId: 'own-listing', shopId: 'shop' }] }] });
+    productionPublic.summarizeScaleFilesByListings.mockResolvedValue([
+      { asin: 'B001', productionTaskCount: 2, totalFileCount: 4, scaledFileCount: 1 },
+    ]);
+    expect(await service.listAsinSummary({ taskType: 'MOCKUP', page: 2, limit: 1, status: 'APPROVED' }, auth))
+      .toEqual({ items: [{ asin: 'B001', taskCount: 4, productionTaskCount: 2,
+        totalFileCount: 4, scaledFileCount: 1, pendingFileCount: 3 }], pagination: { page: 2, limit: 1, total: 3 } });
+    expect(repository.listAsinGroups).toHaveBeenCalledWith(expect.objectContaining({
+      taskType: 'PSD_TEMPLATE', sellerRequestedByAccountId: 'seller-a', sellerListingIds: ['own-listing'], status: 'APPROVED',
+    }));
+    expect(productionPublic.summarizeScaleFilesByListings).toHaveBeenCalledWith(expect.any(Array), { sellerCode: 'J2502' });
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue(null);
+    productionPublic.summarizeScaleFilesByListings.mockResolvedValue([]);
+    expect((await service.listAsinSummary({}, auth)).items[0]).toMatchObject({ taskCount: 4, totalFileCount: 0, pendingFileCount: 0 });
+    expect(productionPublic.summarizeScaleFilesByListings).toHaveBeenLastCalledWith(expect.any(Array), { sellerCode: '' });
+  });
   test('Seller PSD reads use own requester or owned listings, never the whole team', async () => {
     const auth = { accountId: 'seller-a', scopes: [{ roles: ['SALES'], scopeType: 'team', permissions: ['DESIGN:READ', 'DESIGN:PSD_REQUEST'] }] };
     hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ employeeCode: 'J2502' });

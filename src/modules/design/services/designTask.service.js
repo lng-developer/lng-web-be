@@ -24,7 +24,7 @@ const scoreRepository = require('../repositories/designSubmissionScore.repositor
 const repository = require('../repositories/designTask.repository');
 const { recordDesignOperation } = require('./designOperationAudit.service');
 const designNotificationService = require('./designNotification.service');
-const { toDesignTaskDto, toId, toPaginatedResponse } = require('../dtos/designTask.dto');
+const { toDesignTaskDto, toId, toPaginatedResponse, toAsinSummaryDto } = require('../dtos/designTask.dto');
 const {
   toPsdFileListItemDto,
   toSubmissionScoreListItemDto,
@@ -565,6 +565,35 @@ async function listTasks(query = {}, authContext) {
     ...result,
     dtoOptions: await buildDtoOptions(result.items),
   });
+}
+
+async function listAsinSummary(query = {}, authContext) {
+  const scopedQuery = await applyOrderIdFilter(await applyReadAccessFilter({
+    ...query, taskType: designTaskTypes.PSD_TEMPLATE,
+  }, authContext));
+  if (!scopedQuery.sellerRequestedByAccountId && !hasFullRead(authContext)
+    && !hasTeamQueueScope(authContext) && hasExplicitPermission(authContext, designPermissions.WORK)) {
+    if (scopedQuery.assignedDesignerId && String(scopedQuery.assignedDesignerId) !== String(authContext?.accountId)) {
+      scopedQuery.assignedDesignerIds = [];
+    }
+    scopedQuery.assignedDesignerId = authContext?.accountId;
+  }
+  const result = await repository.listAsinGroups(scopedQuery);
+  if (hasFullRead(authContext) && !scopedQuery.sellerRequestedByAccountId) {
+    result.items.forEach((group) => group.listings.forEach(({ shopId }) =>
+      assertCanAccessShopAny(shopId, DESIGN_READ_SCOPE_PERMISSIONS, authContext)));
+  }
+  let sellerCode;
+  if (scopedQuery.sellerRequestedByAccountId) {
+    const profile = await hrPublic.getEmployeeProfileByAccountId(scopedQuery.sellerRequestedByAccountId);
+    sellerCode = String(profile?.employeeCode || '').trim().toUpperCase();
+  }
+  const counts = await productionPublic.summarizeScaleFilesByListings(
+    result.items.map((group) => ({ asin: group._id, listings: group.listings })), { sellerCode },
+  );
+  const byAsin = new Map(counts.map((row) => [row.asin, row]));
+  return { items: result.items.map((group) => toAsinSummaryDto(group, byAsin.get(group._id))),
+    pagination: { page: result.page, limit: result.limit, total: result.total } };
 }
 
 function csvCell(value) {
@@ -1579,6 +1608,7 @@ async function canReadSellerAsset(assetId, authContext) {
 }
 
 module.exports = {
+  listAsinSummary,
   canReadSellerAsset,
   approveTask,
   assignTask,

@@ -117,6 +117,49 @@ function sellerCodeRegex(value) {
   return sellerCode ? new RegExp(`^${escapeRegex(sellerCode)}(?:-|$)`, 'i') : null;
 }
 
+async function summarizeScaleFilesByListings(groups = [], { sellerCode } = {}) {
+  if (!groups.length || sellerCode === '') return [];
+  const branches = groups.flatMap((group) => group.listings.map(({ listingId, shopId }) => ({
+    asin: group.asin,
+    match: { shopId: toObjectId(shopId), $or: [
+      { 'listingSnapshot.id': String(listingId) },
+      { 'listingSnapshot._id': String(listingId) },
+      { 'listingSnapshot._id': toObjectId(listingId) },
+    ] },
+    condition: { $and: [
+      { $eq: ['$shopId', toObjectId(shopId)] },
+      { $or: [
+        { $eq: ['$listingSnapshot.id', String(listingId)] },
+        { $eq: [{ $toString: '$listingSnapshot._id' }, String(listingId)] },
+      ] },
+    ] },
+  })));
+  if (!branches.length) return [];
+  const hasAsset = (field) => ({ $ne: [{ $ifNull: [field, null] }, null] });
+  return ProductionTask.aggregate([
+    { $match: { status: { $ne: productionTaskStatuses.CANCELLED },
+      'orderSnapshot.status': { $ne: 'CANCELLED' },
+      ...(sellerCode ? { 'orderItemSnapshot.sku': sellerCodeRegex(sellerCode) } : {}),
+      $or: branches.map((branch) => branch.match) } },
+    { $project: { asin: { $switch: { branches: branches.map((branch) => ({
+      case: branch.condition, then: branch.asin,
+    })), default: null } }, checks: { $filter: {
+      input: { $ifNull: ['$fileChecks', []] }, as: 'check', cond: { $and: [
+        { $eq: ['$$check.sourceType', 'CUSTOMER_IMAGE'] },
+        { $or: [{ $eq: ['$$check.required', true] }, hasAsset('$$check.inputAssetId'),
+          hasAsset('$$check.outputAssetId'), { $in: ['$$check.scaleStatus', ['NEED_SCALE', 'SCALED']] }] },
+      ] },
+    } } } },
+    { $group: { _id: '$asin', productionTaskCount: { $sum: 1 },
+      totalFileCount: { $sum: { $size: '$checks' } },
+      scaledFileCount: { $sum: { $size: { $filter: { input: '$checks', as: 'check',
+        cond: { $and: [hasAsset('$$check.outputAssetId'), { $ne: ['$$check.qcStatus', 'REJECTED'] },
+          { $not: [{ $in: ['QC_REJECTED', { $ifNull: ['$$check.blockers', []] }] }] }] },
+      } } } } } },
+    { $project: { _id: 0, asin: '$_id', productionTaskCount: 1, totalFileCount: 1, scaledFileCount: 1 } },
+  ]);
+}
+
 async function listPsdBlockedByListingId(listingId) {
   const listingObjectId = mongoose.Types.ObjectId.isValid(listingId)
     ? new mongoose.Types.ObjectId(listingId)
@@ -811,6 +854,7 @@ async function removeFileCheckIfMutable(taskId, fileCheckId, { session } = {}) {
 }
 
 module.exports = {
+  summarizeScaleFilesByListings,
   findSellerTaskReferencingAsset,
   findAssignedTaskReferencingInputAsset,
   findById,

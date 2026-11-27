@@ -36,6 +36,11 @@ async function listTasks(req, res) {
   });
 }
 
+async function listAsinSummary(req, res) {
+  const query = assertValid(listTasksQuerySchema, req.query);
+  res.status(httpStatus.OK).json({ success: true, data: await service.listAsinSummary(query, req.auth) });
+}
+
 async function exportTasksCsv(req, res) {
   const query = assertValid(exportTasksQuerySchema, req.query);
   const result = await service.exportTasksCsv(query, req.auth);
@@ -249,6 +254,7 @@ async function voidSubmissionScore(req, res) {
 }
 
 module.exports = {
+  listAsinSummary,
   uploadAsset,
   approveTask,
   assignTask,

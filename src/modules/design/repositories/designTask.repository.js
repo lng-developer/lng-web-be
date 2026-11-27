@@ -156,6 +156,21 @@ async function list(query = {}) {
   });
 }
 
+async function listAsinGroups(query = {}) {
+  const { page, limit } = normalizePagination(query);
+  const [result] = await DesignTask.aggregate([
+    { $match: buildFilter({ ...query, taskType: designTaskTypes.PSD_TEMPLATE }) },
+    { $match: { 'listingSnapshot.asin': { $type: 'string', $ne: '' },
+      'listingSnapshot.salesChannelCode': 'AMAZON' } },
+    { $group: { _id: '$listingSnapshot.asin', taskCount: { $sum: 1 },
+      listings: { $addToSet: { listingId: { $ifNull: ['$targetListingId', '$listingId'] }, shopId: '$shopId' } } } },
+    { $sort: { _id: 1 } },
+    { $facet: { items: [{ $skip: getPaginationOffset({ page, limit }) }, { $limit: limit }],
+      total: [{ $count: 'count' }] } },
+  ]);
+  return { items: result?.items || [], page, limit, total: result?.total?.[0]?.count || 0 };
+}
+
 function countStatus(status) {
   return { $sum: { $cond: [{ $eq: ['$status', status] }, 1, 0] } };
 }
@@ -421,6 +436,7 @@ function findTaskReferencingAsset(assetId, query) {
 }
 
 module.exports = {
+  listAsinGroups,
   findTaskReferencingAsset,
   buildFilter,
   buildSort,
