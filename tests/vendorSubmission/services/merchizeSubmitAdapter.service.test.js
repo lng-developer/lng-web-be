@@ -1,6 +1,13 @@
 const adapter = require('../../../src/modules/vendorSubmission/services/submitAdapters/merchize.adapter');
 
 describe('merchize submit adapter', () => {
+  test('rejects a failed import inside a successful API envelope', async () => {
+    const body = { success: true, data: { status: 'failed', error: 'Order is duplicated' } };
+    global.fetch.mockResolvedValue({ ok: true, status: 200, json: async () => body });
+    await expect(adapter.submitPayload(adapter.buildPayload(submission), {
+      credential: { baseUrl: 'https://merchize.example', accessToken: 'token' },
+    })).rejects.toMatchObject({ statusCode: 409, details: { response: body, message: 'Order is duplicated' } });
+  });
   const submission = {
     id: '660000000000000000120001',
     orderItemId: '660000000000000000120004',

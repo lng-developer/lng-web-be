@@ -138,10 +138,10 @@ async function submitPayload(payload, { credential } = {}) {
     body: JSON.stringify(payload),
   });
   const body = await response.json().catch(async () => ({ message: await response.text().catch(() => '') }));
-  if (!response.ok || body.success === false) {
+  if (!response.ok || body.success === false || body.data?.status === 'failed') {
     throw appError('Merchize rejected order', httpStatus.CONFLICT, errorCodes.CONFLICT_ERROR, {
       statusCode: response.status,
-      message: body.message || null,
+      message: body.data?.error || body.message || null,
       response: body,
     });
   }

@@ -16,7 +16,8 @@ async function allocate(submission, provider, vendorId) {
   const usedIds = new Set();
   let floor = 0;
   for (const row of history) {
-    const saved = row.payloadSnapshot?.vendorClientOrderId || row.payloadSnapshot?.mangoteeExternalOrderId;
+    const saved = row.payloadSnapshot?.vendorClientOrderId || row.payloadSnapshot?.mangoteeExternalOrderId
+      || row.payloadSnapshot?.merchizeExternalOrderId;
     const priorAttempts = (row.submitAttemptCount || 0)
       - (String(row._id) === String(submission._id || submission.id) ? 1 : 0);
     const used = saved || row.vendorExternalOrderId

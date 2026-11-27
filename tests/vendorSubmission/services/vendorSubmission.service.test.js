@@ -139,6 +139,7 @@ describe('vendorSubmission.service', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    vendorOrderId.allocate.mockResolvedValue('113-TEST-ORDER');
     productionPublic.getTaskById.mockResolvedValue(readyTask);
     productionPublic.listTasks.mockResolvedValue({
       items: [{ id: productionTaskId }],
@@ -761,7 +762,7 @@ describe('vendorSubmission.service', () => {
     expect(repository.claimReadyForSubmit).not.toHaveBeenCalled();
   });
 
-  test.each(['MANGOTEE', 'PRINTWAY'])('%s persists its client ID before dispatch and retains it on timeout', async (provider) => {
+  test.each(['MANGOTEE', 'PRINTWAY', 'MERCHIZE'])('%s persists its client ID before dispatch and retains it on timeout', async (provider) => {
     vendorPublic.getVendorIntegrationAssignment.mockResolvedValue({ providerKey: provider, status: 'CONNECTED' });
     vendorOrderId.allocate.mockResolvedValue('113-ORDER-R3');
     const adapter = {
@@ -1005,7 +1006,8 @@ describe('vendorSubmission.service', () => {
     expect(JSON.stringify(auditPublic.record.mock.calls[0][0])).not.toContain('MZ-ORDER-1');
   });
 
-  test('persists an R2 reference before retrying a Merchize submission', async () => {
+  test('persists an R2 reference for a new Merchize submission after reset', async () => {
+    vendorOrderId.allocate.mockResolvedValue('113-TEST-ORDER-R2');
     const retrySubmission = {
       ...submission,
       submitAttemptCount: 1,
@@ -1019,7 +1021,7 @@ describe('vendorSubmission.service', () => {
       ...retrySubmission,
       status: 'SUBMITTING',
       provider: 'MERCHIZE',
-      submitAttemptCount: 2,
+      submitAttemptCount: 1,
     });
     repository.updateById.mockImplementation(async (_id, patch) => ({ ...retrySubmission, ...patch }));
 
@@ -1027,7 +1029,7 @@ describe('vendorSubmission.service', () => {
       permissions: ['VENDOR_SUBMISSIONS:WRITE'], accountId: actorId,
     });
 
-    expect(repository.updateById).toHaveBeenCalledWith(submissionId, expect.objectContaining({
+    expect(repository.transitionStatus).toHaveBeenCalledWith(submissionId, ['SUBMITTING'], expect.objectContaining({
       payloadSnapshot: expect.objectContaining({ merchizeExternalOrderId: '113-TEST-ORDER-R2' }),
     }));
   });
@@ -1134,7 +1136,7 @@ describe('vendorSubmission.service', () => {
       accountId: actorId,
     });
 
-    const patch = repository.transitionStatus.mock.calls[0][2];
+    const patch = repository.transitionStatus.mock.calls.find(([, , update]) => update.status === 'SUBMITTED')[2];
     expect(patch.submittedResponse).toEqual({ success: true });
   });
 });
