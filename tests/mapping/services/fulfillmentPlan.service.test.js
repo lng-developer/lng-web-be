@@ -63,6 +63,8 @@ jest.mock('../../../src/modules/mapping/repositories/fulfillmentPlan.repository'
   findActiveByOrderItem: jest.fn(),
   findByOrderItem: jest.fn(),
   listByOrderItemIds: jest.fn(),
+  listByOrder: jest.fn(),
+  updateSnapshot: jest.fn(),
   listBlockedByListingAndProductType: jest.fn(),
   listUnmatched: jest.fn(),
   summarize: jest.fn(),
@@ -100,6 +102,69 @@ const repository = require('../../../src/modules/mapping/repositories/fulfillmen
 const mappingRuleService = require('../../../src/modules/mapping/services/mappingRule.service');
 const logger = require('../../../src/shared/utils/logger');
 const service = require('../../../src/modules/mapping/services/fulfillmentPlan.service');
+
+describe('syncOrderItemQuantity', () => {
+  beforeEach(() => jest.clearAllMocks());
+  afterEach(() => jest.resetAllMocks());
+
+  test('recalculates selected plans and grouped shipping in the caller transaction', async () => {
+    const session = {};
+    const order = { shippingAddress: { countryCode: 'US' } };
+    const rate = { _id: 'rate', baseCostAmount: 1000, currency: 'USD', domesticShipping: { economyAmount: 500, additionalAmount: 200 } };
+    const plans = ['item-a', 'item-b'].map(orderItemId => ({
+      orderId: 'order', orderItemId, status: 'READY', selectionMode: 'MANUAL', vendorProductId: 'product', vendorCostCenterId: 'rate',
+      snapshot: { orderItem: { quantity: 1 }, vendor: { id: 'vendor' }, costEstimate: service.buildCostEstimate({ costCenter: rate, item: { quantity: 1 }, order }) },
+    }));
+    repository.findByOrderItem.mockResolvedValue(plans[0]);
+    repository.listByOrder.mockResolvedValue(plans);
+    repository.updateSnapshot.mockImplementation(async (id, snapshot) => ({ ...plans.find(plan => plan.orderItemId === id), snapshot }));
+    orderPublic.findById.mockResolvedValue(order);
+    vendorPublic.listActiveVendorCostCenters.mockResolvedValue([rate]);
+    vendorPublic.selectCostRate.mockReturnValue(rate);
+    await service.syncOrderItemQuantity('item-a', 2, { session });
+    const writes = repository.updateSnapshot.mock.calls;
+    expect(writes).toHaveLength(2);
+    expect(writes[0][1].orderItem.quantity).toBe(2);
+    expect(writes[0][1].costEstimate.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'BASE_COST', amount: 2000 }),
+      expect.objectContaining({ code: 'SHIPPING_ECONOMY', amount: 500 }),
+      expect.objectContaining({ code: 'SHIPPING_ADDITIONAL', amount: 200 }),
+    ]));
+    expect(writes[1][1].costEstimate.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'SHIPPING_ECONOMY', amount: 0 }),
+      expect.objectContaining({ code: 'SHIPPING_ADDITIONAL', amount: 200 }),
+    ]));
+    expect(writes.every(call => call[2].session === session)).toBe(true);
+    expect(repository.listByOrder).toHaveBeenCalledWith('order', { session });
+    expect(orderPublic.updateOrderWorkbenchItem).toHaveBeenCalledWith('order', 'item-a', expect.any(Object), { source: 'MAPPING', session });
+    expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
+    expect(productionPublic.createOrRecheckTaskForOrderItem).not.toHaveBeenCalled();
+  });
+
+  test('rejects invalid quantity before reading or writing plans', async () => {
+    await expect(service.syncOrderItemQuantity('item', 0)).rejects.toThrow('Quantity must be a positive integer');
+    expect(repository.findByOrderItem).not.toHaveBeenCalled();
+  });
+
+  test('rejects unavailable selected rates without writing partial estimates', async () => {
+    const plan = { orderId: 'order', orderItemId: 'item', status: 'READY', vendorProductId: 'product', vendorCostCenterId: 'missing', snapshot: {} };
+    repository.findByOrderItem.mockResolvedValue(plan);
+    repository.listByOrder.mockResolvedValue([plan]);
+    vendorPublic.listActiveVendorCostCenters.mockResolvedValue([]);
+    await expect(service.syncOrderItemQuantity('item', 2)).rejects.toThrow('Selected vendor cost center is unavailable');
+    expect(repository.updateSnapshot).not.toHaveBeenCalled();
+  });
+
+  test('updates a blocked plan snapshot without selecting a vendor', async () => {
+    const plan = { orderId: 'order', orderItemId: 'item', status: 'BLOCKED', snapshot: { orderItem: { quantity: 1 }, costEstimate: null } };
+    repository.findByOrderItem.mockResolvedValue(plan);
+    repository.listByOrder.mockResolvedValue([plan]);
+    repository.updateSnapshot.mockResolvedValue(plan);
+    await service.syncOrderItemQuantity('item', 2);
+    expect(repository.updateSnapshot).toHaveBeenCalledWith('item', { orderItem: { quantity: 2 }, costEstimate: null }, { session: undefined });
+    expect(vendorPublic.listActiveVendorCostCenters).not.toHaveBeenCalled();
+  });
+});
 
 describe('buildCostEstimate', () => {
   const costCenter = {

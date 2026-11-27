@@ -80,7 +80,7 @@ function notFound(message) {
   return appError(message, httpStatus.NOT_FOUND, errorCodes.RESOURCE_NOT_FOUND);
 }
 
-async function syncWorkbenchFulfillmentPlan(plan) {
+async function syncWorkbenchFulfillmentPlan(plan, options = {}) {
   const fulfillmentPlan = toFulfillmentPlanDto(plan);
   if (!fulfillmentPlan?.orderId || !fulfillmentPlan?.orderItemId) return;
   const [catalogListing, listingVariant] = await Promise.all([
@@ -103,7 +103,7 @@ async function syncWorkbenchFulfillmentPlan(plan) {
     fulfillmentPlan.orderId,
     fulfillmentPlan.orderItemId,
     patch,
-    { source: 'MAPPING' },
+    { source: 'MAPPING', ...options },
   );
 }
 
@@ -426,6 +426,42 @@ async function applyOrderCostEstimates(orderId) {
     await syncWorkbenchFulfillmentPlan(updatedPlan);
   }
   return updatedPlans;
+}
+
+async function syncOrderItemQuantity(orderItemId, quantity, { session } = {}) {
+  if (!Number.isSafeInteger(quantity) || quantity < 1) throw validationError('Quantity must be a positive integer');
+  const existing = await repository.findByOrderItem(orderItemId, { session });
+  if (!existing) return;
+  const plans = await repository.listByOrder(existing.orderId, { session });
+  const order = await orderPublic.findById(existing.orderId);
+  for (const plan of plans) {
+    const snapshot = plan.snapshot || {};
+    if (String(plan.orderItemId) === String(orderItemId)) {
+      snapshot.orderItem = { ...snapshot.orderItem, quantity };
+    }
+    if (isReadyPlan(plan)) {
+      const rates = await vendorPublic.listActiveVendorCostCenters(plan.vendorProductId);
+      const costCenter = rates.find(rate => idEquals(rate, plan.vendorCostCenterId));
+      if (!costCenter) throw conflict('Selected vendor cost center is unavailable for quantity update');
+      const signals = snapshot.costEstimate?.signals || {};
+      snapshot.costEstimate = buildCostEstimate({
+        costCenter: { ...costCenter, ...vendorPublic.selectCostRate(costCenter, order?.orderedAt) },
+        item: { ...snapshot.orderItem, fulfillmentOptions: { priorityProduction: signals.priority === true } },
+        order: order || {},
+        skuMapping: { configCode: signals.configCode || parseInternalSku(snapshot.listing?.sku || snapshot.orderItem?.sku).configCode },
+        customerInputs: signals.embroidery ? { options: [{ value: 'EMBROIDERY' }] } : {},
+      });
+    }
+    plan.snapshot = snapshot;
+  }
+  const estimates = allocateOrderCostEstimates(plans);
+  for (const plan of plans) {
+    if (String(plan.orderItemId) !== String(orderItemId) && !isReadyPlan(plan)) continue;
+    const estimate = estimates.get(String(plan.orderItemId));
+    if (estimate) plan.snapshot.costEstimate = estimate;
+    const updated = await repository.updateSnapshot(plan.orderItemId, plan.snapshot, { session });
+    await syncWorkbenchFulfillmentPlan(updated, { session });
+  }
 }
 
 function templateNeedsCustomization(template) {
@@ -2087,6 +2123,7 @@ async function listFulfillmentPlansByOrderItemIds(orderItemIds = [], authContext
 const listFulfillmentPlansForOrderItems = listFulfillmentPlansByOrderItemIds;
 
 module.exports = {
+  syncOrderItemQuantity,
   searchManualVendorProducts,
   allocateOrderCostEstimates,
   buildCostEstimate,

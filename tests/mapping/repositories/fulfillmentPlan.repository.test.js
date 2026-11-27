@@ -1,6 +1,8 @@
 jest.mock('../../../src/modules/mapping/models/fulfillmentPlan.model', () => ({
   aggregate: jest.fn(),
   find: jest.fn(),
+  findOne: jest.fn(),
+  findOneAndUpdate: jest.fn(),
   updateMany: jest.fn(),
 }));
 
@@ -9,6 +11,23 @@ const repository = require('../../../src/modules/mapping/repositories/fulfillmen
 
 describe('fulfillmentPlan.repository read models', () => {
   beforeEach(() => jest.clearAllMocks());
+
+  test('quantity plan reads and snapshot writes use the caller transaction without upsert', async () => {
+    const session = {};
+    const query = { session: jest.fn().mockReturnThis(), lean: jest.fn().mockResolvedValue([]) };
+    FulfillmentPlan.find.mockReturnValue(query);
+    FulfillmentPlan.findOne.mockReturnValue(query);
+    FulfillmentPlan.findOneAndUpdate.mockReturnValue(query);
+    await repository.findByOrderItem('item', { session });
+    await repository.listByOrder('order', { session });
+    await repository.updateSnapshot('item', { orderItem: { quantity: 2 } }, { session });
+    expect(query.session).toHaveBeenNthCalledWith(1, session);
+    expect(query.session).toHaveBeenNthCalledWith(2, session);
+    expect(FulfillmentPlan.findOneAndUpdate).toHaveBeenCalledWith(
+      { orderItemId: 'item' }, { $set: { snapshot: { orderItem: { quantity: 2 } } } },
+      { session, returnDocument: 'after', runValidators: true },
+    );
+  });
 
   test('listUnmatched returns one facet page with an exact total', async () => {
     FulfillmentPlan.aggregate.mockResolvedValueOnce([{

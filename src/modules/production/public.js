@@ -33,6 +33,7 @@ const publicPort = {
   updateCsStatus: productionTaskService.updateCsStatus,
   summarizeTasks: productionTaskService.summarizeTasks,
   syncOrderAddressSnapshot: productionTaskService.syncOrderAddressSnapshot,
+  syncOrderItemQuantity: productionTaskService.syncOrderItemQuantity,
   updateDesignNote: productionTaskService.updateDesignNote,
   uploadScaledFile: productionTaskService.uploadScaledFile,
 };

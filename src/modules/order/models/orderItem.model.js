@@ -106,6 +106,12 @@ const orderItemSchema = new mongoose.Schema(
       default: 1,
       validate: integerValidator,
     },
+    quantityOverride: {
+      type: Number,
+      default: null,
+      min: 1,
+      validate: { validator: (value) => value == null || Number.isSafeInteger(value), message: 'quantityOverride must be an integer' },
+    },
     variantRaw: {
       type: mongoose.Schema.Types.Mixed,
       default: null,
