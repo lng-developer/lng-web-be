@@ -561,10 +561,42 @@ async function listTasks(query = {}, authContext) {
   if (authContext && !scopedQuery.sellerRequestedByAccountId) {
     await Promise.all(result.items.map((task) => assertCanReadTask(task, authContext)));
   }
+  const asins = uniqueIds(result.items.filter((task) => task.taskType === designTaskTypes.PSD_TEMPLATE
+    && task.listingSnapshot?.salesChannelCode === 'AMAZON').map((task) => task.listingSnapshot.asin));
+  const scaleFileSummariesByAsin = {};
+  if (asins.length) {
+    const summaryQuery = { ...scopedQuery, asins };
+    if (!summaryQuery.sellerRequestedByAccountId && !hasFullRead(authContext)
+      && !hasTeamQueueScope(authContext) && hasExplicitPermission(authContext, designPermissions.WORK)) {
+      summaryQuery.assignedDesignerId = authContext.accountId;
+    }
+    const groups = await repository.listAsinGroups(summaryQuery, { paginate: false });
+    if (hasFullRead(authContext) && !scopedQuery.sellerRequestedByAccountId) {
+      groups.items.forEach((group) => group.listings.forEach(({ shopId }) =>
+        assertCanAccessShopAny(shopId, DESIGN_READ_SCOPE_PERMISSIONS, authContext)));
+    }
+    const counts = await summarizeAsinFiles(groups.items, scopedQuery);
+    for (const group of groups.items) {
+      const { totalFileCount, scaledFileCount, pendingFileCount } = toAsinSummaryDto(group, counts.get(group._id));
+      scaleFileSummariesByAsin[group._id] = { totalFileCount, scaledFileCount, pendingFileCount };
+    }
+  }
   return toPaginatedResponse({
     ...result,
-    dtoOptions: await buildDtoOptions(result.items),
+    dtoOptions: { ...(await buildDtoOptions(result.items)), scaleFileSummariesByAsin },
   });
+}
+
+async function summarizeAsinFiles(groups, scopedQuery) {
+  let sellerCode;
+  if (scopedQuery.sellerRequestedByAccountId) {
+    const profile = await hrPublic.getEmployeeProfileByAccountId(scopedQuery.sellerRequestedByAccountId);
+    sellerCode = String(profile?.employeeCode || '').trim().toUpperCase();
+  }
+  const counts = await productionPublic.summarizeScaleFilesByListings(
+    groups.map((group) => ({ asin: group._id, listings: group.listings })), { sellerCode },
+  );
+  return new Map(counts.map((row) => [row.asin, row]));
 }
 
 async function listAsinSummary(query = {}, authContext) {
@@ -584,15 +616,7 @@ async function listAsinSummary(query = {}, authContext) {
     result.items.forEach((group) => group.listings.forEach(({ shopId }) =>
       assertCanAccessShopAny(shopId, DESIGN_READ_SCOPE_PERMISSIONS, authContext)));
   }
-  let sellerCode;
-  if (scopedQuery.sellerRequestedByAccountId) {
-    const profile = await hrPublic.getEmployeeProfileByAccountId(scopedQuery.sellerRequestedByAccountId);
-    sellerCode = String(profile?.employeeCode || '').trim().toUpperCase();
-  }
-  const counts = await productionPublic.summarizeScaleFilesByListings(
-    result.items.map((group) => ({ asin: group._id, listings: group.listings })), { sellerCode },
-  );
-  const byAsin = new Map(counts.map((row) => [row.asin, row]));
+  const byAsin = await summarizeAsinFiles(result.items, scopedQuery);
   let items = result.items.map((group) => toAsinSummaryDto(group, byAsin.get(group._id)));
   if (numericSort) {
     const direction = query.sortOrder === 'desc' ? -1 : 1;

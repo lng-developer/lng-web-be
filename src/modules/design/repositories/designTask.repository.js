@@ -36,6 +36,7 @@ function buildFilter(query = {}) {
   if (query.priority) filter.priority = query.priority;
   if (query.psdStatus) filter['listingSnapshot.psdStatus'] = query.psdStatus;
   if (query.asin) filter['listingSnapshot.asin'] = query.asin;
+  if (query.asins) filter['listingSnapshot.asin'] = { $in: query.asin ? query.asins.filter((asin) => asin === query.asin) : query.asins };
   if (query.etsyListingId) filter['listingSnapshot.etsyListingId'] = query.etsyListingId;
   if (query.listingId) filter.listingId = toObjectId(query.listingId);
   if (query.listingIds) {

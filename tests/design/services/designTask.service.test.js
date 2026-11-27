@@ -94,6 +94,55 @@ const notificationPublic = require('../../../src/modules/notification/public');
 const service = require('../../../src/modules/design/services/designTask.service');
 
 describe('designTask.service', () => {
+  test('PSD task rows include batched ASIN file totals across pages within seller scope', async () => {
+    const auth = { accountId: 'seller-a', scopes: [{ roles: ['SALES'], scopeType: 'team', permissions: ['DESIGN:READ'] }] };
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue({ employeeCode: 'J2502' });
+    catalogPublic.findListingIdsBySellerCode.mockResolvedValue(['own-listing']);
+    repository.list.mockResolvedValue({ items: [{ _id: 'task', taskType: 'PSD_TEMPLATE',
+      listingSnapshot: { asin: 'B001', salesChannelCode: 'AMAZON' } }], page: 2, limit: 1, total: 4 });
+    repository.listAsinGroups.mockResolvedValue({ items: [{ _id: 'B001', taskCount: 3,
+      listings: [{ listingId: 'own-listing', shopId: 'shop' }] }] });
+    productionPublic.summarizeScaleFilesByListings.mockResolvedValue([
+      { asin: 'B001', productionTaskCount: 3, totalFileCount: 6, scaledFileCount: 4 },
+    ]);
+    const result = await service.listTasks({ taskType: 'PSD_TEMPLATE', page: 2, limit: 1 }, auth);
+    expect(result.items[0].scaleFileSummary).toEqual({ totalFileCount: 6, scaledFileCount: 4, pendingFileCount: 2 });
+    expect(result.pagination).toEqual({ page: 2, limit: 1, total: 4 });
+    expect(repository.listAsinGroups).toHaveBeenCalledWith(expect.objectContaining({
+      asins: ['B001'], sellerRequestedByAccountId: 'seller-a', sellerListingIds: ['own-listing'],
+    }), { paginate: false });
+    expect(productionPublic.summarizeScaleFilesByListings).toHaveBeenCalledWith([
+      { asin: 'B001', listings: [{ listingId: 'own-listing', shopId: 'shop' }] },
+    ], { sellerCode: 'J2502' });
+    hrPublic.getEmployeeProfileByAccountId.mockResolvedValue(null);
+    productionPublic.summarizeScaleFilesByListings.mockResolvedValue([]);
+    await service.listTasks({ taskType: 'PSD_TEMPLATE' }, auth);
+    expect(productionPublic.summarizeScaleFilesByListings).toHaveBeenLastCalledWith(expect.any(Array), { sellerCode: '' });
+  });
+  test('non-Amazon PSD and other task rows do not request or expose file summaries', async () => {
+    repository.list.mockResolvedValue({ items: [
+      { _id: 'etsy', taskType: 'PSD_TEMPLATE', listingSnapshot: { asin: 'B001', salesChannelCode: 'ETSY' } },
+      { _id: 'idea', taskType: 'IDEA', listingSnapshot: { asin: 'B001', salesChannelCode: 'AMAZON' } },
+    ], page: 1, limit: 20, total: 2 });
+    const result = await service.listTasks({}, { accountId, permissions: ['DESIGN:READ'] });
+    expect(result.items.every((row) => row.scaleFileSummary === undefined)).toBe(true);
+    expect(repository.listAsinGroups).not.toHaveBeenCalled();
+    expect(productionPublic.summarizeScaleFilesByListings).not.toHaveBeenCalled();
+  });
+  test('inline totals cannot expose off-page same-ASIN production in an unauthorized shop', async () => {
+    const auth = { accountId, permissions: [], scopes: [
+      { scopeType: 'shop', scopeId: shopId, permissions: ['DESIGN:READ'] },
+      { scopeType: 'team', scopeId: designTeamId, permissions: ['DESIGN:WORK'] },
+    ] };
+    authPublic.canAccessScope.mockImplementation((_auth, _permission, scope) => String(scope.scopeId) === shopId);
+    repository.list.mockResolvedValue({ items: [{ ...openTask, assignedDesignerId: accountId,
+      listingSnapshot: { asin: 'B001', salesChannelCode: 'AMAZON' } }], page: 1, limit: 1, total: 2 });
+    repository.listAsinGroups.mockResolvedValue({ items: [{ _id: 'B001', taskCount: 2,
+      listings: [{ listingId, shopId }, { listingId: 'other-listing', shopId: 'other-shop' }] }] });
+    await expect(service.listTasks({ taskType: 'PSD_TEMPLATE', limit: 1 }, auth)).rejects.toMatchObject({ statusCode: 403 });
+    expect(repository.listAsinGroups).toHaveBeenCalled();
+    expect(productionPublic.summarizeScaleFilesByListings).not.toHaveBeenCalled();
+  });
   test.each(['taskCount', 'productionTaskCount', 'totalFileCount', 'scaledFileCount', 'pendingFileCount'])('ASIN %s sorting is global, numeric and stable before pagination', async (sortBy) => {
     const auth = { accountId: 'worker', permissions: ['DESIGN:WORK'] };
     const groups = ['B001', 'B003', 'B002'].map((_id, index) => ({ _id, taskCount: index ? 10 : 2, listings: [] }));

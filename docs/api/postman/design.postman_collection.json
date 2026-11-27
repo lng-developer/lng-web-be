@@ -360,7 +360,7 @@
         {
           "name": "GET /api/design/tasks",
           "request": {
-            "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW, DESIGN:PSD_REQUEST.",
+            "description": "Bearer token required. Permissions (ANY): DESIGN:READ, DESIGN:WRITE, DESIGN:WORK, DESIGN:REVIEW, DESIGN:PSD_REQUEST. Amazon PSD rows include scaleFileSummary: { totalFileCount, scaledFileCount, pendingFileCount }. Counts aggregate matching accessible listings for each visible ASIN across task pages, respecting current task filters and seller SKU scope. Counts cover recorded scale file slots, not quantity; tasks without output slots are not yet included. Other task types/channels omit this field.",
             "method": "GET",
             "header": [],
             "url": {

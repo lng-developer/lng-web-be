@@ -140,6 +140,7 @@ function toDesignTaskDto(task, {
   orderContextByListingId = {},
   scoresBySubmissionId = {},
   includeScores = false,
+  scaleFileSummariesByAsin = {},
 } = {}) {
   if (!task) return null;
   const assignedDesignerId = toId(task.assignedDesignerId);
@@ -267,6 +268,10 @@ function toDesignTaskDto(task, {
       : null;
   }
 
+  if (task.taskType === 'PSD_TEMPLATE' && task.listingSnapshot?.salesChannelCode === 'AMAZON'
+    && scaleFileSummariesByAsin[task.listingSnapshot.asin]) {
+    dto.scaleFileSummary = scaleFileSummariesByAsin[task.listingSnapshot.asin];
+  }
   return dto;
 }
 
