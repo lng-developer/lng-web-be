@@ -70,6 +70,12 @@ async function findById(orderItemId, { session } = {}) {
   return query.lean();
 }
 
+async function findItemListingRefs(listingIds = []) {
+  if (!listingIds.length) return [];
+  return OrderItem.find({ listingId: { $in: listingIds.map(toObjectId) } })
+    .select('_id listingId').lean();
+}
+
 async function findByIds(orderItemIds = []) {
   if (!orderItemIds.length) return [];
   return OrderItem.find({ _id: { $in: orderItemIds.map(toObjectId) } }).lean();
@@ -470,6 +476,7 @@ async function findIdsBySellerCode(employeeCode) {
 }
 
 module.exports = {
+  findItemListingRefs,
   updateQuantity,
   findIdsBySellerCode,
   hasSellerSku,

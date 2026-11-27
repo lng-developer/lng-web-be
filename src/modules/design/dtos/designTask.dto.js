@@ -133,6 +133,7 @@ function toSubmissionDto(submission = {}, assetsById = {}, scoresBySubmissionId 
 function toDesignTaskDto(task, {
   assetsById = {},
   detail = false,
+  table = false,
   profilesByAccountId = {},
   profilesByEmployeeCode = {},
   shopsById = {},
@@ -239,7 +240,7 @@ function toDesignTaskDto(task, {
     hasActivePsdTask: task.taskType === designTaskTypes.PSD_TEMPLATE
       && activeDesignTaskStatuses.includes(task.status),
     note: task.note || null,
-    history: buildHistory(task, submissions),
+    ...(!table || detail ? { history: buildHistory(task, submissions) } : {}),
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
   };

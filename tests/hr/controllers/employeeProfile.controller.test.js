@@ -14,11 +14,30 @@ const controller = require('../../../src/modules/hr/controllers/employeeProfile.
 
 function response() {
   return {
+    end: jest.fn(),
     json: jest.fn(),
     setHeader: jest.fn(),
     status: jest.fn().mockReturnThis(),
   };
 }
+
+test('revalidates an authorized avatar without streaming unchanged bytes', async () => {
+  const req = { auth: {}, params: { profileId: 'profile-1' }, headers: {} };
+  service.withProfileAvatar.mockImplementation((_id, _auth, reader) => reader({
+    mediaAsset: { _id: 'asset-1', mimeType: 'image/png', size: 5 }, localPath: 'private/avatar.png',
+  }));
+  const first = response();
+  await controller.getProfileAvatar(req, first);
+  const etag = first.setHeader.mock.calls.find(([name]) => name === 'ETag')[1];
+  expect(first.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, no-cache');
+  fs.createReadStream.mockClear();
+  const cached = response();
+  await controller.getProfileAvatar({ ...req, headers: { 'if-none-match': etag } }, cached);
+  expect(cached.status).toHaveBeenCalledWith(304);
+  expect(fs.createReadStream).not.toHaveBeenCalled();
+  service.withProfileAvatar.mockRejectedValueOnce(new Error('Forbidden'));
+  await expect(controller.getProfileAvatar({ ...req, headers: { 'if-none-match': etag } }, response())).rejects.toThrow('Forbidden');
+});
 
 test('uploads an avatar through the HR service', async () => {
   const file = { buffer: Buffer.from('image'), originalname: 'avatar.png', mimetype: 'image/png' };

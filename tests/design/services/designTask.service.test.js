@@ -22,6 +22,7 @@ jest.mock('../../../src/modules/production/public', () => ({
   createOrRecheckTaskForOrderItem: jest.fn(),
   listPsdBlockedTasksByExternalOrderId: jest.fn(),
   listPsdBlockedTasksByListing: jest.fn(),
+  listPsdBlockedTasksByListings: jest.fn().mockResolvedValue([]),
 }));
 
 jest.mock('../../../src/modules/mapping/public', () => ({
@@ -378,6 +379,7 @@ describe('designTask.service', () => {
       createdAt: new Date('2026-07-09T00:00:00.000Z'),
     }]);
     productionPublic.listPsdBlockedTasksByListing.mockResolvedValue([]);
+    productionPublic.listPsdBlockedTasksByListings.mockResolvedValue([]);
     productionPublic.listPsdBlockedTasksByExternalOrderId.mockResolvedValue([]);
     productionPublic.createOrRecheckTaskForOrderItem.mockResolvedValue({ id: '660000000000000000510010' });
     mappingPublic.recheckBlockedFulfillmentPlansForListingVariant.mockResolvedValue({ checked: 0, resolved: 0, blocked: 0 });
@@ -1575,7 +1577,8 @@ describe('designTask.service', () => {
   });
 
   test('listTasks applies UI filters and enriches task rows', async () => {
-    productionPublic.listPsdBlockedTasksByListing.mockResolvedValueOnce([{
+    productionPublic.listPsdBlockedTasksByListings.mockResolvedValueOnce([{
+      listingId,
       id: '660000000000000000510010',
       orderItemId: '660000000000000000510011',
       externalOrderId: '111-7980434-4279402',
@@ -1608,7 +1611,8 @@ describe('designTask.service', () => {
     expect(hrPublic.listEmployeeProfilesByAccountIds).toHaveBeenCalledWith([accountId]);
     expect(shopPublic.findById).toHaveBeenCalledWith(shopId);
     expect(mediaPublic.getAssetsByIds).toHaveBeenCalledWith([thumbnailAssetId, assetId]);
-    expect(productionPublic.listPsdBlockedTasksByListing).toHaveBeenCalledWith(listingId);
+    expect(productionPublic.listPsdBlockedTasksByListings).toHaveBeenCalledWith([listingId]);
+    expect(productionPublic.listPsdBlockedTasksByListing).not.toHaveBeenCalled();
     expect(result.items[0]).toMatchObject({
       externalOrderId: '111-7980434-4279402',
       priority: 'HIGH',
@@ -1645,10 +1649,30 @@ describe('designTask.service', () => {
     expect(JSON.stringify(result)).not.toContain('providerAssetId');
   });
 
+  test('table mode enriches only the visible submission and leaves full history on detail', async () => {
+    const oldAsset = '660000000000000000519991';
+    const removedAsset = '660000000000000000519992';
+    repository.list.mockResolvedValueOnce({ items: [{ ...openTask,
+      submissions: [
+        { version: 1, status: 'REJECTED', assetIds: [oldAsset] },
+        { version: 2, status: 'SUBMITTED', assetIds: [assetId] },
+        { version: 3, status: 'REMOVED', assetIds: [removedAsset] },
+      ],
+    }], total: 1, page: 1, limit: 50 });
+    const result = await service.listTasks({ view: 'table' }, { permissions: ['DESIGN:READ'], accountId });
+    const requested = mediaPublic.getAssetsByIds.mock.calls.at(-1)[0];
+    expect(requested).toContain(assetId);
+    expect(requested).not.toContain(oldAsset);
+    expect(requested).not.toContain(removedAsset);
+    expect(result.items[0]).not.toHaveProperty('history');
+    expect(result.items[0].latestSubmission.version).toBe(2);
+  });
+
   test('PSD task without a snapshot image uses the current Catalog image', async () => {
     repository.list.mockResolvedValue({ items: [{ ...openTask, listingId, listingSnapshot: { id: listingId, productImageUrl: null } }], total: 1, page: 1, limit: 20 });
     catalogPublic.getListingsByIds.mockResolvedValue([{ _id: listingId, productImageUrl: 'https://i.etsystatic.com/123/main.jpg' }]);
     productionPublic.listPsdBlockedTasksByListing.mockResolvedValue([]);
+    productionPublic.listPsdBlockedTasksByListings.mockResolvedValue([]);
     const result = await service.listTasks({}, { permissions: ['DESIGN:READ'], accountId });
     expect(result.items[0].listing.productImageUrl).toBe('https://i.etsystatic.com/123/main.jpg');
   });
