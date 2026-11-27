@@ -45,6 +45,7 @@ jest.mock('../../../src/modules/finance/repositories/financeSnapshot.repository'
 jest.mock('../../../src/modules/finance/repositories/financeImport.repository', () => ({
   listSourceReferencesByOrderItem: jest.fn(),
   sumFeesByOrderItem: jest.fn(),
+  hasAllocatedFeesByOrderItem: jest.fn(),
   sumRefundsByOrderItem: jest.fn(),
 }));
 
@@ -362,6 +363,15 @@ describe('financeSnapshot.service', () => {
       expect.objectContaining({ feeAmount: 425, feeSource: 'SETTLEMENT', refundAmount: 150, grossProfitAmount: 2077 }),
       { session: transactionSession },
     );
+  });
+
+  test('marks allocated fees separately from actual item fees in the persisted snapshot', async () => {
+    financeImportRepository.sumFeesByOrderItem.mockResolvedValueOnce(200);
+    financeImportRepository.hasAllocatedFeesByOrderItem.mockResolvedValueOnce(true);
+    await service.recalculateOrderItem(orderItemId, { permissions: ['FINANCE:WRITE'] });
+    expect(repository.upsertByOrderItem).toHaveBeenCalledWith(orderItemId,
+      expect.objectContaining({ feeAmount: 200, feeConfidence: 'ALLOCATED', feeSource: 'SETTLEMENT' }),
+      { session: transactionSession });
   });
 
   test('recalculate estimates a 15 percent fee only when no actual fee is available', async () => {

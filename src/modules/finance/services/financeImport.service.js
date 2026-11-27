@@ -1,3 +1,4 @@
+const { allocateTransactionFee, resolveTransactionOrder } = require('./transactionFeeAllocation.service');
 const AppError = require('../../../shared/errors/appError');
 const config = require('../../../config');
 const crypto = require('crypto');
@@ -276,10 +277,11 @@ async function processTransactionRow(row, context, summary, authContext) {
   try {
     const item = await findLinkedItem(row, context);
     if (item?._id || item?.id) summary.affectedOrderItemIds.add(String(item._id || item.id));
-    if ((row.externalOrderId || row.sku) && !item) summary.unlinkedRows += 1;
+    const order = !item ? await resolveTransactionOrder(row, context) : null;
+    if ((row.externalOrderId || row.sku) && !item && !order) summary.unlinkedRows += 1;
     summary.validRows += 1;
 
-    const payload = basePayload(context, row, item);
+    const payload = { ...basePayload(context, row, item), ...(order ? { orderId: order.orderId, orderItemId: null } : {}) };
     if (!context.dryRun) {
       await repository.upsertLedgerLine({
         ...payload,
@@ -293,6 +295,8 @@ async function processTransactionRow(row, context, summary, authContext) {
     }
 
     for (const [feeType, amount] of feeRows(row)) {
+      const allocation = order ? allocateTransactionFee(amount, order.items, payload.currency) : null;
+      for (const entry of allocation?.allocations || []) summary.affectedOrderItemIds.add(entry.orderItemId);
       if (!context.dryRun) {
         await repository.upsertFeeLine({
           ...payload,
@@ -301,6 +305,8 @@ async function processTransactionRow(row, context, summary, authContext) {
             ...(row.dedupKey ? { dedupKey: `${row.dedupKey}:${feeType}` } : {}),
             raw: row.raw,
           },
+          allocationMethod: allocation?.allocationMethod || null,
+          allocations: allocation?.allocations || [],
           feeType,
           feeCategory: 'MARKETPLACE',
           description: row.description || null,

@@ -312,6 +312,28 @@ describe('financeImport.service', () => {
     expect(result.upserted.feeLines).toBe(2);
   });
 
+  test('links an order-level transaction and allocates fees without duplicating the original fee row', async () => {
+    orderPublic.findItemByFinanceIdentity.mockResolvedValue(null);
+    orderPublic.findByExternalIdentity.mockResolvedValue({ _id: orderId });
+    orderPublic.listItemsByOrder.mockResolvedValue([
+      { _id: orderItemId, price: { itemPriceAmount: 2000, currency: 'USD' } },
+      { _id: '660000000000000000140004', price: { itemPriceAmount: 3000, currency: 'USD' } },
+    ]);
+    const result = await service.importTransactions([
+      '"date/time","type","order id","selling fees","total"',
+      '"2026-11-26","Order Payment","114-1","-5.01","44.99"',
+    ].join('\n'), { ...context, dryRun: false }, { permissions: ['FINANCE:WRITE'] });
+    expect(result.errors).toEqual([]);
+    expect(result.unlinkedRows).toBe(0);
+    expect(repository.upsertLedgerLine).toHaveBeenCalledWith(expect.objectContaining({ orderId, orderItemId: null }));
+    expect(repository.upsertFeeLine).toHaveBeenCalledTimes(1);
+    expect(repository.upsertFeeLine).toHaveBeenCalledWith(expect.objectContaining({
+      totalFeeAmount: 501, orderId, orderItemId: null, allocationMethod: 'ITEM_VALUE',
+      allocations: [{ orderItemId, amount: 200 }, { orderItemId: '660000000000000000140004', amount: 301 }],
+    }));
+    expect([...result.affectedOrderItemIds]).toEqual([orderItemId, '660000000000000000140004']);
+  });
+
   test('records a refund selling-fee reversal as a negative marketplace-fee adjustment', async () => {
     const result = await service.importTransactions([
       '"date/time","settlement id","type","order id","sku","selling fees","total"',
@@ -330,8 +352,8 @@ describe('financeImport.service', () => {
   test('auto-allocates and refunds every item only for an exact order-level transaction refund', async () => {
     const secondItemId = '660000000000000000140004';
     orderPublic.findItemByFinanceIdentity.mockResolvedValueOnce(null);
-    orderPublic.findByExternalIdentity.mockResolvedValueOnce({ _id: orderId, shopId });
-    orderPublic.listItemsByOrder.mockResolvedValueOnce([
+    orderPublic.findByExternalIdentity.mockResolvedValue({ _id: orderId, shopId });
+    orderPublic.listItemsByOrder.mockResolvedValue([
       { _id: orderItemId, orderId, shopId, status: 'CUSTOMIZATION_PARSED', price: { itemPriceAmount: 1000, currency: 'USD' } },
       { _id: secondItemId, orderId, shopId, status: 'CUSTOMIZATION_PARSED', price: { itemPriceAmount: 400, currency: 'USD' } },
     ]);
@@ -358,8 +380,8 @@ describe('financeImport.service', () => {
 
   test('keeps a partial order-level refund unallocated for review', async () => {
     orderPublic.findItemByFinanceIdentity.mockResolvedValueOnce(null);
-    orderPublic.findByExternalIdentity.mockResolvedValueOnce({ _id: orderId, shopId });
-    orderPublic.listItemsByOrder.mockResolvedValueOnce([
+    orderPublic.findByExternalIdentity.mockResolvedValue({ _id: orderId, shopId });
+    orderPublic.listItemsByOrder.mockResolvedValue([
       { _id: orderItemId, orderId, shopId, price: { itemPriceAmount: 1000, currency: 'USD' } },
       { _id: '660000000000000000140004', orderId, shopId, price: { itemPriceAmount: 400, currency: 'USD' } },
     ]);

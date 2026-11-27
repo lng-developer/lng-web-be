@@ -44,6 +44,7 @@ jest.mock('../../src/modules/finance/repositories/financeImport.repository', () 
   listImportBatches: jest.fn(),
   markImportBatchRecalculationFailed: jest.fn(),
   sumFeesByOrderItem: jest.fn(),
+  hasAllocatedFeesByOrderItem: jest.fn(),
   sumRefundsByOrderItem: jest.fn(),
   upsertAdsSpend: jest.fn(),
   upsertFeeLine: jest.fn(),

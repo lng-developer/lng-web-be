@@ -23,6 +23,7 @@ jest.mock('../../src/modules/organization/public', () => ({
 }));
 jest.mock('../../src/modules/finance/repositories/financeImport.repository', () => ({
   sumFeesByOrderItem: jest.fn(),
+  hasAllocatedFeesByOrderItem: jest.fn(),
   sumRefundsByOrderItem: jest.fn(),
 }));
 

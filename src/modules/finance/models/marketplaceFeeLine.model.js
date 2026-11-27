@@ -20,6 +20,11 @@ const marketplaceFeeLineSchema = new mongoose.Schema({
   feeAmount: integerAmountField(),
   taxAmount: integerAmountField(),
   totalFeeAmount: integerAmountField(),
+  allocationMethod: { type: String, enum: ['ITEM_VALUE', 'MARKETPLACE_QUANTITY'], default: null },
+  allocations: { type: [new mongoose.Schema({
+    orderItemId: { type: mongoose.Schema.Types.ObjectId, ref: 'OrderItem', required: true },
+    amount: integerAmountField(),
+  }, { _id: false })], default: undefined },
   currency: { type: String, uppercase: true, trim: true, minlength: 3, maxlength: 3, default: 'USD' },
   postedAt: { type: Date, default: null, index: true },
   sourceType: {
@@ -33,6 +38,7 @@ const marketplaceFeeLineSchema = new mongoose.Schema({
   rawReference: { type: mongoose.Schema.Types.Mixed, default: null },
 }, { timestamps: true });
 
+marketplaceFeeLineSchema.index({ 'allocations.orderItemId': 1 });
 marketplaceFeeLineSchema.index({ orderId: 1, feeType: 1 });
 marketplaceFeeLineSchema.index({ orderItemId: 1, feeType: 1 });
 marketplaceFeeLineSchema.index({ shopId: 1, salesChannelCode: 1, marketplaceCode: 1, externalOrderId: 1, sku: 1 });
