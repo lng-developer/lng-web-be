@@ -334,6 +334,23 @@ describe('financeImport.service', () => {
     expect([...result.affectedOrderItemIds]).toEqual([orderItemId, '660000000000000000140004']);
   });
 
+  test('keeps invalid order-level fee allocation in the Unlinked queue', async () => {
+    orderPublic.findItemByFinanceIdentity.mockResolvedValue(null);
+    orderPublic.findByExternalIdentity.mockResolvedValue({ _id: orderId });
+    orderPublic.listItemsByOrder.mockResolvedValue([
+      { _id: orderItemId, price: { itemPriceAmount: 2000, currency: 'EUR' } },
+      { _id: '660000000000000000140004', price: { itemPriceAmount: 3000, currency: 'EUR' } },
+    ]);
+    const result = await service.importTransactions([
+      '"date/time","type","order id","selling fees","total"',
+      '"2026-11-26","Order Payment","114-1","-5.01","44.99"',
+    ].join('\n'), { ...context, dryRun: false }, { permissions: ['FINANCE:WRITE'] });
+    expect(result.unlinkedRows).toBe(1);
+    expect(result.affectedOrderItemIds.size).toBe(0);
+    expect(repository.upsertLedgerLine).toHaveBeenCalledWith(expect.objectContaining({ orderId: null, orderItemId: null }));
+    expect(repository.upsertFeeLine).toHaveBeenCalledWith(expect.objectContaining({ orderId: null, allocations: [] }));
+  });
+
   test('records a refund selling-fee reversal as a negative marketplace-fee adjustment', async () => {
     const result = await service.importTransactions([
       '"date/time","settlement id","type","order id","sku","selling fees","total"',

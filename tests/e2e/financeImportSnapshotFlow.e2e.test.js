@@ -368,9 +368,9 @@ describe('finance import snapshot flow harness', () => {
     orderPublic.findItemByFinanceIdentity.mockResolvedValue(null);
     await financeImportService.importTransactions(transactionCsv, { ...context, dryRun: false }, writeAuth);
 
-    expect([...ledgerStore.values()].every((row) => !Object.prototype.hasOwnProperty.call(row, 'orderItemId'))).toBe(true);
-    expect([...feeStore.values()].every((row) => !Object.prototype.hasOwnProperty.call(row, 'orderItemId'))).toBe(true);
-    expect([...refundStore.values()].every((row) => !Object.prototype.hasOwnProperty.call(row, 'orderItemId'))).toBe(true);
+    expect([...ledgerStore.values()].every((row) => row.orderItemId == null)).toBe(true);
+    expect([...feeStore.values()].every((row) => row.orderItemId == null)).toBe(true);
+    expect([...refundStore.values()].every((row) => row.orderItemId == null)).toBe(true);
 
     const snapshot = await financeSnapshotService.recalculateOrderItem(orderItemId, writeAuth);
 

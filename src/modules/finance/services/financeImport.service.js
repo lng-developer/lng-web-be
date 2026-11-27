@@ -277,11 +277,21 @@ async function processTransactionRow(row, context, summary, authContext) {
   try {
     const item = await findLinkedItem(row, context);
     if (item?._id || item?.id) summary.affectedOrderItemIds.add(String(item._id || item.id));
-    const order = !item ? await resolveTransactionOrder(row, context) : null;
+    const resolvedOrder = !item ? await resolveTransactionOrder(row, context) : null;
+    const plannedFees = feeRows(row).map(([feeType, amount]) => ({
+      feeType, amount,
+      allocation: resolvedOrder ? allocateTransactionFee(amount, resolvedOrder.items, row.currency || 'USD') : null,
+    }));
+    const order = resolvedOrder && plannedFees.every(fee => fee.allocation) ? resolvedOrder : null;
     if ((row.externalOrderId || row.sku) && !item && !order) summary.unlinkedRows += 1;
     summary.validRows += 1;
 
-    const payload = { ...basePayload(context, row, item), ...(order ? { orderId: order.orderId, orderItemId: null } : {}) };
+    const payload = {
+      ...basePayload(context, row, item),
+      orderId: item?.orderId || order?.orderId || null,
+      orderItemId: item?._id || item?.id || null,
+      listingId: item?.listingId || null,
+    };
     if (!context.dryRun) {
       await repository.upsertLedgerLine({
         ...payload,
@@ -294,8 +304,8 @@ async function processTransactionRow(row, context, summary, authContext) {
       summary.upserted.ledgerLines += 1;
     }
 
-    for (const [feeType, amount] of feeRows(row)) {
-      const allocation = order ? allocateTransactionFee(amount, order.items, payload.currency) : null;
+    for (const { feeType, amount, allocation: plannedAllocation } of plannedFees) {
+      const allocation = order ? plannedAllocation : null;
       for (const entry of allocation?.allocations || []) summary.affectedOrderItemIds.add(entry.orderItemId);
       if (!context.dryRun) {
         await repository.upsertFeeLine({
