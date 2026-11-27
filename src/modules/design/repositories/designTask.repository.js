@@ -156,13 +156,19 @@ async function list(query = {}, { paginate = true } = {}) {
   });
 }
 
-async function listAsinGroups(query = {}, { paginate = true } = {}) {
+function listAsinGroups(query = {}, options = {}) {
+  return listListingGroups(query, options);
+}
+
+async function listListingGroups(query = {}, { paginate = true, salesChannelCode = 'AMAZON', externalIds } = {}) {
+  const field = salesChannelCode === 'ETSY' ? 'etsyListingId' : 'asin';
+  const identifierPath = `listingSnapshot.${field}`;
   const { page, limit } = normalizePagination(query);
   const [result] = await DesignTask.aggregate([
     { $match: buildFilter({ ...query, taskType: designTaskTypes.PSD_TEMPLATE }) },
-    { $match: { 'listingSnapshot.asin': { $type: 'string', $ne: '' },
-      'listingSnapshot.salesChannelCode': 'AMAZON' } },
-    { $group: { _id: '$listingSnapshot.asin', taskCount: { $sum: 1 },
+    { $match: { [identifierPath]: { $type: 'string', $ne: '', ...(externalIds ? { $in: externalIds } : {}) },
+      'listingSnapshot.salesChannelCode': salesChannelCode } },
+    { $group: { _id: `$${identifierPath}`, taskCount: { $sum: 1 },
       listings: { $addToSet: { listingId: { $ifNull: ['$targetListingId', '$listingId'] }, shopId: '$shopId' } } } },
     { $sort: { _id: query.sortOrder === 'desc' ? -1 : 1 } },
     { $facet: { items: paginate ? [{ $skip: getPaginationOffset({ page, limit }) }, { $limit: limit }] : [],
@@ -437,6 +443,7 @@ function findTaskReferencingAsset(assetId, query) {
 
 module.exports = {
   listAsinGroups,
+  listListingGroups,
   findTaskReferencingAsset,
   buildFilter,
   buildSort,

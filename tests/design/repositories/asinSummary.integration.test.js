@@ -65,3 +65,29 @@ test('groups all matching design tasks before pagination and counts actual outpu
   expect(await design.listAsinGroups({ asins: ['B001'], asin: 'B002' }, { paginate: false }))
     .toMatchObject({ items: [], total: 0 });
 });
+
+
+test('Etsy grouping uses its own external id and preserves shop, seller and status filters', async () => {
+  const shopId = id(); const otherShop = id(); const listingId = id(); const amazonListing = id();
+  const task = (extra = {}) => ({ listingId, shopId, taskType: 'PSD_TEMPLATE', status: 'OPEN',
+    listingSnapshot: { etsyListingId: '123', salesChannelCode: 'ETSY' }, ...extra });
+  await DesignTask.collection.insertMany([
+    task(), task(), task({ shopId: otherShop }), task({ status: 'CANCELLED' }),
+    task({ listingId: amazonListing, listingSnapshot: { asin: '123', salesChannelCode: 'AMAZON' } }),
+  ]);
+  const query = { shopIds: [String(shopId)], sellerListingIds: [String(listingId)], status: 'OPEN' };
+  const options = { paginate: false, salesChannelCode: 'ETSY', externalIds: ['123'] };
+  const groups = await design.listListingGroups(query, options);
+  expect(groups).toMatchObject({ total: 1, items: [{ _id: '123', taskCount: 2 }] });
+  expect(groups.items[0].listings).toEqual([{ listingId, shopId }]);
+  expect(await design.listListingGroups({ ...query, etsyListingId: 'different' }, options)).toMatchObject({ total: 0 });
+  await ProductionTask.collection.insertMany([
+    { shopId, listingSnapshot: { id: String(listingId) }, status: 'NEED_SCALE', orderItemSnapshot: { sku: 'J2502-X' },
+      fileChecks: [{ sourceType: 'CUSTOMER_IMAGE', required: true, outputAssetId: id() },
+        { sourceType: 'CUSTOMER_IMAGE', required: true }] },
+    { shopId, listingSnapshot: { id: String(amazonListing) }, status: 'NEED_SCALE', orderItemSnapshot: { sku: 'J2502-X' },
+      fileChecks: [{ sourceType: 'CUSTOMER_IMAGE', required: true }] },
+  ]);
+  expect(await production.summarizeScaleFilesByListings(groups.items.map((group) => ({ asin: group._id, listings: group.listings })),
+    { sellerCode: 'J2502' })).toEqual([{ asin: '123', productionTaskCount: 1, totalFileCount: 2, scaledFileCount: 1 }]);
+});

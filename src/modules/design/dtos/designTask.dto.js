@@ -140,7 +140,7 @@ function toDesignTaskDto(task, {
   orderContextByListingId = {},
   scoresBySubmissionId = {},
   includeScores = false,
-  scaleFileSummariesByAsin = {},
+  scaleFileSummariesByChannel = {},
 } = {}) {
   if (!task) return null;
   const assignedDesignerId = toId(task.assignedDesignerId);
@@ -268,10 +268,9 @@ function toDesignTaskDto(task, {
       : null;
   }
 
-  if (task.taskType === 'PSD_TEMPLATE' && task.listingSnapshot?.salesChannelCode === 'AMAZON'
-    && scaleFileSummariesByAsin[task.listingSnapshot.asin]) {
-    dto.scaleFileSummary = scaleFileSummariesByAsin[task.listingSnapshot.asin];
-  }
+  const identifier = listing?.salesChannelCode === 'ETSY' ? listing.etsyListingId : listing?.asin;
+  const scaleFileSummary = scaleFileSummariesByChannel[listing?.salesChannelCode]?.[identifier];
+  if (task.taskType === 'PSD_TEMPLATE' && scaleFileSummary) dto.scaleFileSummary = scaleFileSummary;
   return dto;
 }
 

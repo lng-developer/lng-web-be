@@ -564,49 +564,57 @@ async function listTasks(query = {}, authContext) {
   if (authContext && !scopedQuery.sellerRequestedByAccountId) {
     await Promise.all(result.items.map((task) => assertCanReadTask(task, authContext)));
   }
-  const asins = uniqueIds(result.items.filter((task) => task.taskType === designTaskTypes.PSD_TEMPLATE
-    && task.listingSnapshot?.salesChannelCode === 'AMAZON').map((task) => task.listingSnapshot.asin));
-  const scaleFileSummariesByAsin = {};
-  if (asins.length) {
-    const summaryQuery = { ...scopedQuery, asins };
+  const scaleFileSummariesByChannel = {};
+  for (const [salesChannelCode, identifierField] of [['AMAZON', 'asin'], ['ETSY', 'etsyListingId']]) {
+    const externalIds = uniqueIds(result.items.filter((task) => task.taskType === designTaskTypes.PSD_TEMPLATE
+      && task.listingSnapshot?.salesChannelCode === salesChannelCode).map((task) => task.listingSnapshot[identifierField]));
+    if (!externalIds.length) continue;
+    const summaryQuery = { ...scopedQuery };
     if (!summaryQuery.sellerRequestedByAccountId && !hasFullRead(authContext)
       && !hasTeamQueueScope(authContext) && hasExplicitPermission(authContext, designPermissions.WORK)) {
       summaryQuery.assignedDesignerId = authContext.accountId;
     }
-    const groups = await repository.listAsinGroups(summaryQuery, { paginate: false });
+    const groups = salesChannelCode === 'AMAZON'
+      ? await repository.listAsinGroups({ ...summaryQuery, asins: externalIds }, { paginate: false })
+      : await repository.listListingGroups(summaryQuery, { paginate: false, salesChannelCode, externalIds });
     if (hasFullRead(authContext) && !scopedQuery.sellerRequestedByAccountId) {
       groups.items.forEach((group) => group.listings.forEach(({ shopId }) =>
         assertCanAccessShopAny(shopId, DESIGN_READ_SCOPE_PERMISSIONS, authContext)));
     }
-    const counts = await summarizeAsinFiles(groups.items, scopedQuery);
+    const counts = await summarizeListingFiles(groups.items, scopedQuery);
+    const summaries = scaleFileSummariesByChannel[salesChannelCode] = {};
     for (const group of groups.items) {
       const { totalFileCount, scaledFileCount, pendingFileCount } = toAsinSummaryDto(group, counts.get(group._id));
-      scaleFileSummariesByAsin[group._id] = { totalFileCount, scaledFileCount, pendingFileCount };
+      summaries[group._id] = { totalFileCount, scaledFileCount, pendingFileCount };
     }
   }
   let items = result.items;
   if (sortByFileCount) {
-    const totalFor = (task) => task.taskType === designTaskTypes.PSD_TEMPLATE
-      && task.listingSnapshot?.salesChannelCode === 'AMAZON'
-      ? scaleFileSummariesByAsin[task.listingSnapshot.asin]?.totalFileCount : undefined;
+    const totalFor = (task) => {
+      const listing = task.listingSnapshot;
+      const identifier = listing?.salesChannelCode === 'ETSY' ? listing.etsyListingId : listing?.asin;
+      return task.taskType === designTaskTypes.PSD_TEMPLATE
+        ? scaleFileSummariesByChannel[listing?.salesChannelCode]?.[identifier]?.totalFileCount : undefined;
+    };
     const direction = query.sortOrder === 'asc' ? 1 : -1;
     items = [...items].sort((left, right) => {
       const a = totalFor(left); const b = totalFor(right);
       if (a === undefined && b !== undefined) return 1;
       if (b === undefined && a !== undefined) return -1;
       return direction * ((a ?? 0) - (b ?? 0))
-        || String(left.listingSnapshot?.asin || '').localeCompare(String(right.listingSnapshot?.asin || ''))
+        || String(left.listingSnapshot?.asin || left.listingSnapshot?.etsyListingId || '')
+          .localeCompare(String(right.listingSnapshot?.asin || right.listingSnapshot?.etsyListingId || ''))
         || String(left._id).localeCompare(String(right._id));
     }).slice((result.page - 1) * result.limit, result.page * result.limit);
   }
   return toPaginatedResponse({
     ...result,
     items,
-    dtoOptions: { ...(await buildDtoOptions(items)), scaleFileSummariesByAsin },
+    dtoOptions: { ...(await buildDtoOptions(items)), scaleFileSummariesByChannel },
   });
 }
 
-async function summarizeAsinFiles(groups, scopedQuery) {
+async function summarizeListingFiles(groups, scopedQuery) {
   let sellerCode;
   if (scopedQuery.sellerRequestedByAccountId) {
     const profile = await hrPublic.getEmployeeProfileByAccountId(scopedQuery.sellerRequestedByAccountId);
@@ -635,7 +643,7 @@ async function listAsinSummary(query = {}, authContext) {
     result.items.forEach((group) => group.listings.forEach(({ shopId }) =>
       assertCanAccessShopAny(shopId, DESIGN_READ_SCOPE_PERMISSIONS, authContext)));
   }
-  const byAsin = await summarizeAsinFiles(result.items, scopedQuery);
+  const byAsin = await summarizeListingFiles(result.items, scopedQuery);
   let items = result.items.map((group) => toAsinSummaryDto(group, byAsin.get(group._id)));
   if (numericSort) {
     const direction = query.sortOrder === 'desc' ? -1 : 1;
