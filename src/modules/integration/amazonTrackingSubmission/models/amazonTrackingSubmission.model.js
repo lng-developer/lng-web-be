@@ -5,15 +5,25 @@ const trackingSubmissionRowSchema = new mongoose.Schema({
   shipmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shipment', required: true },
   orderId: { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },
   externalOrderId: { type: String, required: true },
+  externalItemId: { type: String, default: null },
+  quantity: { type: Number, default: null },
   shipDate: { type: String, required: true },
   carrierCode: { type: String, required: true },
+  carrier: { type: String, default: null },
+  carrierName: { type: String, default: null },
   trackingNumber: { type: String, required: true },
   shipMethod: { type: String, default: 'Standard' },
 }, { _id: false });
 
 const amazonTrackingSubmissionSchema = new mongoose.Schema({
   shopId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop', required: true, index: true },
-  agentId: { type: mongoose.Schema.Types.ObjectId, ref: 'ExtensionAgent', required: true, index: true },
+  agentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ExtensionAgent',
+    default: null,
+    required() { return this.status !== amazonTrackingSubmissionStatuses.DRAFT; },
+    index: true,
+  },
   commandId: { type: mongoose.Schema.Types.ObjectId, ref: 'ExtensionCommand', default: null, index: true },
   shipmentIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Shipment' }],
   rows: [trackingSubmissionRowSchema],
