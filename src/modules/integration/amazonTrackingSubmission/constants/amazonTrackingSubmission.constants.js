@@ -1,4 +1,5 @@
 const amazonTrackingSubmissionStatuses = Object.freeze({
+  DRAFT: 'DRAFT',
   PENDING: 'PENDING',
   SUBMITTED: 'SUBMITTED',
   WAITING_AMAZON: 'WAITING_AMAZON',

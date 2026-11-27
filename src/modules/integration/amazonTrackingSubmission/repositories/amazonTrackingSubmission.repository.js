@@ -10,6 +10,10 @@ async function findById(id) {
   return AmazonTrackingSubmission.findById(id).lean();
 }
 
+async function findDraftByChecksum(shopId, checksum) {
+  return AmazonTrackingSubmission.findOne({ shopId, checksum, status: 'DRAFT' }).lean();
+}
+
 async function findByCommandId(commandId) {
   return AmazonTrackingSubmission.findOne({ commandId }).lean();
 }
@@ -39,6 +43,7 @@ async function listSubmissions({ shopIds, page, limit }) {
 module.exports = {
   create,
   findById,
+  findDraftByChecksum,
   findByCommandId,
   updateById,
   listSubmissions,
