@@ -142,6 +142,77 @@ const workScorePublic = require('../../../src/modules/workScore/public');
 const repository = require('../../../src/modules/production/repositories/productionTask.repository');
 const service = require('../../../src/modules/production/services/productionTask.service');
 
+describe('syncOrderItemQuantity', () => {
+  const orderItemId = '660000000000000000000401';
+  const task = {
+    _id: '660000000000000000100001', orderId: '660000000000000000000301', orderItemId,
+    status: 'NEED_SCALE', fulfillQty: 1, updatedAt: new Date('2026-11-27T00:00:00Z'),
+    orderItemSnapshot: { quantity: 1, sku: 'CUSTOM-SKU' },
+    fileChecks: [{ id: 'file-check', sourceAssetId: 'asset' }],
+  };
+
+  beforeEach(() => jest.clearAllMocks());
+
+  test('updates only quantity and its snapshot with CAS and projects in the caller session', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce(task);
+    repository.updateByIdIf.mockResolvedValueOnce({
+      ...task, fulfillQty: 2, orderItemSnapshot: { ...task.orderItemSnapshot, quantity: 2 },
+    });
+    const result = await service.syncOrderItemQuantity(orderItemId, 2, { session: mockSession });
+    expect(repository.findByOrderItem).toHaveBeenCalledWith(orderItemId, { session: mockSession });
+    expect(repository.updateByIdIf).toHaveBeenCalledWith(task._id,
+      { status: task.status, updatedAt: task.updatedAt },
+      { fulfillQty: 2, 'orderItemSnapshot.quantity': 2 }, { session: mockSession });
+    expect(result).toMatchObject({ fulfillQty: 2, status: 'NEED_SCALE' });
+    expect(orderPublic.updateOrderWorkbenchItem).toHaveBeenCalledWith(task.orderId, orderItemId,
+      { production: expect.objectContaining({ fulfillQty: 2, productionStatus: 'NEED_SCALE' }) },
+      { source: 'PRODUCTION', session: mockSession });
+  });
+
+  test.each(['READY_TO_SEND_VENDOR', 'SENT_TO_VENDOR', 'CANCELLED', 'UNKNOWN'])('rejects %s tasks without changing them', async (status) => {
+    repository.findByOrderItem.mockResolvedValueOnce({ ...task, status });
+    await expect(service.syncOrderItemQuantity(orderItemId, 2, { session: mockSession }))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(repository.updateByIdIf).not.toHaveBeenCalled();
+  });
+
+  test('rejects concurrent changes and does not project', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce(task);
+    repository.updateByIdIf.mockResolvedValueOnce(null);
+    await expect(service.syncOrderItemQuantity(orderItemId, 2, { session: mockSession }))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(orderPublic.updateOrderWorkbenchItem).not.toHaveBeenCalled();
+  });
+
+  test('returns null when no production task exists', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce(null);
+    await expect(service.syncOrderItemQuantity(orderItemId, 2, { session: mockSession })).resolves.toBeNull();
+    expect(repository.updateByIdIf).not.toHaveBeenCalled();
+  });
+
+  test('propagates projection failure so the caller can roll back its transaction', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce(task);
+    repository.updateByIdIf.mockResolvedValueOnce({ ...task, fulfillQty: 2 });
+    orderPublic.updateOrderWorkbenchItem.mockRejectedValueOnce(new Error('projection failed'));
+    await expect(service.syncOrderItemQuantity(orderItemId, 2, { session: mockSession }))
+      .rejects.toThrow('projection failed');
+  });
+
+  test('does not create a partial snapshot on legacy tasks without one', async () => {
+    repository.findByOrderItem.mockResolvedValueOnce({ ...task, orderItemSnapshot: null });
+    repository.updateByIdIf.mockResolvedValueOnce({ ...task, fulfillQty: 2 });
+    await service.syncOrderItemQuantity(orderItemId, 2, { session: mockSession });
+    expect(repository.updateByIdIf).toHaveBeenCalledWith(task._id,
+      { status: task.status, updatedAt: task.updatedAt }, { fulfillQty: 2 }, { session: mockSession });
+  });
+
+  test.each([0, -1, 1.5, '2', NaN])('rejects invalid quantity %s', async (quantity) => {
+    await expect(service.syncOrderItemQuantity(orderItemId, quantity, { session: mockSession }))
+      .rejects.toMatchObject({ statusCode: 400 });
+    expect(repository.findByOrderItem).not.toHaveBeenCalled();
+  });
+});
+
 describe('productionTask.service', () => {
   test('Seller cannot open a production task for another SKU owner', async () => {
     orderPublic.personalSellerItemIds.mockResolvedValue(['660000000000000000100099']);

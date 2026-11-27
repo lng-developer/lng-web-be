@@ -7,6 +7,7 @@ const orderAddressValidationService = require('../services/orderAddressValidatio
 const orderReadinessService = require('../services/orderReadiness.service');
 const orderAssignmentService = require('../services/orderAssignment.service');
 const orderOperationsService = require('../services/orderOperations.service');
+const orderItemQuantityService = require('../services/orderItemQuantity.service');
 const orderCaseService = require('../services/orderCase.service');
 const orderItemRecheckService = require('../services/orderItemRecheck.service');
 const orderReplacementService = require('../services/orderReplacement.service');
@@ -43,6 +44,7 @@ const {
   paginationQuerySchema,
   buyerSchema,
   csNoteSchema,
+  updateOrderItemQuantitySchema,
   overrideAddressSchema,
   shippingAddressSchema,
   shippingServiceSchema,
@@ -264,6 +266,13 @@ async function updateOrderItemCsNote(req, res) {
   res.status(httpStatus.OK).json({ success: true, data: toOrderItemDto(result) });
 }
 
+async function updateOrderItemQuantity(req, res) {
+  const { orderItemId } = assertValid(orderItemIdParamSchema, req.params);
+  const body = assertValid(updateOrderItemQuantitySchema, req.body);
+  const result = await orderItemQuantityService.updateQuantity(orderItemId, body, auditAuth(req));
+  res.status(httpStatus.OK).json({ success: true, data: toOrderItemDto(result) });
+}
+
 async function listOrderCases(req, res) {
   const query = assertValid(listOrderCasesQuerySchema, req.query);
   const result = await orderCaseService.listOrderCases(query, req.auth);
@@ -369,6 +378,7 @@ async function listOrderItemTimeline(req, res) {
 }
 
 module.exports = {
+  updateOrderItemQuantity,
   listOrders,
   exportOrdersCsv,
   listOrderWorkbench,

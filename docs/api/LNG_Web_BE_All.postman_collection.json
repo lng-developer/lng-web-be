@@ -14128,6 +14128,57 @@
               }
             },
             {
+              "name": "PATCH /api/orders/items/:orderItemId/quantity",
+              "request": {
+                "description": "Change internal quantity before vendor dispatch. Requires ORDERS:WRITE. Customer-paid amounts remain unchanged; production and estimated costs are synchronized. Marketplace reimports preserve the override.",
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/orders/items/{{orderItemId}}/quantity",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "orders",
+                    "items",
+                    "{{orderItemId}}",
+                    "quantity"
+                  ],
+                  "variable": [
+                    {
+                      "key": "orderItemId",
+                      "value": "{{orderItemId}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{accessToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"quantity\": 2,\n  \"expectedQuantity\": 1,\n  \"reason\": \"Buyer selected pack 2\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
               "name": "POST /api/orders/items/:orderItemId/mark-fulfillment-ready",
               "request": {
                 "method": "POST",

@@ -200,6 +200,11 @@ const createOrderReplacementSchema = Joi.object({
 const cancelOrderItemSchema = Joi.object({
   reason: Joi.string().trim().max(1000).required(),
 });
+const updateOrderItemQuantitySchema = Joi.object({
+  quantity: Joi.number().integer().min(1).max(9999).required(),
+  expectedQuantity: Joi.number().integer().min(1).required(),
+  reason: Joi.string().trim().max(1000).required(),
+});
 const vendorRematchRecoverySchema = Joi.object({
   externalCancellationConfirmed: Joi.boolean().default(false),
   reason: Joi.string().trim().max(1000).required(),
@@ -241,6 +246,7 @@ function validate(schema, payload) {
 }
 
 module.exports = {
+  updateOrderItemQuantitySchema,
   listOrdersQuerySchema,
   exportOrdersQuerySchema,
   orderIdParamSchema,

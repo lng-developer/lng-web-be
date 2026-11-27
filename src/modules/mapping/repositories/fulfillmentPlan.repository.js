@@ -22,8 +22,23 @@ function buildFilter(query = {}) {
   return filter;
 }
 
-async function findByOrderItem(orderItemId) {
-  return FulfillmentPlan.findOne({ orderItemId }).lean();
+async function findByOrderItem(orderItemId, { session } = {}) {
+  const query = FulfillmentPlan.findOne({ orderItemId });
+  if (session) query.session(session);
+  return query.lean();
+}
+
+async function listByOrder(orderId, { session } = {}) {
+  const query = FulfillmentPlan.find({ orderId });
+  if (session) query.session(session);
+  return query.lean();
+}
+
+async function updateSnapshot(orderItemId, snapshot, { session } = {}) {
+  return FulfillmentPlan.findOneAndUpdate(
+    { orderItemId }, { $set: { snapshot } },
+    { session, returnDocument: 'after', runValidators: true },
+  ).lean();
 }
 
 async function listByOrderItemIds(orderItemIds = []) {
@@ -203,6 +218,8 @@ async function summarize(query = {}) {
 }
 
 module.exports = {
+  listByOrder,
+  updateSnapshot,
   buildFilter,
   findActiveByOrderItem: findByOrderItem,
   findByOrderItem,
