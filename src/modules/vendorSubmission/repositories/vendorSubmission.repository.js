@@ -25,7 +25,11 @@ function buildFilter(query = {}) {
     filter['payloadSnapshot.orderItem.externalOrderId'] = new RegExp(escapeRegex(String(query.externalOrderId).trim()), 'i');
   }
   if (query.vendorExternalOrderId) {
-    filter.vendorExternalOrderId = new RegExp(escapeRegex(String(query.vendorExternalOrderId).trim()), 'i');
+    const term = new RegExp(escapeRegex(String(query.vendorExternalOrderId).trim()), 'i');
+    filter.$and = [...(filter.$and || []), { $or: [
+      { vendorExternalOrderId: term }, { vendorOrderCode: term },
+      { 'payloadSnapshot.merchizeExternalOrderId': term },
+    ] }];
   }
   if (query.vendorId) {
     filter.$or = [
@@ -369,7 +373,17 @@ async function transitionStatus(submissionId, fromStatuses, patch) {
   ).lean();
 }
 
+async function recordVendorOrderCode(submissionId, shopId, externalId, code, session) {
+  return VendorSubmission.findOneAndUpdate(
+    { _id: submissionId, shopId, provider: 'MERCHIZE', vendorExternalOrderId: externalId,
+      $or: [{ vendorOrderCode: null }, { vendorOrderCode: code }] },
+    { $set: { vendorOrderCode: code } },
+    { returnDocument: 'after', runValidators: true, session },
+  ).lean();
+}
+
 module.exports = {
+  recordVendorOrderCode,
   buildFilter,
   claimReadyForSubmit,
   create,

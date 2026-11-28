@@ -2,6 +2,17 @@ const VendorSubmission = require('../../../src/modules/vendorSubmission/models/v
 const repository = require('../../../src/modules/vendorSubmission/repositories/vendorSubmission.repository');
 
 describe('vendorSubmission.repository', () => {
+  test('stores code only under the original shop, receipt and compatible code', async () => {
+    const lean=jest.fn().mockResolvedValue({vendorOrderCode:'RY-1'});
+    jest.spyOn(VendorSubmission, 'findOneAndUpdate').mockReturnValue({lean});
+    const session={};
+    await repository.recordVendorOrderCode('submission', 'shop', 'receipt', 'RY-1', session);
+    expect(VendorSubmission.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({shopId:'shop',provider:'MERCHIZE',vendorExternalOrderId:'receipt',$or:[{vendorOrderCode:null},{vendorOrderCode:'RY-1'}]}),
+      expect.objectContaining({$set:expect.objectContaining({vendorOrderCode:'RY-1'})}),
+      expect.objectContaining({session,runValidators:true}));
+  });
+
   test('personal SKU scope intersects a forged item ID and denies an empty owner set', () => {
     expect(repository.buildFilter({ orderItemId: 'other', sellerOrderItemIds: ['own'] }))
       .toMatchObject({ orderItemId: 'other', $and: [{ orderItemId: { $in: ['own'] } }] });
@@ -20,7 +31,7 @@ describe('vendorSubmission.repository', () => {
 
     expect(String(filter._id)).toBe('660000000000000000120001');
     expect(filter['payloadSnapshot.orderItem.externalOrderId']).toEqual(/112-1234567-1234567/i);
-    expect(filter.vendorExternalOrderId).toEqual(/MZ-ORDER-1/i);
+    expect(filter.$and[0].$or).toEqual(expect.arrayContaining([{ vendorExternalOrderId: /MZ-ORDER-1/i }, { vendorOrderCode: /MZ-ORDER-1/i }]));
   });
 
   test('hides cancelled history from the default operator list while allowing an explicit status filter', () => {

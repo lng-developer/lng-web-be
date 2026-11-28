@@ -2,6 +2,17 @@ const Shipment = require('../../../src/modules/shipment/models/shipment.model');
 const repository = require('../../../src/modules/shipment/repositories/shipment.repository');
 
 describe('shipment.repository', () => {
+  test('stores code only under the original shop, receipt and compatible code', async () => {
+    const lean=jest.fn().mockResolvedValue({vendorOrderCode:'RY-1'});
+    jest.spyOn(Shipment, 'findOneAndUpdate').mockReturnValue({lean});
+    const session={};
+    await repository.recordVendorOrderIdentity('submission', 'shop', 'receipt', 'RY-1', 'AMZ-R2', session);
+    expect(Shipment.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({shopId:'shop',provider:'MERCHIZE',vendorExternalOrderId:'receipt',$or:[{vendorOrderCode:null},{vendorOrderCode:'RY-1'}]}),
+      expect.objectContaining({$set:expect.objectContaining({vendorOrderCode:'RY-1'})}),
+      expect.objectContaining({session,runValidators:true}));
+  });
+
   test('personal SKU scope intersects a forged item ID and denies an empty owner set', () => {
     const filter = repository.buildFilter({ orderItemId: 'other', sellerOrderItemIds: ['own'] });
     expect(filter).toMatchObject({ orderItemId: 'other', $and: [{ orderItemId: { $in: ['own'] } }] });
@@ -21,7 +32,7 @@ describe('shipment.repository', () => {
 
     expect(String(filter._id)).toBe('660000000000000000130001');
     expect(filter.externalOrderId).toEqual(/112-1234567-1234567/i);
-    expect(filter.vendorExternalOrderId).toEqual(/MZ-ORDER-1/i);
+    expect(filter.$and[0].$or).toEqual(expect.arrayContaining([{ vendorExternalOrderId: /MZ-ORDER-1/i }, { vendorOrderCode: /MZ-ORDER-1/i }]));
     expect(filter.trackingNumber).toEqual(/9214490411375403131206/i);
   });
 

@@ -22,7 +22,12 @@ function buildFilter(query = {}) {
   if (query.shopId) filter.shopId = toObjectId(query.shopId);
   if (query.shopIds && query.shopIds.length) filter.shopId = { $in: query.shopIds.map(toObjectId) };
   if (query.externalOrderId) filter.externalOrderId = new RegExp(escapeRegex(String(query.externalOrderId).trim()), 'i');
-  if (query.vendorExternalOrderId) filter.vendorExternalOrderId = new RegExp(escapeRegex(String(query.vendorExternalOrderId).trim()), 'i');
+  if (query.vendorExternalOrderId) {
+    const term = new RegExp(escapeRegex(String(query.vendorExternalOrderId).trim()), 'i');
+    filter.$and = [...(filter.$and || []), { $or: [
+      { vendorExternalOrderId: term }, { vendorOrderCode: term }, { vendorOrderReference: term },
+    ] }];
+  }
   if (query.trackingNumber) filter.trackingNumber = new RegExp(escapeRegex(String(query.trackingNumber).trim()), 'i');
   if (query.carrier) filter.carrier = new RegExp(`^${escapeRegex(String(query.carrier).trim())}$`, 'i');
   if (query.dateFrom || query.dateTo) {
@@ -217,7 +222,17 @@ async function updateMarketplaceConfirmation(shipmentIds = [], { status, confirm
   );
 }
 
+async function recordVendorOrderIdentity(vendorSubmissionId, shopId, externalId, code, reference, session) {
+  return Shipment.findOneAndUpdate(
+    { vendorSubmissionId, shopId, provider: 'MERCHIZE', vendorExternalOrderId: externalId,
+      ...(code && { $or: [{ vendorOrderCode: null }, { vendorOrderCode: code }] }) },
+    { $set: { ...(code && { vendorOrderCode: code }), vendorOrderReference: reference } },
+    { returnDocument: 'after', runValidators: true, session },
+  ).lean();
+}
+
 module.exports = {
+  recordVendorOrderIdentity,
   buildFilter,
   create,
   findActiveByVendorSubmission,

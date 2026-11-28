@@ -413,6 +413,8 @@ async function createFromVendorSubmission(vendorSubmissionId, authContext, poll)
     provider: trackingIdentity?.provider || submission.provider || null,
     externalOrderId: submission.externalOrderId || null,
     vendorExternalOrderId: trackingIdentity?.vendorExternalOrderId || submission.vendorExternalOrderId || null,
+    vendorOrderCode: submission.vendorOrderCode || null,
+    vendorOrderReference: trackingIdentity?.provider === 'MERCHIZE' ? trackingIdentity.orderExternalOrderId || null : null,
     status: shipmentStatuses.TRACKING_PENDING,
   };
 
@@ -835,7 +837,7 @@ async function recheckVendorTracking(payload = {}, authContext, poll) {
       const shippedAt = asDateOrNull(tracking.shippedAt);
       const saved = await poll.remember({
         identity: identityKey, guardKey, observed: trackingFingerprint(observed || {}),
-        provider, shipmentStatus, trackingNumber: tracking.trackingNumber,
+        provider, shipmentStatus, vendorOrderCode: tracking.vendorOrderCode, trackingNumber: tracking.trackingNumber,
         carrier: tracking.carrier, trackingUrl: tracking.trackingUrl,
         shippedAt: shippedAt && Number.isFinite(shippedAt.getTime()) ? shippedAt : null,
       });
@@ -861,6 +863,18 @@ async function recheckVendorTracking(payload = {}, authContext, poll) {
           return { reason: 'SHIPMENT_CHANGED' };
         }
         if (terminalShipmentStatuses.has(current.status)) return { reason: 'NO_LONGER_ELIGIBLE' };
+      }
+    }
+    if (provider === 'MERCHIZE') {
+      if (tracking.vendorOrderCode) {
+        await writeShipment(poll, vendorSubmissionPublic.recordVendorOrderCode,
+          payload.vendorSubmissionId, submission.shopId, externalOrderId, tracking.vendorOrderCode);
+      }
+      const recorded = await writeShipment(poll, repository.recordVendorOrderIdentity,
+        payload.vendorSubmissionId, submission.shopId, externalOrderId,
+        tracking.vendorOrderCode || null, identity.orderExternalOrderId || null);
+      if (!recorded && await repository.findActiveByVendorSubmission(payload.vendorSubmissionId)) {
+        throw conflict('Shipment vendor order identity changed; recheck required');
       }
     }
     const application = await applyTrackingUpdate(payload.vendorSubmissionId, {
@@ -893,6 +907,7 @@ async function recheckVendorTracking(payload = {}, authContext, poll) {
     }
     return await fetchVendorTracking(identity, {
       waitForAdmission: !poll,
+      vendorOrderCode: submission.vendorOrderCode,
       dateFrom: asDateOrNull(payload.dateFrom),
       dateTo: asDateOrNull(payload.dateTo),
     }, apply);

@@ -118,3 +118,9 @@ describe('shipmentIdentity.service', () => {
     });
   });
 });
+
+test('discovered display code does not change polling identity or retry checkpoint', () => {
+  const submission = {provider:'MERCHIZE',vendorId:'v',vendorExternalOrderId:'receipt',shopId:'s',orderId:'o',orderItemId:'i',
+    payloadSnapshot:{merchizeExternalOrderId:'AMZ-R2'}};
+  expect(deriveTrackingIdentity({...submission,vendorOrderCode:'RY-1'})).toEqual(deriveTrackingIdentity(submission));
+});
