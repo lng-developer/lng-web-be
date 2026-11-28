@@ -1061,6 +1061,7 @@ describe('fulfillmentPlan.service', () => {
       blocked: 0,
       skippedExisting: 1,
     });
+    expect(productionPublic.createOrRecheckTaskForOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({ source: 'MAPPING' }));
     expect(result.items[0]).toMatchObject({
       orderItemId,
       status: 'SKIPPED_EXISTING',
@@ -1073,16 +1074,35 @@ describe('fulfillmentPlan.service', () => {
     expect(orderPublic.listItems).toHaveBeenCalledWith(expect.objectContaining({ shopId, limit: 10 }));
   });
 
-  test('batch recheck defers production side effects and updates order status once', async () => {
+  test('batch recheck creates production and updates order status once', async () => {
     const result = await service.recheckUnmatchedFulfillmentPlans({ shopId }, { permissions: ['MAPPING:WRITE'] });
 
     expect(result).toMatchObject({ checked: 1, resolved: 1 });
-    expect(orderPublic.markFulfillmentReady).not.toHaveBeenCalled();
-    expect(productionPublic.createOrRecheckTaskForOrderItem).not.toHaveBeenCalled();
+    expect(orderPublic.markFulfillmentReady).toHaveBeenCalledWith(orderItemId);
+    expect(productionPublic.createOrRecheckTaskForOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({ system: true, source: 'MAPPING' }));
     expect(orderPublic.updateCostCenterStatusForOrder).toHaveBeenCalledTimes(1);
     expect(orderPublic.updateCostCenterStatusForOrder).toHaveBeenCalledWith(orderId);
     expect(orderPublic.updatePsdStatusForOrder).toHaveBeenCalledTimes(1);
     expect(orderPublic.updatePsdStatusForOrder).toHaveBeenCalledWith(orderId);
+  });
+
+  test('batch keeps unmatched items out of production', async () => {
+    vendorPublic.listActiveVendorCostCenterMatchProbesByProductIds.mockResolvedValue([]);
+    const result = await service.recheckUnmatchedFulfillmentPlans({ shopId }, { permissions: ['MAPPING:WRITE'] });
+    expect(result).toMatchObject({ resolved: 0, blocked: 1 });
+    expect(productionPublic.createOrRecheckTaskForOrderItem).not.toHaveBeenCalled();
+  });
+
+  test('batch queues production without releasing incomplete customization', async () => {
+    const queue = require('../../../src/modules/mapping/services/fulfillmentSideEffectQueue.service');
+    const enqueue = jest.spyOn(queue, 'enqueueFulfillmentSideEffects').mockResolvedValue({ queued: true });
+    customizationPublic.assertCustomizationReady.mockRejectedValue(new Error('missing photo asset'));
+    try {
+      await service.recheckUnmatchedFulfillmentPlans({ shopId }, { permissions: ['MAPPING:WRITE'] });
+      expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({ orderItemId, orderId, triggerProduction: true, markReady: false }));
+      expect(productionPublic.createOrRecheckTaskForOrderItem).not.toHaveBeenCalled();
+      expect(orderPublic.markFulfillmentReady).not.toHaveBeenCalled();
+    } finally { enqueue.mockRestore(); }
   });
 
   test.each(['READY', 'BLOCKED'])('durable %s mapping leaves order projections to workers during queue outage', async (status) => {
@@ -1882,7 +1902,7 @@ describe('fulfillmentPlan.service', () => {
     expect(result.selectionMode).toBe('AUTO');
   });
 
-  test('resolve auto keeps existing same READY plan without repeating side effects', async () => {
+  test('resolve auto keeps same READY plan but retries production handoff', async () => {
     repository.findByOrderItem.mockResolvedValueOnce({
       _id: '660000000000000000006001',
       orderId,
@@ -1903,7 +1923,7 @@ describe('fulfillmentPlan.service', () => {
     expect(result.selectionMode).toBe('AUTO');
     expect(repository.upsertByOrderItem).not.toHaveBeenCalled();
     expect(orderPublic.markFulfillmentReady).not.toHaveBeenCalled();
-    expect(productionPublic.createOrRecheckTaskForOrderItem).not.toHaveBeenCalled();
+    expect(productionPublic.createOrRecheckTaskForOrderItem).toHaveBeenCalledWith(orderItemId, expect.objectContaining({ source: 'MAPPING' }));
   });
 
   test('resolve auto-saves vendor match without releasing fulfillment when customization is not ready', async () => {
@@ -3101,6 +3121,14 @@ describe('fulfillmentPlan.service', () => {
     expect(orderPublic.findItemById).not.toHaveBeenCalled();
     expect(repository.listByOrderItemIds).toHaveBeenCalledWith([orderItemId, secondOrderItemId]);
     expect(result).toHaveLength(2);
+  });
+
+  test('strict queued handoff rejects when production creation fails', async () => {
+    const error = new Error('production temporarily unavailable');
+    productionPublic.createOrRecheckTaskForOrderItem.mockRejectedValueOnce(error);
+    await expect(service.applyFulfillmentSideEffects({
+      orderItemId, orderId, triggerProduction: true, strict: true,
+    })).rejects.toBe(error);
   });
 
   test.each(['NEED_PRODUCTION', 'TRACKING_PENDING', 'SHIPPED', 'CANCELLED'])('mapping side effects do not rewind %s', async (status) => {
