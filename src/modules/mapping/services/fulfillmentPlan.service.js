@@ -1644,8 +1644,8 @@ async function applyFulfillmentSideEffects({ orderItemId, orderId, markReady = f
   }
 }
 
-async function scheduleFulfillmentSideEffects(orderItemId, orderId, { markReady = false, triggerProduction = false }, authContext) {
-  const payload = { orderItemId, orderId, markReady, triggerProduction, authContext: authContext || {} };
+async function scheduleFulfillmentSideEffects(orderItemId, orderId, { markReady = false, triggerProduction = false, deferOrderRefresh = false }, authContext) {
+  const payload = { orderItemId, orderId, markReady, triggerProduction, deferOrderRefresh, authContext: authContext || {} };
   const result = await fulfillmentSideEffectQueue.enqueueFulfillmentSideEffects(payload);
   if (!result.queued && !result.durable) await applyFulfillmentSideEffects(payload);
 }
@@ -1937,6 +1937,9 @@ async function resolveFulfillmentPlan(orderItemId, options = {}, authContext) {
     && idEquals(existingPlan.vendorProductId, preview.autoMatch.vendorProductId)
     && idEquals(existingPlan.vendorCostCenterId, preview.autoMatch.vendorCostCenterId)
     && !options.recheck) {
+    if (!options.deferSideEffects) {
+      await scheduleFulfillmentSideEffects(orderItemId, preview.item.orderId, { triggerProduction: true }, authContext);
+    }
     return toFulfillmentPlanDto(existingPlan);
   }
   return persistReadyPlan(orderItemId, {
@@ -2013,6 +2016,11 @@ async function recheckUnmatchedFulfillmentPlans(query = {}, authContext = {}) {
     result.checked += 1;
     const existing = await repository.findByOrderItem(orderItemId);
     if (isReadyPlan(existing)) {
+      // A saved match does not prove the production handoff completed.
+      await scheduleFulfillmentSideEffects(orderItemId, toId(item.orderId) || toId(existing.orderId), {
+        triggerProduction: true,
+        deferOrderRefresh: true,
+      }, authContext);
       result.skippedExisting += 1;
       result.items.push({
         orderItemId,
@@ -2026,6 +2034,11 @@ async function recheckUnmatchedFulfillmentPlans(query = {}, authContext = {}) {
     const touchedOrderId = toId(item.orderId) || toId(resolved?.orderId);
     if (touchedOrderId) touchedOrderIds.add(touchedOrderId);
     if (resolved && resolved.status === fulfillmentPlanStatuses.READY) {
+      await scheduleFulfillmentSideEffects(orderItemId, touchedOrderId, {
+        markReady: !(resolved.blockingReasons || []).includes(fulfillmentBlockingReasons.CUSTOMIZATION_NOT_READY),
+        triggerProduction: true,
+        deferOrderRefresh: true,
+      }, authContext);
       result.resolved += 1;
       result.items.push({
         orderItemId,
