@@ -11,6 +11,7 @@ const schema = new mongoose.Schema({
   lastOutcome: String,
   pendingUpdate: { type: new mongoose.Schema({
     identity: String, guardKey: String, observed: String, provider: String, shipmentStatus: String, trackingNumber: String,
+    vendorOrderCode: String,
     carrier: String, trackingUrl: String, shippedAt: Date,
   }, { _id: false }), default: undefined },
 }, { timestamps: true, collection: 'vendortrackingpolls' });

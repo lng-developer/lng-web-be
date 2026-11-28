@@ -1,5 +1,6 @@
 jest.mock('../../../src/modules/vendorSubmission/public', () => ({
   getById: jest.fn(),
+  recordVendorOrderCode: jest.fn(),
   listSubmittedForTracking: jest.fn(),
   cancelAfterExternalCancellation: jest.fn(),
 }));
@@ -39,6 +40,7 @@ jest.mock('../../../src/shared/utils/logger', () => ({
 
 jest.mock('../../../src/modules/shipment/repositories/shipment.repository', () => ({
   create: jest.fn(),
+  recordVendorOrderIdentity: jest.fn(),
   findActiveByVendorSubmission: jest.fn(),
   findById: jest.fn(),
   findByOrderItem: jest.fn(),
@@ -67,6 +69,36 @@ const { getTrackingAdapter } = require('../../../src/modules/shipment/services/v
 const service = require('../../../src/modules/shipment/services/shipment.service');
 
 describe('shipment.service', () => {
+  test('stores Merchize code and submitted reference even before tracking is available', async () => {
+    repository.findActiveByVendorSubmission.mockResolvedValue(shipment);
+    getTrackingAdapter.mockReturnValue({ fetchTrackingByExternalOrderId: jest.fn().mockResolvedValue({
+      vendorOrderCode: 'RY-123', trackingNumber: '', vendorStatus: 'IN_PRODUCTION',
+    }) });
+    await service.recheckVendorTracking({ vendorSubmissionId }, { permissions: ['SHIPMENTS:WRITE'] });
+    expect(vendorSubmissionPublic.recordVendorOrderCode).toHaveBeenCalledWith(
+      vendorSubmissionId, shopId, submittedSubmission.vendorExternalOrderId, 'RY-123');
+    expect(repository.recordVendorOrderIdentity).toHaveBeenCalledWith(
+      vendorSubmissionId, shopId, submittedSubmission.vendorExternalOrderId, 'RY-123', submittedSubmission.externalOrderId);
+    expect(repository.updateTrackingIfNotDelivered).not.toHaveBeenCalled();
+  });
+
+  test('retains submitted reference when code lookup is unavailable', async () => {
+    getTrackingAdapter.mockReturnValue({ fetchTrackingByExternalOrderId: jest.fn().mockResolvedValue({ trackingNumber: '', vendorStatus: 'PENDING' }) });
+    await service.recheckVendorTracking({ vendorSubmissionId }, { permissions: ['SHIPMENTS:WRITE'] });
+    expect(repository.recordVendorOrderIdentity).toHaveBeenCalledWith(
+      vendorSubmissionId, shopId, submittedSubmission.vendorExternalOrderId, null, submittedSubmission.externalOrderId);
+    expect(vendorSubmissionPublic.recordVendorOrderCode).not.toHaveBeenCalled();
+  });
+
+  test('refuses a conflicting persisted shipment identity before applying tracking', async () => {
+    repository.recordVendorOrderIdentity.mockResolvedValue(null);
+    repository.findActiveByVendorSubmission.mockResolvedValue(shipment);
+    getTrackingAdapter.mockReturnValue({ fetchTrackingByExternalOrderId: jest.fn().mockResolvedValue({ vendorOrderCode: 'RY-123', trackingNumber: '9400' }) });
+    await expect(service.recheckVendorTracking({ vendorSubmissionId }, { permissions: ['SHIPMENTS:WRITE'] }))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(repository.updateTrackingIfNotDelivered).not.toHaveBeenCalled();
+  });
+
   test('Seller reads own shipment but not another item in the same shop', async () => {
     orderPublic.personalSellerItemIds.mockResolvedValue(['660000000000000000130004']);
     repository.findById.mockResolvedValue({ _id: '660000000000000000130001', orderItemId: '660000000000000000130004', shopId: 'same-shop' });
@@ -137,6 +169,7 @@ describe('shipment.service', () => {
     repository.findActiveByVendorSubmission.mockResolvedValue(null);
     repository.findByOrderItem.mockResolvedValue(null);
     repository.create.mockResolvedValue(shipment);
+    repository.recordVendorOrderIdentity.mockResolvedValue(shipment);
     repository.findById.mockResolvedValue(shipment);
     repository.listByOrderItemIds.mockResolvedValue([{ ...shipment, status: 'DELIVERED' }]);
     repository.summarizeShippedByOrderItemIds.mockResolvedValue({ [orderItemId]: 1 });

@@ -1400,7 +1400,19 @@ async function getByProviderExternalOrderId({ provider, vendorExternalOrderId } 
   }), { detail: true });
 }
 
+async function recordVendorOrderCode(submissionId, shopId, externalId, code, session) {
+  assertValidObjectId(submissionId, 'submissionId');
+  assertValidObjectId(shopId, 'shopId');
+  if (typeof code !== 'string' || !code.trim() || code.length > 100 || /[\u0000-\u001f]/.test(code)) {
+    throw validationError('Invalid vendor order code');
+  }
+  const saved = await repository.recordVendorOrderCode(submissionId, shopId, externalId, code.trim(), session);
+  if (!saved) throw conflict('Vendor order identity changed; recheck required');
+  return saved.vendorOrderCode;
+}
+
 module.exports = {
+  recordVendorOrderCode,
   cancel,
   cancelAfterExternalCancellation,
   createAndSubmitFromProductionTask,

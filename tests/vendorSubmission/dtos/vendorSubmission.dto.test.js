@@ -40,3 +40,9 @@ describe('vendorSubmission.dto', () => {
     });
   });
 });
+
+test('separates Merchize code, retry reference and technical receipt', () => {
+  expect(toVendorSubmissionDto({provider:'MERCHIZE',vendorExternalOrderId:'receipt',vendorOrderCode:'RY-1',payloadSnapshot:{merchizeExternalOrderId:'AMZ-R2'}})).toMatchObject({
+    vendorOrderCode:'RY-1',vendorOrderReference:'AMZ-R2',vendorExternalOrderId:'receipt',
+  });
+});

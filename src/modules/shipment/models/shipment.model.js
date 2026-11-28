@@ -40,6 +40,8 @@ const shipmentSchema = new Schema({
     default: null,
     index: true,
   },
+  vendorOrderCode: { type: String, trim: true, default: null },
+  vendorOrderReference: { type: String, trim: true, default: null },
   vendorExternalOrderId: {
     type: String,
     trim: true,
