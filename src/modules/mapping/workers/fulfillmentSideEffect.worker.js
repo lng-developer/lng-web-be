@@ -5,7 +5,7 @@ const { processOrder } = require('../services/fulfillmentSideEffectRequest.servi
 
 function startFulfillmentSideEffectWorker() {
   return createWorker(QUEUE_NAME, (job) => job.data.durable
-    ? processOrder(job.data.orderId) : applyFulfillmentSideEffects(job.data), { concurrency: 5 });
+    ? processOrder(job.data.orderId) : applyFulfillmentSideEffects({ ...job.data, strict: true }), { concurrency: 5 });
 }
 
 module.exports = { startFulfillmentSideEffectWorker };
