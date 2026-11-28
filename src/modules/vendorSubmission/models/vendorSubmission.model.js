@@ -58,6 +58,7 @@ const vendorSubmissionSchema = new Schema({
   submitOperationKey: { type: String, trim: true, default: null },
   submitClaimedAt: { type: Date, default: null },
   submitAttemptCount: { type: Number, min: 0, default: 0 },
+  vendorOrderCode: { type: String, trim: true, default: null },
   vendorExternalOrderId: {
     type: String,
     trim: true,

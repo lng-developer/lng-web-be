@@ -256,7 +256,7 @@ describe('vendorTrackingAdapterRegistry.service', () => {
       process.nextTick(() => {
         response.emit('data', JSON.stringify({
           success: true,
-          data: [{ external_number: 'AMZ-100', tracking_company: 'USPS', tracking_number: '9400' }],
+          data: [{ external_number: 'AMZ-100', code: 'RY-123', tracking_company: 'USPS', tracking_number: '9400' }],
         }));
         response.emit('end');
       });

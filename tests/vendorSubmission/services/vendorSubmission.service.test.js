@@ -43,6 +43,7 @@ jest.mock('../../../src/shared/utils/logger', () => ({
 }));
 
 jest.mock('../../../src/modules/vendorSubmission/repositories/vendorSubmission.repository', () => ({
+  recordVendorOrderCode: jest.fn(),
   create: jest.fn(),
   findActiveByProductionTask: jest.fn(),
   findById: jest.fn(),
@@ -1148,5 +1149,14 @@ describe('vendorSubmission.service', () => {
 
     const patch = repository.transitionStatus.mock.calls.find(([, , update]) => update.status === 'SUBMITTED')[2];
     expect(patch.submittedResponse).toEqual({ success: true });
+  });
+});
+describe('recordVendorOrderCode internal port', () => {
+  test('rejects a changed identity and invalid code', async () => {
+    repository.recordVendorOrderCode.mockResolvedValue(null);
+    await expect(service.recordVendorOrderCode('660000000000000000120001','660000000000000000120005','receipt','RY-1'))
+      .rejects.toMatchObject({statusCode:409});
+    await expect(service.recordVendorOrderCode('660000000000000000120001','660000000000000000120005','receipt',''))
+      .rejects.toMatchObject({statusCode:400});
   });
 });

@@ -54,6 +54,10 @@ function toVendorSubmissionDto(submission, { detail = false } = {}) {
     submitClaimedAt: submission.submitClaimedAt || null,
     submitAttemptCount: submission.submitAttemptCount || 0,
     vendorExternalOrderId: submission.vendorExternalOrderId || null,
+    vendorOrderCode: submission.vendorOrderCode || null,
+    vendorOrderReference: submission.provider === 'MERCHIZE'
+      ? firstValue(snapshot.merchizeExternalOrderId, snapshot.vendorClientOrderId, snapshot.orderSnapshot?.externalOrderId, orderItem.externalOrderId)
+      : null,
     vendorCost: submission.vendorCost || null,
     externalOrderId: firstValue(orderItem.externalOrderId, snapshot.externalOrderId),
     listingTitle: firstValue(listing.title, orderItem.title),

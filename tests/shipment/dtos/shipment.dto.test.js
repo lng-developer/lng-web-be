@@ -21,3 +21,9 @@ describe('shipment.dto', () => {
     });
   });
 });
+
+test('retains all three identities separately', () => {
+  expect(toShipmentDto({vendorOrderCode:'RY-1',vendorOrderReference:'AMZ-R2',vendorExternalOrderId:'receipt'})).toMatchObject({
+    vendorOrderCode:'RY-1',vendorOrderReference:'AMZ-R2',vendorExternalOrderId:'receipt',
+  });
+});
